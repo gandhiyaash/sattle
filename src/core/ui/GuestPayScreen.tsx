@@ -21,7 +21,7 @@ import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native
 
 import { formatFiat } from '../domain/ledger';
 import type { Settlement } from '../domain/types';
-import { useClient } from '../react/SplitSatsProvider';
+import { useClient } from '../react/SattleProvider';
 import { Button, Card, ErrorState, SatLine } from './primitives';
 import { color, radius, shadow, space, type } from './theme';
 
@@ -107,7 +107,7 @@ export function GuestPayScreen({
   return (
     <View style={s.page}>
       <View style={s.sheet}>
-        <Text style={s.brand}>SplitSats</Text>
+        <Text style={s.brand}>Sattle</Text>
 
         <Text style={s.title}>
           {payerName}, you owe {payeeName}

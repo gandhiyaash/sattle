@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseLightningAddress } from '../client/lightningAddress';
 import { resolveSettlementOptions, type SettlementOptions } from '../domain/settlementOptions';
 import { TERMINAL_STATUSES, type Debt, type Member, type Rail, type Settlement } from '../domain/types';
-import { useClient, useWallet } from './SplitSatsProvider';
+import { useClient, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';
 
@@ -135,7 +135,7 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
       const url = `${APP_URL}/join/${debt.groupId}?member=${recipient.id}`;
       return {
         url,
-        message: `${recipient.displayName}, join "${groupName}" on SplitSats so I can pay you back: ${url}`,
+        message: `${recipient.displayName}, join "${groupName}" on Sattle so I can pay you back: ${url}`,
       };
     },
   };

@@ -7,7 +7,7 @@
 
 import {
   LEDGER_STATUSES,
-  SplitSatsError,
+  SattleError,
   type Balance,
   type Debt,
   type Expense,
@@ -25,17 +25,17 @@ export function resolveParts(input: ExpenseInput): ResolvedPart[] {
   const { amount, parts, splitMode } = input;
 
   if (!Number.isInteger(amount) || amount <= 0) {
-    throw new SplitSatsError('invalid_expense', 'Amount must be a positive whole number of minor units.');
+    throw new SattleError('invalid_expense', 'Amount must be a positive whole number of minor units.');
   }
   if (parts.length === 0) {
-    throw new SplitSatsError('invalid_expense', 'An expense needs at least one person.');
+    throw new SattleError('invalid_expense', 'An expense needs at least one person.');
   }
 
   if (splitMode === 'exact') {
     const resolved = parts.map((p) => ({ memberId: p.memberId, amount: p.amount ?? 0 }));
     const sum = resolved.reduce((acc, p) => acc + p.amount, 0);
     if (sum !== amount) {
-      throw new SplitSatsError(
+      throw new SattleError(
         'invalid_expense',
         `Exact amounts add up to ${formatFiat(sum)}, not ${formatFiat(amount)}.`
       );
@@ -45,7 +45,7 @@ export function resolveParts(input: ExpenseInput): ResolvedPart[] {
 
   const weights = parts.map((p) => (splitMode === 'shares' ? (p.weight ?? 1) : 1));
   if (weights.some((w) => !(w > 0))) {
-    throw new SplitSatsError('invalid_expense', 'Shares must be greater than zero.');
+    throw new SattleError('invalid_expense', 'Shares must be greater than zero.');
   }
   const totalWeight = weights.reduce((a, b) => a + b, 0);
 

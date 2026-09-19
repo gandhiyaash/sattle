@@ -13,7 +13,7 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { useWallet } from '../react/SplitSatsProvider';
+import { useWallet } from '../react/SattleProvider';
 import {
   Button,
   Card,
@@ -79,7 +79,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
           <Text style={s.label}>Your Lightning address</Text>
           <Text style={s.address}>{address}</Text>
           <Text style={s.addressNote}>
-            Anyone can pay you here, from any wallet, whether or not they use SplitSats.
+            Anyone can pay you here, from any wallet, whether or not they use Sattle.
           </Text>
         </Card>
       )}

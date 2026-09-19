@@ -14,7 +14,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Debt, Member } from '../domain/types';
-import { SplitSatsProvider } from '../react/SplitSatsProvider';
+import { SattleProvider } from '../react/SattleProvider';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupsListScreen } from './GroupsListScreen';
@@ -32,9 +32,9 @@ type Route =
 
 export function DemoApp() {
   return (
-    <SplitSatsProvider>
+    <SattleProvider>
       <Navigator />
-    </SplitSatsProvider>
+    </SattleProvider>
   );
 }
 

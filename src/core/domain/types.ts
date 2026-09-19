@@ -157,7 +157,7 @@ export interface CreateSettlementInput {
   rail: Rail;
 }
 
-export type SplitSatsErrorCode =
+export type SattleErrorCode =
   | 'not_found'
   | 'network'
   | 'member_cannot_receive'
@@ -165,12 +165,12 @@ export type SplitSatsErrorCode =
   | 'invalid_expense'
   | 'payment_failed';
 
-export class SplitSatsError extends Error {
+export class SattleError extends Error {
   constructor(
-    public readonly code: SplitSatsErrorCode,
+    public readonly code: SattleErrorCode,
     message: string
   ) {
     super(message);
-    this.name = 'SplitSatsError';
+    this.name = 'SattleError';
   }
 }

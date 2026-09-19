@@ -11,7 +11,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { computeBalances } from '../domain/ledger';
 import type { Group } from '../domain/types';
-import { useAsync, useClient } from '../react/SplitSatsProvider';
+import { useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,
   Avatar,
@@ -73,7 +73,7 @@ export function GroupsListScreen({
 
   return (
     <Screen
-      title="SplitSats"
+      title="Sattle"
       right={<Button label="Wallet" variant="quiet" onPress={onOpenWallet} />}
     >
       <Card>

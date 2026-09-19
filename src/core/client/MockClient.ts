@@ -10,7 +10,7 @@
 import { computeBalances, resolveParts, simplifyDebts } from '../domain/ledger';
 import { canReceive } from '../domain/settlementOptions';
 import {
-  SplitSatsError,
+  SattleError,
   TERMINAL_STATUSES,
   type CreateSettlementInput,
   type Expense,
@@ -22,7 +22,7 @@ import {
 } from '../domain/types';
 import * as fixtures from './fixtures';
 import { parseLightningAddress } from './lightningAddress';
-import type { SplitSatsClient } from './SplitSatsClient';
+import type { SattleClient } from './SattleClient';
 
 export interface MockClientOptions {
   /** Delay applied to every call. Default 400ms. */
@@ -39,7 +39,7 @@ export interface MockClientOptions {
 
 const QUOTE_TTL_MS = 90_000;
 
-export class MockClient implements SplitSatsClient {
+export class MockClient implements SattleClient {
   private groups: Group[];
   private members: Member[];
   private expenses: Expense[];
@@ -69,7 +69,7 @@ export class MockClient implements SplitSatsClient {
   private async call<T>(fn: () => T): Promise<T> {
     if (this.opts.latencyMs > 0) await sleep(this.opts.latencyMs * (0.6 + Math.random() * 0.8));
     if (Math.random() < this.opts.failureRate) {
-      throw new SplitSatsError('network', 'Couldn’t reach the server. Check your connection and try again.');
+      throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
     }
     return structuredClone(fn());
   }
@@ -84,13 +84,13 @@ export class MockClient implements SplitSatsClient {
 
   private findGroup(groupId: string) {
     const g = this.groups.find((x) => x.id === groupId);
-    if (!g) throw new SplitSatsError('not_found', 'That group doesn’t exist.');
+    if (!g) throw new SattleError('not_found', 'That group doesn’t exist.');
     return g;
   }
 
   private findSettlement(id: string) {
     const s = this.settlements.find((x) => x.id === id);
-    if (!s) throw new SplitSatsError('not_found', 'That payment doesn’t exist.');
+    if (!s) throw new SattleError('not_found', 'That payment doesn’t exist.');
     return s;
   }
 
@@ -166,7 +166,7 @@ export class MockClient implements SplitSatsClient {
       const bad = [input.paidByMemberId, ...input.parts.map((p) => p.memberId)].find(
         (id) => !g.memberIds.includes(id)
       );
-      if (bad) throw new SplitSatsError('invalid_expense', 'Someone in that split isn’t in this group.');
+      if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
 
       const expense: Expense = {
         id: this.id('e'),
@@ -182,9 +182,9 @@ export class MockClient implements SplitSatsClient {
   setMemberPayoutAddress(memberId: string, address: string) {
     return this.call(() => {
       const parsed = parseLightningAddress(address);
-      if (!parsed.ok) throw new SplitSatsError('invalid_address', parsed.reason);
+      if (!parsed.ok) throw new SattleError('invalid_address', parsed.reason);
       const m = this.members.find((x) => x.id === memberId);
-      if (!m) throw new SplitSatsError('not_found', 'That member doesn’t exist.');
+      if (!m) throw new SattleError('not_found', 'That member doesn’t exist.');
       m.lightningAddress = parsed.address; // status stays as-is: payable, not joined
       return m;
     });
@@ -214,13 +214,13 @@ export class MockClient implements SplitSatsClient {
   async createSettlement(input: CreateSettlementInput) {
     const created = await this.call(() => {
       if (input.rail === 'manual') {
-        throw new SplitSatsError('invalid_expense', 'Use markSettledManually for manual settlements.');
+        throw new SattleError('invalid_expense', 'Use markSettledManually for manual settlements.');
       }
       const g = this.findGroup(input.groupId);
       const to = this.members.find((m) => m.id === input.toMemberId);
-      if (!to) throw new SplitSatsError('not_found', 'That member doesn’t exist.');
+      if (!to) throw new SattleError('not_found', 'That member doesn’t exist.');
       if (!canReceive(to)) {
-        throw new SplitSatsError('member_cannot_receive', `${to.displayName} has nowhere to receive this yet.`);
+        throw new SattleError('member_cannot_receive', `${to.displayName} has nowhere to receive this yet.`);
       }
       const s: Settlement = {
         id: this.id('s'),

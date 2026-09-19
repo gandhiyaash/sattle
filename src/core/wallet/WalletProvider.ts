@@ -33,7 +33,7 @@ export class MockWallet implements WalletProvider {
 
   async getLightningAddress() {
     await delay(150);
-    return 'yash@splitsats.example';
+    return 'yash@sattle.example';
   }
 
   async pay(_destination: string, amountSat: number) {

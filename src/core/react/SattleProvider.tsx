@@ -19,23 +19,23 @@ import { Platform } from 'react-native';
 
 import { ApiClient } from '../client/ApiClient';
 import { MockClient } from '../client/MockClient';
-import type { SplitSatsClient } from '../client/SplitSatsClient';
+import type { SattleClient } from '../client/SattleClient';
 import type { Settlement } from '../domain/types';
 import { MockWallet, UnavailableWallet, type WalletProvider } from '../wallet/WalletProvider';
 
-interface SplitSatsContextValue {
-  client: SplitSatsClient;
+interface SattleContextValue {
+  client: SattleClient;
   wallet: WalletProvider;
 }
 
-const SplitSatsContext = createContext<SplitSatsContextValue | null>(null);
+const SattleContext = createContext<SattleContextValue | null>(null);
 
 const num = (v: string | undefined, fallback: number) => {
   const n = Number(v);
   return v !== undefined && v !== '' && Number.isFinite(n) ? n : fallback;
 };
 
-export function buildClient(): SplitSatsClient {
+export function buildClient(): SattleClient {
   if (process.env.EXPO_PUBLIC_USE_MOCK === 'false') {
     return new ApiClient(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000');
   }
@@ -50,26 +50,26 @@ export function buildWallet(): WalletProvider {
   return Platform.OS === 'web' ? new UnavailableWallet() : new MockWallet();
 }
 
-export function SplitSatsProvider({
+export function SattleProvider({
   children,
   client,
   wallet,
 }: {
   children: React.ReactNode;
   /** Override for tests and storybooks. */
-  client?: SplitSatsClient;
+  client?: SattleClient;
   wallet?: WalletProvider;
 }) {
-  const value = useMemo<SplitSatsContextValue>(
+  const value = useMemo<SattleContextValue>(
     () => ({ client: client ?? buildClient(), wallet: wallet ?? buildWallet() }),
     [client, wallet]
   );
-  return <SplitSatsContext.Provider value={value}>{children}</SplitSatsContext.Provider>;
+  return <SattleContext.Provider value={value}>{children}</SattleContext.Provider>;
 }
 
 function useCtx() {
-  const ctx = useContext(SplitSatsContext);
-  if (!ctx) throw new Error('Wrap your app in <SplitSatsProvider>.');
+  const ctx = useContext(SattleContext);
+  if (!ctx) throw new Error('Wrap your app in <SattleProvider>.');
   return ctx;
 }
 

@@ -19,7 +19,7 @@ export interface Invite {
   message: string;
 }
 
-export interface SplitSatsClient {
+export interface SattleClient {
   getCurrentUser(): Promise<User>;
 
   getGroups(): Promise<Group[]>;

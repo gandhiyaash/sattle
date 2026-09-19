@@ -12,7 +12,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatFiat, resolveParts } from '../domain/ledger';
 import type { Member, SplitMode } from '../domain/types';
-import { useClient } from '../react/SplitSatsProvider';
+import { useClient } from '../react/SattleProvider';
 import {
   Avatar,
   Button,

@@ -8,7 +8,7 @@
  */
 
 import {
-  SplitSatsError,
+  SattleError,
   TERMINAL_STATUSES,
   type CreateSettlementInput,
   type Debt,
@@ -19,11 +19,11 @@ import {
   type Settlement,
   type User,
 } from '../domain/types';
-import { newIdempotencyKey, type SplitSatsClient } from './SplitSatsClient';
+import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;
 
-export class ApiClient implements SplitSatsClient {
+export class ApiClient implements SattleClient {
   constructor(
     private readonly baseUrl: string,
     private readonly getToken: () => string | null = () => null
@@ -49,13 +49,13 @@ export class ApiClient implements SplitSatsClient {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
-      throw new SplitSatsError('network', 'Couldn’t reach the server. Check your connection and try again.');
+      throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
     }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
-      throw new SplitSatsError(
-        (err.code as SplitSatsError['code']) ?? (res.status === 404 ? 'not_found' : 'network'),
+      throw new SattleError(
+        (err.code as SattleError['code']) ?? (res.status === 404 ? 'not_found' : 'network'),
         err.message ?? `Request failed (${res.status}).`
       );
     }

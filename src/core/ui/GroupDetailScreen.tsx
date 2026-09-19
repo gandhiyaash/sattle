@@ -16,7 +16,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { computeBalances, simplifyDebts } from '../domain/ledger';
 import { canReceive } from '../domain/settlementOptions';
 import type { Debt, Expense, Member } from '../domain/types';
-import { useAsync, useClient } from '../react/SplitSatsProvider';
+import { useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,
   Avatar,

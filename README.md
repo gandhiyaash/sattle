@@ -53,7 +53,7 @@ src/core/
     settlementOptions.ts     Resolves what's possible BEFORE the user taps.
     ledger.test.ts           Run before touching ledger.ts.
   client/
-    SplitSatsClient.ts       The interface. The only seam.
+    SattleClient.ts       The interface. The only seam.
     MockClient.ts            In-memory, with latency and failure injection.
     ApiClient.ts             HTTP, wired to routes you haven't built yet.
     fixtures.ts              Seed data covering all three member states.
@@ -61,7 +61,7 @@ src/core/
   wallet/
     WalletProvider.ts        Wallet seam. Breez is native-only; web gets a stub.
   react/
-    SplitSatsProvider.tsx    Context, hooks, and the mock/real swap.
+    SattleProvider.tsx    Context, hooks, and the mock/real swap.
     useSettleFlow.ts         One settle attempt, from open to terminal.
   ui/
     theme.ts                 Design tokens. Warm paper, ink, one amber accent.
@@ -80,7 +80,7 @@ src/core/
 ## Using the core
 
 ```tsx
-import { SplitSatsProvider, useClient, useAsync } from './src/core';
+import { SattleProvider, useClient, useAsync } from './src/core';
 
 function GroupScreen({ groupId }: { groupId: string }) {
   const client = useClient();
