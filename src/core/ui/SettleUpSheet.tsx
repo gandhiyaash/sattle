@@ -100,7 +100,10 @@ export function SettleUpSheet({
         <TextInput
           style={[s.input, flow.error && s.inputError]}
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(text) => {
+            setDraft(text);
+            if (flow.error) flow.clearError();
+          }}
           placeholder="aman@walletofsatoshi.com"
           autoCapitalize="none"
           autoCorrect={false}

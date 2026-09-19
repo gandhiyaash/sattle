@@ -31,6 +31,7 @@ export interface SettleFlow {
   startAddressEntry: () => void;
   cancelAddressEntry: () => void;
   savePayoutAddress: (raw: string) => Promise<void>;
+  clearError: () => void;
   buildInvite: (groupName: string) => { url: string; message: string } | null;
 }
 
@@ -129,6 +130,8 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
         setRecipient(await client.setMemberPayoutAddress(recipient.id, parsed.address));
         setStep('choosing');
       }),
+
+    clearError: () => setError(null),
 
     buildInvite: (groupName) => {
       if (!recipient) return null;
