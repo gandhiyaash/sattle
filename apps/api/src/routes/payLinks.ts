@@ -55,6 +55,11 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
    * Authed. Only the person owed (the user who claimed toMemberId) can create
    * a link for their debt; anyone else gets 400 invalid_input. The amount is
    * capped at what's owed right now. Returns 201 PayLink.
+   *
+   * Several links for one debt are allowed (re-sending makes a new one) and
+   * safe: opening any of them refuses while another payment for the pair is
+   * in progress, and once one is paid the debt is smaller than the rest, so
+   * they expire.
    */
   r.post('/groups/:id/pay-links', once, async (c) => {
     const user = c.get('user');
@@ -112,6 +117,7 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
       return s;
     });
 
+    // start() only schedules work, so this reads the row as it is right now.
     if (started) payments.start(started);
     return c.json(guestView(link));
   });

@@ -225,6 +225,23 @@ describe('POST /s/:token/open', () => {
     expect(body.code).toBe('conflict');
   });
 
+  it('never lets two links for the same debt both collect', async () => {
+    const { call, createLink, waitForGuest } = setup();
+    const a = await createLink();
+    const b = await createLink();
+    expect(b.token).not.toBe(a.token);
+
+    await call('POST', `/s/${a.token}/open`);
+    const busy = await call<{ code: string }>('POST', `/s/${b.token}/open`);
+    expect(busy.status).toBe(409);
+    expect(busy.body.code).toBe('conflict');
+
+    await waitForGuest(a.token, (v) => v.settlement?.status === 'confirmed');
+    const after = await call<{ code: string }>('POST', `/s/${b.token}/open`);
+    expect(after.status).toBe(410);
+    expect(after.body.code).toBe('link_expired');
+  });
+
   it('replays a repeated idempotency key', async () => {
     const { call, createLink, settlementCount } = setup();
     const link = await createLink();

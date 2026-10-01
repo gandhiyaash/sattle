@@ -107,8 +107,9 @@ export function seedIfEmpty(db: Db) {
     );
     for (const l of fixtures.payLinks) {
       // Only the payee can make a link, so they're its creator.
-      const payee = fixtures.members.find((m) => m.id === l.toMemberId)!;
-      insPayLink.run(l.token, l.groupId, l.fromMemberId, l.toMemberId, l.amount, payee.claimedByUserId!, l.createdAt);
+      const creator = fixtures.members.find((m) => m.id === l.toMemberId)?.claimedByUserId;
+      if (!creator) throw new Error(`Fixture pay link ${l.token}: the payee must be a claimed member.`);
+      insPayLink.run(l.token, l.groupId, l.fromMemberId, l.toMemberId, l.amount, creator, l.createdAt);
     }
     const tagSettlement = db.prepare('UPDATE settlements SET pay_link_token = ? WHERE id = ?');
     for (const [token, settlementId] of Object.entries(fixtures.payLinkSettlements)) {
