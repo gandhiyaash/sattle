@@ -65,17 +65,23 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   ledger.ts                  Pure maths: splits, balances, netting.
   settlementOptions.ts       Resolves what's possible BEFORE the user taps.
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
+  payLinks.ts                Guest-safe settlement view, NWC method lists.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
 
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
-  app.ts                     Routes, auth, idempotency, error mapping.
+  app.ts                     Assembly: CORS, auth, errors, route modules.
+  routes/                    One module per owner: groups, settlements, payLinks, wallet.
+  middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
+  settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
-  db.ts                      Schema and seeding.
+  db.ts                      Migration runner and seeding.
+  migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
   payments.ts                Payment seam. SimulatedPayments until NWC lands.
   app.test.ts                Route tests against an in-memory database.
+  contract.test.ts           Auth boundary, migrations, and the 501 stubs still open.
 
 apps/mobile/                 @sattle/mobile: Expo
   App.tsx                    Renders DemoApp
@@ -102,6 +108,10 @@ apps/mobile/                 @sattle/mobile: Expo
 ```
 
 `DemoApp.tsx` is a plain state machine, not expo-router. When routing is added, each case becomes a route file and the navigator is deleted. The screens only take props and callbacks, so none of them need to change.
+
+## Working on it
+
+[docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) has the task dependency graph, who owns what, and the rules for working in parallel.
 
 ## Using the core
 

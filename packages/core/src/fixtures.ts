@@ -9,7 +9,7 @@
  */
 
 import { resolveParts } from './ledger';
-import type { Expense, ExpenseInput, Group, Member, Settlement, User } from './types';
+import type { Expense, ExpenseInput, Group, Member, PayLink, Settlement, User } from './types';
 
 export const currentUser: User = { id: 'u-yash', displayName: 'Yash' };
 
@@ -91,3 +91,18 @@ export const settlements: Settlement[] = [
     updatedAt: at(0),
   },
 ];
+
+/** Om's link for the same debt; the demo settlement above is its first open. */
+export const payLinks: PayLink[] = [
+  {
+    token: 'demo',
+    groupId: 'g-flat',
+    fromMemberId: 'm-flat-om',
+    toMemberId: 'm-flat-yash',
+    amount: 120_000,
+    createdAt: at(0),
+  },
+];
+
+/** Which settlement each pay link last opened. */
+export const payLinkSettlements: Record<string, string> = { demo: 'demo' };
