@@ -43,6 +43,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `EXPO_PUBLIC_USE_MOCK` | `true` | `false` switches to `ApiClient` (`npm run dev` sets this for you) |
 | `EXPO_PUBLIC_MOCK_LATENCY` | `400` | ms added to every mock call |
 | `EXPO_PUBLIC_MOCK_FAILURE_RATE` | `0` | 0–1 chance any mock call fails |
+| `EXPO_PUBLIC_MOCK_ALWAYS_FAIL` | `false` | `true` makes every mock payment end in `failed` |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:3000` | real backend base URL |
 | `EXPO_PUBLIC_APP_URL` | `http://localhost:8081` | base for invite links |
 
