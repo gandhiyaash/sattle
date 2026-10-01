@@ -157,6 +157,70 @@ export interface CreateSettlementInput {
   rail: Rail;
 }
 
+// -- groups ----------------------------------------------------------------
+
+export interface CreateGroupInput {
+  name: string;
+  currency: Currency;
+  /** Everyone except the creator. They start as ghosts. */
+  memberNames: string[];
+}
+
+// -- pay links -------------------------------------------------------------
+
+/**
+ * A shareable link for one debt: the payee sends it to the payer, who opens
+ * /s/<token> with no app and no account. The token grants that one debt,
+ * never the group.
+ */
+export interface PayLink {
+  token: string;
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  /** Minor units. */
+  amount: number;
+  createdAt: string;
+}
+
+export interface CreatePayLinkInput {
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amount: number;
+}
+
+/** Only what the guest page may show. No member ids, no group id. */
+export type GuestSettlement = Pick<
+  Settlement,
+  'id' | 'amount' | 'currency' | 'status' | 'quote' | 'destination' | 'preimage' | 'failureReason' | 'updatedAt'
+>;
+
+export interface GuestView {
+  payerName: string;
+  payeeName: string;
+  /** e.g. the group name. */
+  reason: string;
+  /** Absent until the link is opened and an invoice minted. */
+  settlement?: GuestSettlement;
+}
+
+// -- wallet connection -----------------------------------------------------
+
+/**
+ * The payee's NWC connection, as the server sees it. The connection string
+ * itself never comes back from the server.
+ */
+export interface WalletConnection {
+  connected: boolean;
+  /** NWC methods the wallet granted, from get_info. Ideally just make_invoice + lookup_invoice. */
+  methods: string[];
+  /** Methods granted that the server doesn't need — shown as a warning (e.g. pay_invoice). */
+  excessMethods: string[];
+  alias?: string;
+  connectedAt?: string;
+}
+
 export type SattleErrorCode =
   | 'not_found'
   | 'network'
@@ -166,6 +230,10 @@ export type SattleErrorCode =
   | 'payment_failed'
   | 'unauthorized'
   | 'conflict'
+  | 'invalid_input'
+  | 'invalid_wallet'
+  | 'link_expired'
+  | 'not_implemented'
   | 'internal';
 
 export class SattleError extends Error {

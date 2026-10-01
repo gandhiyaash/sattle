@@ -8,6 +8,7 @@
  */
 
 import {
+  NWC_REQUIRED_METHODS,
   SattleError,
   TERMINAL_STATUSES,
   buildQuote,
@@ -17,12 +18,18 @@ import {
   parseLightningAddress,
   resolveParts,
   simplifyDebts,
+  toGuestSettlement,
+  type CreateGroupInput,
+  type CreatePayLinkInput,
   type CreateSettlementInput,
   type Expense,
   type ExpenseInput,
   type Group,
+  type GuestView,
   type Member,
+  type PayLink,
   type Settlement,
+  type WalletConnection,
 } from '@sattle/core';
 import type { SattleClient } from './SattleClient';
 
@@ -44,6 +51,10 @@ export class MockClient implements SattleClient {
   private members: Member[];
   private expenses: Expense[];
   private settlements: Settlement[];
+  private payLinks: PayLink[];
+  /** token → the settlement that link last opened */
+  private payLinkSettlements: Record<string, string>;
+  private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
   private listeners = new Map<string, Set<(s: Settlement) => void>>();
   private seq = 0;
   private readonly opts: Required<MockClientOptions>;
@@ -62,6 +73,8 @@ export class MockClient implements SattleClient {
     this.members = structuredClone(fixtures.members);
     this.expenses = structuredClone(fixtures.expenses);
     this.settlements = structuredClone(fixtures.settlements);
+    this.payLinks = structuredClone(fixtures.payLinks);
+    this.payLinkSettlements = { ...fixtures.payLinkSettlements };
   }
 
   // -- plumbing -------------------------------------------------------------
@@ -112,6 +125,36 @@ export class MockClient implements SattleClient {
 
   getGroup(groupId: string) {
     return this.call(() => this.findGroup(groupId));
+  }
+
+  createGroup(input: CreateGroupInput) {
+    return this.call(() => {
+      const name = input.name.trim();
+      if (!name) throw new SattleError('invalid_input', 'Give the group a name.');
+      const group: Group = { id: this.id('g'), name, currency: input.currency, memberIds: [], createdAt: this.now() };
+      const me = fixtures.currentUser;
+      const add = (m: Omit<Member, 'id' | 'groupId'>) => {
+        const member: Member = { id: this.id('m'), groupId: group.id, ...m };
+        this.members.push(member);
+        group.memberIds.push(member.id);
+      };
+      add({ displayName: me.displayName, status: 'joined', claimedByUserId: me.id });
+      for (const n of input.memberNames) add({ displayName: n.trim(), status: 'ghost' });
+      this.groups.unshift(group);
+      return group;
+    });
+  }
+
+  addMember(groupId: string, displayName: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      const name = displayName.trim();
+      if (!name) throw new SattleError('invalid_input', 'Give them a name.');
+      const member: Member = { id: this.id('m'), groupId, displayName: name, status: 'ghost' };
+      this.members.push(member);
+      g.memberIds.push(member.id);
+      return member;
+    });
   }
 
   getMembers(groupId: string) {
@@ -263,6 +306,121 @@ export class MockClient implements SattleClient {
     return () => {
       set!.delete(cb);
     };
+  }
+
+  // -- pay links ------------------------------------------------------------
+
+  private findLink(token: string) {
+    const link = this.payLinks.find((l) => l.token === token);
+    if (!link) throw new SattleError('not_found', 'This link is no longer valid.');
+    return link;
+  }
+
+  private guestView(link: PayLink): GuestView {
+    const name = (id: string) => this.members.find((m) => m.id === id)!.displayName;
+    const sid = this.payLinkSettlements[link.token];
+    return {
+      payerName: name(link.fromMemberId),
+      payeeName: name(link.toMemberId),
+      reason: this.findGroup(link.groupId).name,
+      settlement: sid ? toGuestSettlement(this.findSettlement(sid)) : undefined,
+    };
+  }
+
+  createPayLink(input: CreatePayLinkInput) {
+    return this.call(() => {
+      const g = this.findGroup(input.groupId);
+      const payee = this.members.find((m) => m.id === input.toMemberId);
+      if (!payee || !g.memberIds.includes(payee.id)) throw new SattleError('not_found', 'That member isn’t in this group.');
+      if (payee.claimedByUserId !== fixtures.currentUser.id) {
+        throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
+      }
+      const link: PayLink = {
+        token: Math.random().toString(36).slice(2, 12),
+        ...input,
+        createdAt: this.now(),
+      };
+      this.payLinks.push(link);
+      return link;
+    });
+  }
+
+  openPayLink(token: string) {
+    return this.call(() => {
+      const link = this.findLink(token);
+      const sid = this.payLinkSettlements[token];
+      const current = sid ? this.findSettlement(sid) : undefined;
+      if (current && (!isTerminal(current) || current.status === 'confirmed')) return this.guestView(link);
+
+      const g = this.findGroup(link.groupId);
+      const balances = computeBalances(
+        g.memberIds,
+        this.expenses.filter((e) => e.groupId === g.id),
+        this.settlements.filter((s) => s.groupId === g.id)
+      );
+      const debt = simplifyDebts(g.id, balances).find(
+        (d) => d.fromMemberId === link.fromMemberId && d.toMemberId === link.toMemberId
+      );
+      if (!debt || debt.amount < link.amount) {
+        throw new SattleError('link_expired', 'This has already been settled.');
+      }
+      const payee = this.members.find((m) => m.id === link.toMemberId)!;
+      if (!canReceive(payee)) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
+      }
+
+      const s: Settlement = {
+        id: this.id('s'),
+        groupId: g.id,
+        fromMemberId: link.fromMemberId,
+        toMemberId: link.toMemberId,
+        amount: link.amount,
+        currency: g.currency,
+        rail: 'invoice',
+        status: 'created',
+        createdAt: this.now(),
+        updatedAt: this.now(),
+      };
+      this.settlements.push(s);
+      this.payLinkSettlements[token] = s.id;
+      void this.runLifecycle(s.id);
+      return this.guestView(link);
+    });
+  }
+
+  getGuestView(token: string) {
+    return this.call(() => this.guestView(this.findLink(token)));
+  }
+
+  onGuestViewUpdate(token: string, cb: (v: GuestView) => void) {
+    const sid = this.payLinkSettlements[token];
+    if (!sid) return () => {};
+    return this.onSettlementUpdate(sid, () => cb(structuredClone(this.guestView(this.findLink(token)))));
+  }
+
+  // -- wallet connection ----------------------------------------------------
+
+  connectWallet(nwcUri: string) {
+    return this.call(() => {
+      if (!nwcUri.trim().startsWith('nostr+walletconnect://')) {
+        throw new SattleError('invalid_wallet', 'That isn’t an NWC connection string. It starts with nostr+walletconnect://');
+      }
+      this.wallet = {
+        connected: true,
+        methods: [...NWC_REQUIRED_METHODS, 'get_info'],
+        excessMethods: [],
+        alias: 'Mock wallet',
+        connectedAt: this.now(),
+      };
+      for (const m of this.members) {
+        if (m.claimedByUserId === fixtures.currentUser.id) m.status = 'nwc_linked';
+      }
+      return this.wallet;
+    });
+  }
+
+  getWalletConnection() {
+    return this.call(() => this.wallet);
   }
 }
 

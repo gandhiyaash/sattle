@@ -10,14 +10,19 @@
 import {
   SattleError,
   TERMINAL_STATUSES,
+  type CreateGroupInput,
+  type CreatePayLinkInput,
   type CreateSettlementInput,
   type Debt,
   type Expense,
   type ExpenseInput,
   type Group,
+  type GuestView,
   type Member,
+  type PayLink,
   type Settlement,
   type User,
+  type WalletConnection,
 } from '@sattle/core';
 import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
@@ -71,8 +76,14 @@ export class ApiClient implements SattleClient {
   getGroup(groupId: string) {
     return this.request<Group>('GET', `/groups/${groupId}`);
   }
+  createGroup(input: CreateGroupInput) {
+    return this.request<Group>('POST', '/groups', input, true);
+  }
   getMembers(groupId: string) {
     return this.request<Member[]>('GET', `/groups/${groupId}/members`);
+  }
+  addMember(groupId: string, displayName: string) {
+    return this.request<Member>('POST', `/groups/${groupId}/members`, { displayName }, true);
   }
   getExpenses(groupId: string) {
     return this.request<Expense[]>('GET', `/groups/${groupId}/expenses`);
@@ -104,24 +115,56 @@ export class ApiClient implements SattleClient {
     return this.request<Member>('PUT', `/members/${memberId}/payout-address`, { address });
   }
 
+
+  createPayLink(input: CreatePayLinkInput) {
+    const { groupId, ...body } = input;
+    return this.request<PayLink>('POST', `/groups/${groupId}/pay-links`, body, true);
+  }
+  openPayLink(token: string) {
+    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, undefined, true);
+  }
+  getGuestView(token: string) {
+    return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);
+  }
+
+  connectWallet(nwcUri: string) {
+    return this.request<WalletConnection>('PUT', '/me/wallet', { nwcUri });
+  }
+  getWalletConnection() {
+    return this.request<WalletConnection>('GET', '/me/wallet');
+  }
+
   /** Polls until terminal. Swap for SSE or a websocket when the server has one. */
   onSettlementUpdate(settlementId: string, cb: (s: Settlement) => void) {
-    let stopped = false;
-    const tick = async () => {
-      if (stopped) return;
-      try {
-        const s = await this.getSettlement(settlementId);
-        if (stopped) return;
-        cb(s);
-        if (TERMINAL_STATUSES.includes(s.status)) return;
-      } catch {
-        // transient; keep polling
-      }
-      setTimeout(tick, POLL_MS);
-    };
-    setTimeout(tick, POLL_MS);
-    return () => {
-      stopped = true;
-    };
+    return poll(() => this.getSettlement(settlementId), cb, (s) => TERMINAL_STATUSES.includes(s.status));
   }
+
+  onGuestViewUpdate(token: string, cb: (v: GuestView) => void) {
+    return poll(
+      () => this.getGuestView(token),
+      cb,
+      (v) => Boolean(v.settlement && TERMINAL_STATUSES.includes(v.settlement.status))
+    );
+  }
+}
+
+/** Calls `fetch` every POLL_MS until `done`, skipping transient errors. */
+function poll<T>(fetch: () => Promise<T>, cb: (v: T) => void, done: (v: T) => boolean) {
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const v = await fetch();
+      if (stopped) return;
+      cb(v);
+      if (done(v)) return;
+    } catch {
+      // transient; keep polling
+    }
+    setTimeout(tick, POLL_MS);
+  };
+  setTimeout(tick, POLL_MS);
+  return () => {
+    stopped = true;
+  };
 }

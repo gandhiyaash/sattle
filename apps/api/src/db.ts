@@ -1,94 +1,44 @@
 /**
  * SQLite via node:sqlite — no native build step, one file on disk.
  *
- * Amounts are INTEGER minor units, same as the domain. Expense parts and
- * quotes are JSON columns: they are always read and written whole, never
- * queried into.
+ * Schema lives in migrations/NNN_name.sql, applied in order and recorded in
+ * schema_migrations. Add a new file for a schema change; never edit one that
+ * has been merged. Expense parts and quotes are JSON columns: they are always
+ * read and written whole, never queried into.
  */
 
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import { fixtures } from '@sattle/core';
 
 export type Db = DatabaseSync;
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id            TEXT PRIMARY KEY,
-  display_name  TEXT NOT NULL,
-  token         TEXT UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS expense_groups (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  currency    TEXT NOT NULL,
-  created_at  TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS members (
-  id                  TEXT PRIMARY KEY,
-  group_id            TEXT NOT NULL REFERENCES expense_groups(id),
-  position            INTEGER NOT NULL,
-  display_name        TEXT NOT NULL,
-  status              TEXT NOT NULL CHECK (status IN ('ghost', 'joined', 'nwc_linked')),
-  claimed_by_user_id  TEXT REFERENCES users(id),
-  lightning_address   TEXT
-);
-CREATE INDEX IF NOT EXISTS members_group ON members(group_id, position);
-CREATE INDEX IF NOT EXISTS members_user ON members(claimed_by_user_id);
-
-CREATE TABLE IF NOT EXISTS expenses (
-  id                 TEXT PRIMARY KEY,
-  group_id           TEXT NOT NULL REFERENCES expense_groups(id),
-  description        TEXT NOT NULL,
-  amount             INTEGER NOT NULL CHECK (amount > 0),
-  paid_by_member_id  TEXT NOT NULL REFERENCES members(id),
-  split_mode         TEXT NOT NULL,
-  parts              TEXT NOT NULL,
-  created_at         TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS expenses_group ON expenses(group_id, created_at);
-
-CREATE TABLE IF NOT EXISTS settlements (
-  id              TEXT PRIMARY KEY,
-  group_id        TEXT NOT NULL REFERENCES expense_groups(id),
-  from_member_id  TEXT NOT NULL REFERENCES members(id),
-  to_member_id    TEXT NOT NULL REFERENCES members(id),
-  amount          INTEGER NOT NULL CHECK (amount > 0),
-  currency        TEXT NOT NULL,
-  rail            TEXT NOT NULL,
-  status          TEXT NOT NULL,
-  quote           TEXT,
-  destination     TEXT,
-  preimage        TEXT,
-  note            TEXT,
-  failure_reason  TEXT,
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS settlements_group ON settlements(group_id, created_at);
-
--- status/body stay NULL while the first request is still running.
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-  user_id     TEXT NOT NULL,
-  key         TEXT NOT NULL,
-  route       TEXT NOT NULL,
-  status      INTEGER,
-  body        TEXT,
-  created_at  TEXT NOT NULL,
-  PRIMARY KEY (user_id, key)
-);
-`;
-
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations', import.meta.url));
+
+export function migrate(db: Db) {
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+  const applied = new Set(
+    (db.prepare('SELECT name FROM schema_migrations').all() as { name: string }[]).map((r) => r.name)
+  );
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
+  for (const file of files) {
+    if (applied.has(file)) continue;
+    transaction(db, () => {
+      db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+      db.prepare('INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)').run(file, new Date().toISOString());
+    });
+  }
 }
 
 export function transaction<T>(db: Db, fn: () => T): T {
