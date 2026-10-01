@@ -112,6 +112,18 @@ describe('POST /groups/:id/pay-links', () => {
     });
     expect(status).toBe(404);
   });
+
+  it('refuses a payer from another group', async () => {
+    const { call } = setup();
+    // The payee is fine; only the payer is foreign, so checkSettlement is what refuses it.
+    const { status, body } = await call<{ code: string }>('POST', '/groups/g-flat/pay-links', {
+      fromMemberId: 'm-goa-aman',
+      toMemberId: 'm-flat-yash',
+      amount: 100,
+    });
+    expect(status).toBe(404);
+    expect(body.code).toBe('not_found');
+  });
 });
 
 describe('POST /s/:token/open', () => {
