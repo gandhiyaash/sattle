@@ -3,17 +3,24 @@
  * no account. The token grants one debt, never the group — /s/ responses
  * carry names and amounts only, never member or group ids.
  *
- * Needs migration 002: a pay_links table (token, group, from, to, amount,
- * created_by_user_id, created_at) and a way to find the link's current
- * settlement (e.g. settlements.pay_link_token).
+ * Each open that needs a fresh invoice inserts a settlement tagged with the
+ * link's token (settlements.pay_link_token, migration 002); the guest page
+ * always shows the latest one.
  */
+
+import { randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { SattleError, canReceive, toGuestSettlement, type GuestView, type PayLink } from '@sattle/core';
+
 import type { AppEnv, Ctx } from '../context';
-import { minor, notImplemented, parse } from '../http';
+import { transaction } from '../db';
+import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
+import { nowIso } from '../repo';
+import { checkSettlement, debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
 
 export const CreatePayLinkBody = z.object({
   fromMemberId: z.string(),
@@ -21,20 +28,49 @@ export const CreatePayLinkBody = z.object({
   amount: minor,
 });
 
-export function payLinkRoutes({ db, repo }: Ctx) {
+/** 16 random bytes, base64url: 22 characters, unguessable. */
+export const newPayLinkToken = () => randomBytes(16).toString('base64url');
+
+export function payLinkRoutes({ db, repo, payments }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
+  const findLink = (token: string) => {
+    const link = repo.payLink(token);
+    if (!link) throw new SattleError('not_found', 'This link is no longer valid.');
+    return link;
+  };
+
+  const guestView = (link: PayLink): GuestView => {
+    const latest = repo.latestForPayLink(link.token);
+    return {
+      payerName: repo.member(link.fromMemberId)!.displayName,
+      payeeName: repo.member(link.toMemberId)!.displayName,
+      reason: repo.group(link.groupId)!.name,
+      settlement: latest && toGuestSettlement(latest),
+    };
+  };
+
   /**
    * Authed. Only the person owed (the user who claimed toMemberId) can create
-   * a link for their debt; anyone else gets 400 invalid_input. Run
-   * checkSettlement so the amount is capped at what's owed. Token: 16 random
-   * bytes, base64url. Returns 201 PayLink. Seed fixtures.payLinks too.
+   * a link for their debt; anyone else gets 400 invalid_input. The amount is
+   * capped at what's owed right now. Returns 201 PayLink.
    */
   r.post('/groups/:id/pay-links', once, async (c) => {
-    repo.groupForUser(c.req.param('id'), c.get('user').id);
-    parse(CreatePayLinkBody, await c.req.json());
-    return notImplemented('Pay links');
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    const body = parse(CreatePayLinkBody, await c.req.json());
+
+    const link = transaction(db, () => {
+      const payee = repo.member(body.toMemberId);
+      if (!payee || payee.groupId !== g.id) throw new SattleError('not_found', 'That member isn’t in this group.');
+      if (payee.claimedByUserId !== user.id) {
+        throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
+      }
+      checkSettlement(repo, g, body);
+      return repo.insertPayLink({ token: newPayLinkToken(), groupId: g.id, ...body, createdAt: nowIso() }, user.id);
+    });
+    return c.json(link, 201);
   });
 
   /**
@@ -45,13 +81,43 @@ export function payLinkRoutes({ db, repo }: Ctx) {
    *   last settlement confirmed             → return it (page shows Paid)
    *   debt gone or smaller than the link    → 410 link_expired
    *   payee can't receive                   → 409 member_cannot_receive
+   *   paying the same debt another way      → 409 conflict
    *   otherwise: insert a settlement with rail 'invoice', payments.start(it),
    *   return the GuestView.
    */
-  r.post('/s/:token/open', once, () => notImplemented('Pay links'));
+  r.post('/s/:token/open', once, (c) => {
+    const link = findLink(c.req.param('token'));
+
+    const started = transaction(db, () => {
+      const latest = repo.latestForPayLink(link.token);
+      if (latest && (isInProgress(latest) || latest.status === 'confirmed')) return undefined;
+
+      const g = repo.group(link.groupId)!;
+      const debt = debtsOf(repo, g).find(
+        (d) => d.fromMemberId === link.fromMemberId && d.toMemberId === link.toMemberId
+      );
+      if (!debt || debt.amount < link.amount) {
+        throw new SattleError('link_expired', 'This has already been settled.');
+      }
+      const payee = repo.member(link.toMemberId)!;
+      if (!canReceive(payee)) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
+      }
+      if (inProgressFor(repo, g, link)) {
+        throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+      }
+
+      const s = repo.insertSettlement(newSettlement(g, link, 'invoice', 'created'));
+      repo.attachToPayLink(s.id, link.token);
+      return s;
+    });
+
+    if (started) payments.start(started);
+    return c.json(guestView(link));
+  });
 
   /** Public, read-only, polled by the guest page. GuestView with the latest settlement. */
-  r.get('/s/:token', () => notImplemented('Pay links'));
+  r.get('/s/:token', (c) => c.json(guestView(findLink(c.req.param('token')))));
 
   return r;
 }
