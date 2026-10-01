@@ -19,8 +19,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 
-import { formatFiat } from '../domain/ledger';
-import type { Settlement } from '../domain/types';
+import { formatFiat, type Settlement } from '@sattle/core';
 import { useClient } from '../react/SattleProvider';
 import { Button, Card, ErrorState, SatLine } from './primitives';
 import { color, radius, shadow, space, type } from './theme';

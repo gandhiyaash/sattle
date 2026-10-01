@@ -16,8 +16,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatFiat } from '../domain/ledger';
-import type { Debt, Member } from '../domain/types';
+import { formatFiat, type Debt, type Member } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { Button, Card, ErrorState, SatLine } from './primitives';
 import { color, radius, space, type } from './theme';

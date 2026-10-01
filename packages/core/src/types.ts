@@ -163,7 +163,10 @@ export type SattleErrorCode =
   | 'member_cannot_receive'
   | 'invalid_address'
   | 'invalid_expense'
-  | 'payment_failed';
+  | 'payment_failed'
+  | 'unauthorized'
+  | 'conflict'
+  | 'internal';
 
 export class SattleError extends Error {
   constructor(

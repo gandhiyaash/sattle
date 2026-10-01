@@ -12,7 +12,7 @@ import type {
   Member,
   Settlement,
   User,
-} from '../domain/types';
+} from '@sattle/core';
 
 export interface Invite {
   url: string;

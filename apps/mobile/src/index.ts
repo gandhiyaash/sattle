@@ -1,10 +1,7 @@
-export * from './domain/types';
-export * from './domain/ledger';
-export * from './domain/settlementOptions';
+export * from '@sattle/core';
 export * from './client/SattleClient';
 export { MockClient, type MockClientOptions } from './client/MockClient';
 export { ApiClient } from './client/ApiClient';
-export { parseLightningAddress, type ParsedAddress } from './client/lightningAddress';
 export * from './wallet/WalletProvider';
 export * from './react/SattleProvider';
 export * from './react/useSettleFlow';

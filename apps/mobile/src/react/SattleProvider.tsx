@@ -20,7 +20,7 @@ import { Platform } from 'react-native';
 import { ApiClient } from '../client/ApiClient';
 import { MockClient } from '../client/MockClient';
 import type { SattleClient } from '../client/SattleClient';
-import type { Settlement } from '../domain/types';
+import type { Settlement } from '@sattle/core';
 import { MockWallet, UnavailableWallet, type WalletProvider } from '../wallet/WalletProvider';
 
 interface SattleContextValue {
