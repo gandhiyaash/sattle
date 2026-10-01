@@ -18,7 +18,7 @@ import {
   type Member,
   type Settlement,
   type User,
-} from '../domain/types';
+} from '@sattle/core';
 import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;

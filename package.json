@@ -1,28 +1,22 @@
 {
   "name": "sattle",
-  "version": "0.1.0",
   "private": true,
-  "main": "index.ts",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.13"
   },
-  "dependencies": {
-    "@expo/metro-runtime": "~57.0.16",
-    "expo": "~57.0.24",
-    "expo-status-bar": "~57.0.1",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.86.3",
-    "react-native-web": "^0.21.2"
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"npm run dev -w @sattle/api\" \"EXPO_PUBLIC_USE_MOCK=false npm run web -w @sattle/mobile\"",
+    "web": "npm run web -w @sattle/mobile",
+    "api": "npm run dev -w @sattle/api",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
-    "typescript": "~6.0.3",
-    "vitest": "^4.1.11"
+    "concurrently": "^9.2.1",
+    "typescript": "~6.0.3"
   }
 }

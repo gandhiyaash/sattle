@@ -19,7 +19,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { formatFiat } from '../domain/ledger';
+import { formatFiat } from '@sattle/core';
 import { color, radius, shadow, space, type } from './theme';
 
 // ---------------------------------------------------------------------------

@@ -13,9 +13,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { computeBalances, simplifyDebts } from '../domain/ledger';
-import { canReceive } from '../domain/settlementOptions';
-import type { Debt, Expense, Member } from '../domain/types';
+import {
+  canReceive,
+  computeBalances,
+  simplifyDebts,
+  type Debt,
+  type Expense,
+  type Member,
+} from '@sattle/core';
 import { useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,

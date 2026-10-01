@@ -2,18 +2,22 @@
 
 Split expenses with friends and settle up over Bitcoin Lightning. Nobody else needs to install anything.
 
-Sattle is an Expo (React Native) app that runs on iOS, Android and web. Every screen works today against an in-memory mock backend, and you switch to a real server by changing one env var.
+A monorepo: an Expo (React Native) app for iOS, Android and web, a Node API on SQLite, and the domain package both of them share. The app runs against either an in-memory mock or the real API; one env var switches between them.
 
 ## Quick start
 
-Requires Node 20+.
+Requires Node 22.13+ (the API uses the built-in `node:sqlite`).
 
 ```bash
 git clone https://github.com/gandhiyaash/sattle.git
 cd sattle
 npm install
-cp .env.example .env
-npm run web        # or: npm run ios / npm run android / npm start
+cp apps/mobile/.env.example apps/mobile/.env
+cp apps/api/.env.example apps/api/.env
+
+npm run dev        # API on :3000 + web app on :8081, wired together
+npm run web        # web app alone, against the in-memory mock
+npm run api        # API alone
 ```
 
 The demo opens on your groups. The bottom bar has three tabs: **Groups**, **Wallet**, and **Guest link**. The guest tab shows the page someone gets when you send them a pay link.
@@ -25,54 +29,76 @@ Try these flows:
 - **Add expense.** A live preview shows each person's share, including where the leftover paisa goes.
 
 ```bash
-npm test           # ledger + settlement-option tests (vitest)
-npm run typecheck
+npm test           # core ledger tests + API route tests (vitest)
+npm run typecheck  # all workspaces
+npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next start
 ```
 
 ## Configuration
 
-`.env` (copied from `.env.example`):
+`apps/mobile/.env`:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_USE_MOCK` | `true` | `false` switches to `ApiClient` |
+| `EXPO_PUBLIC_USE_MOCK` | `true` | `false` switches to `ApiClient` (`npm run dev` sets this for you) |
 | `EXPO_PUBLIC_MOCK_LATENCY` | `400` | ms added to every mock call |
 | `EXPO_PUBLIC_MOCK_FAILURE_RATE` | `0` | 0–1 chance any mock call fails |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:3000` | real backend base URL |
 | `EXPO_PUBLIC_APP_URL` | `http://localhost:8081` | base for invite links |
 
+`apps/api/.env`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | |
+| `DATABASE_PATH` | `data/sattle.db` | SQLite file, relative to `apps/api` |
+| `SEED` | `true` | load the demo fixtures into an empty database |
+| `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
+| `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
+| `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
+
 ## Layout
 
 ```
-App.tsx                      Renders DemoApp
-src/core/
-  index.ts                   Public exports
-  domain/
-    types.ts                 Domain vocabulary. Member ≠ User. Debt is fiat.
-    ledger.ts                Pure maths: splits, balances, netting. No I/O.
-    settlementOptions.ts     Resolves what's possible BEFORE the user taps.
-    ledger.test.ts           Run before touching ledger.ts.
-  client/
-    SattleClient.ts       The interface. The only seam.
-    MockClient.ts            In-memory, with latency and failure injection.
-    ApiClient.ts             HTTP, wired to routes you haven't built yet.
-    fixtures.ts              Seed data covering all three member states.
-    lightningAddress.ts      Parses what people paste. An address is not an invoice.
-  wallet/
-    WalletProvider.ts        Wallet seam. Breez is native-only; web gets a stub.
-  react/
-    SattleProvider.tsx    Context, hooks, and the mock/real swap.
-    useSettleFlow.ts         One settle attempt, from open to terminal.
-  ui/
-    theme.ts                 Design tokens. Warm paper, ink, one amber accent.
-    primitives.tsx           Buttons, cards, Amount, loading/error/empty.
-    GroupsListScreen.tsx     Entry screen. Net position across all groups.
-    GroupDetailScreen.tsx    Balances, member states, expenses, settle entry.
-    AddExpenseScreen.tsx     Live split preview as you type.
-    SettleUpSheet.tsx        Rails, the blocked screen, and address entry.
-    WalletScreen.tsx         Balance, address, and the trust disclosure.
-    GuestPayScreen.tsx       The /s/<token> page. No app, no signup.
-    DemoApp.tsx              Throwaway navigator so it all runs today.
+packages/core/src/           @sattle/core: pure, no I/O, imported by both app and API
+  types.ts                   Domain vocabulary. Member ≠ User. Debt is fiat.
+  ledger.ts                  Pure maths: splits, balances, netting.
+  settlementOptions.ts       Resolves what's possible BEFORE the user taps.
+  quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
+  lightningAddress.ts        Parses what people paste. An address is not an invoice.
+  fixtures.ts                Seed data covering all three member states.
+  ledger.test.ts             Run before touching ledger.ts.
+
+apps/api/src/                @sattle/api: Hono + node:sqlite
+  server.ts                  Boot, env, and the payment backend choice.
+  app.ts                     Routes, auth, idempotency, error mapping.
+  repo.ts                    Row ↔ domain mapping. Only domain types leave it.
+  db.ts                      Schema and seeding.
+  payments.ts                Payment seam. SimulatedPayments until NWC lands.
+  app.test.ts                Route tests against an in-memory database.
+
+apps/mobile/                 @sattle/mobile: Expo
+  App.tsx                    Renders DemoApp
+  src/
+    client/
+      SattleClient.ts        The interface. The only seam.
+      MockClient.ts          In-memory, with latency and failure injection.
+      ApiClient.ts           HTTP client for apps/api.
+    wallet/
+      WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
+    react/
+      SattleProvider.tsx     Context, hooks, and the mock/real swap.
+      useSettleFlow.ts       One settle attempt, from open to terminal.
+    ui/
+      theme.ts               Design tokens. Warm paper, ink, one amber accent.
+      primitives.tsx         Buttons, cards, Amount, loading/error/empty.
+      GroupsListScreen.tsx   Entry screen. Net position across all groups.
+      GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
+      AddExpenseScreen.tsx   Live split preview as you type.
+      SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
+      WalletScreen.tsx       Balance, address, and the trust disclosure.
+      GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
+      DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
 
 `DemoApp.tsx` is a plain state machine, not expo-router. When routing is added, each case becomes a route file and the navigator is deleted. The screens only take props and callbacks, so none of them need to change.
@@ -80,7 +106,7 @@ src/core/
 ## Using the core
 
 ```tsx
-import { SattleProvider, useClient, useAsync } from './src/core';
+import { SattleProvider, useClient, useAsync } from './src';
 
 function GroupScreen({ groupId }: { groupId: string }) {
   const client = useClient();
@@ -132,13 +158,18 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
 
-## Wiring the real backend
+## The API
 
-1. Implement the routes in `ApiClient.ts`. The method bodies are the spec.
-2. Import `domain/ledger.ts` on the server too — same netting code both sides, so balances can never disagree.
-3. Set `EXPO_PUBLIC_USE_MOCK=false`.
+`apps/api` implements every route `ApiClient` calls, and nets debts with the same `@sattle/core` ledger the app uses, so balances can never disagree. The server doesn't trust the client:
 
-`createSettlement`, `addExpense` and `markSettledManually` all send an `idempotency-key`. Honour it. A retried settlement that mints a second invoice is a double payment.
+- You only see groups you're a member of. Other groups return 404, not 403, so a guessed id reveals nothing.
+- A settlement can't exceed the current netted debt, and a second one can't start while one is in progress.
+- A ghost with no payout address gets `409 member_cannot_receive`.
+- A repeated `idempotency-key` replays the first response instead of acting twice.
+
+Payments go through `PaymentBackend` in `payments.ts`. Today that's `SimulatedPayments`, which walks the same states as the mock with a fake preimage. The NWC backend replaces it without touching the routes.
+
+Auth is a bearer token looked up in `users.token`. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
 ## Wiring the wallet
 
@@ -148,7 +179,10 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 
 ## Not in here yet
 
-- A real backend. `ApiClient` is written against routes that don't exist yet.
+- Real payments. The API's `SimulatedPayments` stands in until the NWC backend lands.
+- Real auth. There's no sign-in flow yet; see `DEMO_USER_ID` above.
+- Creating groups, adding members, invites and claims. The UI and `SattleClient` don't have these yet either.
+- Client-side idempotency. `ApiClient` mints a new key per request, so a user-initiated retry isn't deduplicated. The key needs to come from the user action instead.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
 - Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
 - Nostr identity, the NWC connection flow, on-chain rails, and QR rendering.

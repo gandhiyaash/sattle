@@ -7,21 +7,23 @@
  * is instant.
  */
 
-import { computeBalances, resolveParts, simplifyDebts } from '../domain/ledger';
-import { canReceive } from '../domain/settlementOptions';
 import {
   SattleError,
   TERMINAL_STATUSES,
+  buildQuote,
+  canReceive,
+  computeBalances,
+  fixtures,
+  parseLightningAddress,
+  resolveParts,
+  simplifyDebts,
   type CreateSettlementInput,
   type Expense,
   type ExpenseInput,
   type Group,
   type Member,
-  type Quote,
   type Settlement,
-} from '../domain/types';
-import * as fixtures from './fixtures';
-import { parseLightningAddress } from './lightningAddress';
+} from '@sattle/core';
 import type { SattleClient } from './SattleClient';
 
 export interface MockClientOptions {
@@ -36,8 +38,6 @@ export interface MockClientOptions {
   /** INR per BTC used for quotes. */
   rateFiatPerBtc?: number;
 }
-
-const QUOTE_TTL_MS = 90_000;
 
 export class MockClient implements SattleClient {
   private groups: Group[];
@@ -98,19 +98,6 @@ export class MockClient implements SattleClient {
     const s = this.findSettlement(id);
     Object.assign(s, patch, { updatedAt: this.now() });
     this.listeners.get(id)?.forEach((cb) => cb(structuredClone(s)));
-  }
-
-  private quote(amountFiat: number, currency: string): Quote {
-    // amountFiat is minor units; 1 BTC = 1e8 sats.
-    const amountSat = Math.round((amountFiat / 100 / this.opts.rateFiatPerBtc) * 1e8);
-    return {
-      amountFiat,
-      currency,
-      amountSat,
-      feeSat: Math.max(2, Math.round(amountSat * 0.003)),
-      rateFiatPerBtc: this.opts.rateFiatPerBtc,
-      expiresAt: new Date(Date.now() + QUOTE_TTL_MS).toISOString(),
-    };
   }
 
   // -- reads ----------------------------------------------------------------
@@ -251,7 +238,7 @@ export class MockClient implements SattleClient {
 
     this.update(id, {
       status: 'awaiting_payment',
-      quote: this.quote(s.amount, s.currency),
+      quote: buildQuote(s.amount, s.currency, this.opts.rateFiatPerBtc),
       destination:
         s.rail === 'lightning_address' && to.lightningAddress
           ? to.lightningAddress

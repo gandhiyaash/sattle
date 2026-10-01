@@ -9,8 +9,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { computeBalances } from '../domain/ledger';
-import type { Group } from '../domain/types';
+import { computeBalances, type Group } from '@sattle/core';
 import { useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,

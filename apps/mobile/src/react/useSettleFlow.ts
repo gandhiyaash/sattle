@@ -13,9 +13,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { parseLightningAddress } from '../client/lightningAddress';
-import { resolveSettlementOptions, type SettlementOptions } from '../domain/settlementOptions';
-import { TERMINAL_STATUSES, type Debt, type Member, type Rail, type Settlement } from '../domain/types';
+import {
+  parseLightningAddress,
+  resolveSettlementOptions,
+  TERMINAL_STATUSES,
+  type Debt,
+  type Member,
+  type Rail,
+  type Settlement,
+  type SettlementOptions,
+} from '@sattle/core';
 import { useClient, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';

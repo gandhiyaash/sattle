@@ -8,8 +8,8 @@
  * Amounts are paise.
  */
 
-import { resolveParts } from '../domain/ledger';
-import type { Expense, ExpenseInput, Group, Member, Settlement, User } from '../domain/types';
+import { resolveParts } from './ledger';
+import type { Expense, ExpenseInput, Group, Member, Settlement, User } from './types';
 
 export const currentUser: User = { id: 'u-yash', displayName: 'Yash' };
 
