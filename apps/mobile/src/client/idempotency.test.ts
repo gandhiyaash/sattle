@@ -28,6 +28,46 @@ describe('ActionKeys', () => {
     expect(seen[2]).not.toBe(seen[1]);
   });
 
+  it('joins a second run made while the first is in flight, instead of sending it again', async () => {
+    const keys = new ActionKeys();
+    let calls = 0;
+    let release!: (v: string) => void;
+    const slow = () => {
+      calls++;
+      return new Promise<string>((r) => (release = r));
+    };
+
+    const first = keys.run('add-member', { displayName: 'Riya' }, slow);
+    const second = keys.run('add-member', { displayName: 'Riya' }, slow);
+    release('m-1');
+    expect(await first).toBe('m-1');
+    expect(await second).toBe('m-1');
+    expect(calls).toBe(1);
+
+    // Once it has finished, the same input is a new action again.
+    await keys.run('add-member', { displayName: 'Riya' }, async () => {
+      calls++;
+      return 'm-2';
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('lets both callers see the error when the joined request fails, and keeps the key', async () => {
+    const keys = new ActionKeys();
+    const seen: string[] = [];
+    const failing = async (k: string) => {
+      seen.push(k);
+      throw new Error('network');
+    };
+    const a = keys.run('settle', { rail: 'invoice' }, failing);
+    const b = keys.run('settle', { rail: 'invoice' }, failing);
+    await expect(a).rejects.toThrow('network');
+    await expect(b).rejects.toThrow('network');
+    await keys.run('settle', { rail: 'invoice' }, async (k) => void seen.push(k));
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+  });
+
   it('gives a different input its own key', async () => {
     const keys = new ActionKeys();
     const a = await keys.run('settle', { rail: 'invoice' }, async (k) => k);
@@ -55,6 +95,25 @@ describe('ApiClient', () => {
     await create();
     expect(sent).toHaveLength(2);
     expect(sent[1]).toBe(sent[0]);
+  });
+
+  it('sends one request for a double tap, so the second doesn’t get a 409', async () => {
+    let requests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        requests++;
+        await new Promise((r) => setTimeout(r, 10));
+        return new Response(JSON.stringify({ id: 'g-1' }), { status: 201 });
+      })
+    );
+    const client = new ApiClient('http://api.test');
+    const keys = new ActionKeys();
+    const tap = () => keys.run('create-group', manali, (k) => client.createGroup(manali, k));
+
+    const [a, b] = await Promise.all([tap(), tap()]);
+    expect(requests).toBe(1);
+    expect(b).toEqual(a);
   });
 
   it('still sends a fresh key when the caller passes none', async () => {

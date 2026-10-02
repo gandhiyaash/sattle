@@ -100,16 +100,30 @@ export function newIdempotencyKey(): string {
  * Keeping the key after any error is safe: the server only stores a key once
  * the request succeeds, so after a real failure the retry runs afresh.
  * Changing the input makes it a different action with a new key.
+ *
+ * Running the same action again while it's still in flight (a double tap)
+ * joins that request instead of sending a second one, which the server
+ * would refuse with "still being processed" even though the first worked.
  */
 export class ActionKeys {
   private keys = new Map<string, string>();
+  private inFlight = new Map<string, Promise<unknown>>();
 
-  async run<T>(action: string, input: unknown, fn: (key: string) => Promise<T>): Promise<T> {
+  run<T>(action: string, input: unknown, fn: (key: string) => Promise<T>): Promise<T> {
     const id = `${action} ${JSON.stringify(input)}`;
+    const running = this.inFlight.get(id);
+    if (running) return running as Promise<T>;
+
     let key = this.keys.get(id);
     if (!key) this.keys.set(id, (key = newIdempotencyKey()));
-    const result = await fn(key);
-    this.keys.delete(id);
-    return result;
+    const k = key;
+    const attempt = new Promise<T>((resolve) => resolve(fn(k)))
+      .then((result) => {
+        this.keys.delete(id);
+        return result;
+      })
+      .finally(() => this.inFlight.delete(id));
+    this.inFlight.set(id, attempt);
+    return attempt;
   }
 }
