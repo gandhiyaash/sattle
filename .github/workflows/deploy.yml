@@ -47,7 +47,8 @@ jobs:
               exit 1
             fi
             for i in $(seq 1 30); do
-              curl -fsS localhost:3100/health && exit 0
+              # -m 2: a socket that accepts but never answers would hang past the 30s window.
+              curl -fsS -m 2 localhost:3100/health && exit 0
               sleep 1
             done
             sudo journalctl -u sattle -n 50 --no-pager
