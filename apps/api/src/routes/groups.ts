@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { SattleError, parseLightningAddress, resolveParts, type Expense } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
-import { minor, notImplemented, parse } from '../http';
+import { transaction } from '../db';
+import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
 import { newId, nowIso } from '../repo';
 import { debtsOf } from '../settlementRules';
@@ -35,7 +36,7 @@ export const AddMemberBody = z.object({ displayName: z.string().trim().min(1).ma
 
 const AddressBody = z.object({ address: z.string() });
 
-export function groupRoutes({ db, repo }: Ctx) {
+export function groupRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
@@ -43,11 +44,25 @@ export function groupRoutes({ db, repo }: Ctx) {
 
   r.get('/groups', (c) => c.json(repo.groupsForUser(c.get('user').id)));
 
+  /**
+   * The creator becomes member 0, claimed by them; everyone in memberNames is
+   * a ghost. The creator is `joined`, or `nwc_linked` if they already
+   * connected a wallet, like the members they have in other groups.
+   */
   r.post('/groups', once, async (c) => {
-    parse(CreateGroupBody, await c.req.json());
-    // The creator becomes member 0, `joined` and claimed by them; everyone in
-    // memberNames is a ghost. Returns 201 with the Group.
-    return notImplemented('Creating groups');
+    const user = c.get('user');
+    const body = parse(CreateGroupBody, await c.req.json());
+    const groupId = newId('g');
+    const creatorStatus = wallets.connection(user.id).connected ? 'nwc_linked' : 'joined';
+
+    transaction(db, () => {
+      repo.insertGroup({ id: groupId, name: body.name, currency: body.currency, createdAt: nowIso() });
+      repo.appendMember({ id: newId('m'), groupId, displayName: user.displayName, status: creatorStatus, claimedByUserId: user.id });
+      for (const displayName of body.memberNames) {
+        repo.appendMember({ id: newId('m'), groupId, displayName, status: 'ghost' });
+      }
+    });
+    return c.json(repo.groupForUser(groupId, user.id), 201);
   });
 
   r.get('/groups/:id', (c) => c.json(repo.groupForUser(c.req.param('id'), c.get('user').id)));
@@ -57,11 +72,11 @@ export function groupRoutes({ db, repo }: Ctx) {
     return c.json(repo.members(g.id));
   });
 
+  /** Appends a ghost after the existing members. */
   r.post('/groups/:id/members', once, async (c) => {
-    repo.groupForUser(c.req.param('id'), c.get('user').id);
-    parse(AddMemberBody, await c.req.json());
-    // Appends a ghost at the next position. Returns 201 with the Member.
-    return notImplemented('Adding members');
+    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const { displayName } = parse(AddMemberBody, await c.req.json());
+    return c.json(repo.appendMember({ id: newId('m'), groupId: g.id, displayName, status: 'ghost' }), 201);
   });
 
   r.get('/groups/:id/expenses', (c) => {

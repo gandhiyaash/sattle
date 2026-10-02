@@ -198,7 +198,7 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 
 - Real payments. The API's `SimulatedPayments` stands in until the NWC backend lands.
 - Real auth. There's no sign-in flow yet; see `DEMO_USER_ID` above.
-- Creating groups, adding members, invites and claims. The UI and `SattleClient` don't have these yet either.
+- Screens for creating a group and adding members. The routes exist; nothing calls them yet. Invites and claims are further off.
 - Client-side idempotency. `ApiClient` mints a new key per request, so a user-initiated retry isn't deduplicated. The key needs to come from the user action instead.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
 - Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
