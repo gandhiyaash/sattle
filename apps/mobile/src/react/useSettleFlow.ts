@@ -42,7 +42,8 @@ export interface SettleFlow {
   buildInvite: (groupName: string) => { url: string; message: string } | null;
 }
 
-const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081';
+/** Base for every link the app hands out: invites and pay links. */
+export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081';
 
 export function useSettleFlow(debt: Debt, members: Member[], _groupName: string): SettleFlow {
   const client = useClient();

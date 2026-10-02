@@ -350,7 +350,7 @@ export class MockClient implements SattleClient {
       const link = this.findLink(token);
       const sid = this.payLinkSettlements[token];
       const current = sid ? this.findSettlement(sid) : undefined;
-      if (current && (!isTerminal(current) || current.status === 'confirmed')) return this.guestView(link);
+      if (current && (isInProgress(current) || current.status === 'confirmed')) return this.guestView(link);
 
       const g = this.findGroup(link.groupId);
       const balances = computeBalances(
@@ -426,6 +426,12 @@ export class MockClient implements SattleClient {
 
 export function isTerminal(s: Settlement) {
   return TERMINAL_STATUSES.includes(s.status);
+}
+
+/** Same rule as the server: an invoice whose quote has lapsed no longer counts. */
+function isInProgress(s: Settlement) {
+  if (isTerminal(s)) return false;
+  return !(s.status === 'awaiting_payment' && s.quote && Date.parse(s.quote.expiresAt) < Date.now());
 }
 
 function sleep(ms: number) {
