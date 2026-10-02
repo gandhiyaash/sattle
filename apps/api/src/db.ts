@@ -100,5 +100,20 @@ export function seedIfEmpty(db: Db) {
         s.quote ? JSON.stringify(s.quote) : null, s.destination ?? null, s.createdAt, s.updatedAt
       );
     }
+
+    const insPayLink = db.prepare(
+      `INSERT INTO pay_links (token, group_id, from_member_id, to_member_id, amount, created_by_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const l of fixtures.payLinks) {
+      // Only the payee can make a link, so they're its creator.
+      const creator = fixtures.members.find((m) => m.id === l.toMemberId)?.claimedByUserId;
+      if (!creator) throw new Error(`Fixture pay link ${l.token}: the payee must be a claimed member.`);
+      insPayLink.run(l.token, l.groupId, l.fromMemberId, l.toMemberId, l.amount, creator, l.createdAt);
+    }
+    const tagSettlement = db.prepare('UPDATE settlements SET pay_link_token = ? WHERE id = ?');
+    for (const [token, settlementId] of Object.entries(fixtures.payLinkSettlements)) {
+      tagSettlement.run(token, settlementId);
+    }
   });
 }

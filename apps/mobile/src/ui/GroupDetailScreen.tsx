@@ -10,18 +10,21 @@
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  */
 
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Platform, Share, StyleSheet, Text, View } from 'react-native';
 
 import {
   canReceive,
   computeBalances,
+  formatFiat,
+  payLinkPath,
   simplifyDebts,
   type Debt,
   type Expense,
   type Member,
 } from '@sattle/core';
 import { useAsync, useClient } from '../react/SattleProvider';
+import { APP_URL } from '../react/useSettleFlow';
 import {
   Amount,
   Avatar,
@@ -154,6 +157,14 @@ export function GroupDetailScreen({
                       />
                     )}
                   </View>
+                  {!owedByMe && (
+                    <SendPayLink
+                      debt={debt}
+                      payerName={nameOf(other)}
+                      groupName={data.name}
+                      currency={data.currency}
+                    />
+                  )}
                   {cannotReceive && (
                     <Text style={s.blockedNote}>
                       {nameOf(other)} hasn't joined — you can still pay them an address.
@@ -230,6 +241,93 @@ export function GroupDetailScreen({
   );
 }
 
+type LinkState =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'sent'; url: string; note: string }
+  | { kind: 'failed'; message: string };
+
+/**
+ * Only on debts owed to you: mints a pay link and hands it to the share
+ * sheet. On web without navigator.share it copies instead. The URL stays on
+ * screen either way, so it can be copied by hand if both are blocked.
+ */
+function SendPayLink({
+  debt,
+  payerName,
+  groupName,
+  currency,
+}: {
+  debt: Debt;
+  payerName: string;
+  groupName: string;
+  currency: string;
+}) {
+  const client = useClient();
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
+
+  const send = async () => {
+    setState({ kind: 'busy' });
+    let url: string;
+    try {
+      const link = await client.createPayLink({
+        groupId: debt.groupId,
+        fromMemberId: debt.fromMemberId,
+        toMemberId: debt.toMemberId,
+        amount: debt.amount,
+      });
+      url = `${APP_URL}${payLinkPath(link.token)}`;
+    } catch (e) {
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      return;
+    }
+    const message = `${payerName}, you owe me ${formatFiat(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
+    setState({ kind: 'sent', url, note: await share(message) });
+  };
+
+  return (
+    <View style={s.linkBlock}>
+      <Button
+        label={state.kind === 'sent' ? 'Send again' : 'Send pay link'}
+        busy={state.kind === 'busy'}
+        onPress={send}
+      />
+      {state.kind === 'sent' && (
+        <>
+          <Text style={s.linkNote}>{state.note}</Text>
+          <Text style={s.linkUrl} selectable numberOfLines={1}>
+            {state.url}
+          </Text>
+        </>
+      )}
+      {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
+    </View>
+  );
+}
+
+/** Returns a line saying what happened, for under the button. */
+async function share(message: string): Promise<string> {
+  if (Platform.OS !== 'web') {
+    const r = await Share.share({ message }).catch(() => null);
+    return r?.action === Share.sharedAction ? 'Sent. It works until it’s paid.' : 'Not sent. Here’s the link:';
+  }
+  const nav = typeof navigator === 'undefined' ? undefined : navigator;
+  if (nav?.share) {
+    try {
+      await nav.share({ text: message });
+      return 'Sent. It works until it’s paid.';
+    } catch {
+      // Cancelled or refused: fall through to copying.
+    }
+  }
+  try {
+    await nav!.clipboard.writeText(message);
+    return 'Copied. Paste it in a chat.';
+  } catch {
+    return 'Copy this link and send it:';
+  }
+}
+
 const s = StyleSheet.create({
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
@@ -240,6 +338,10 @@ const s = StyleSheet.create({
     marginTop: space.sm,
     marginLeft: 48,
   },
+  linkBlock: { marginTop: space.sm, marginLeft: 48, gap: space.xs },
+  linkNote: { ...type.caption, color: color.inkMuted },
+  linkUrl: { ...type.amountSm, color: color.inkFaint },
+  linkError: { ...type.caption, color: color.danger },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',

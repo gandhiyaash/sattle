@@ -42,7 +42,7 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows[0].name).toBe('001_init.sql');
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql']);
   });
 });
 
@@ -50,9 +50,6 @@ describe('stubs', () => {
   const pending: Array<[string, string, unknown?]> = [
     ['POST', '/groups', { name: 'Trip', memberNames: ['Om'] }],
     ['POST', '/groups/g-goa/members', { displayName: 'Riya' }],
-    ['POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 }],
-    ['POST', '/s/demo/open'],
-    ['GET', '/s/demo'],
     ['PUT', '/me/wallet', { nwcUri: 'nostr+walletconnect://abc?relay=wss://r&secret=s' }],
     ['GET', '/me/wallet'],
   ];

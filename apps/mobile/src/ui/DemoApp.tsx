@@ -14,7 +14,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Debt, Member } from '@sattle/core';
-import { SattleProvider } from '../react/SattleProvider';
+import { SattleProvider, useClient } from '../react/SattleProvider';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupsListScreen } from './GroupsListScreen';
@@ -28,7 +28,7 @@ type Route =
   | { name: 'group'; groupId: string }
   | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
   | { name: 'wallet' }
-  | { name: 'guest'; settlementId: string };
+  | { name: 'guest'; token: string };
 
 export function DemoApp() {
   return (
@@ -92,12 +92,10 @@ function Navigator() {
 
       case 'guest':
         return (
-          <GuestPayScreen
-            settlementId={route.settlementId}
-            payerName="Om"
-            payeeName="Yash"
-            reason="Dinner at Thalassa, split 4 ways"
-          />
+          <View style={{ flex: 1 }}>
+            <GuestPayScreen key={route.token} token={route.token} />
+            <GuestScenarios onOpen={(token) => setRoute({ name: 'guest', token })} />
+          </View>
         );
     }
   })();
@@ -147,7 +145,7 @@ function DemoBar({
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
-    { label: 'Guest link', route: { name: 'guest', settlementId: 'demo' } },
+    { label: 'Guest link', route: { name: 'guest', token: 'demo' } },
   ];
 
   return (
@@ -168,6 +166,69 @@ function DemoBar({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+/**
+ * Demo only: jump the guest page into each state it can be in. Links are for
+ * Priya's debt in Flat 4B, since the seeded demo link already covers Om's.
+ * A fresh link takes a ₹100 slice, so several runs fit before the debt is
+ * used up. Set EXPO_PUBLIC_MOCK_ALWAYS_FAIL=true to see a fresh link fail.
+ */
+function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
+  const client = useClient();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  /** A link for up to `slice` of what Priya still owes, or null once it's all paid. */
+  const linkFor = async (slice: number) => {
+    const debt = (await client.getDebts('g-flat')).find(
+      (d) => d.fromMemberId === 'm-flat-priya' && d.toMemberId === 'm-flat-yash'
+    );
+    if (!debt) return null;
+    const { groupId, fromMemberId, toMemberId } = debt;
+    return client.createPayLink({ groupId, fromMemberId, toMemberId, amount: Math.min(slice, debt.amount) });
+  };
+
+  const run = (make: () => Promise<string | null>) => async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const token = await make();
+      if (token) onOpen(token);
+      else setNote('Priya’s debt is all paid. Reload to reset the demo.');
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const scenarios: Array<{ label: string; make: () => Promise<string | null> }> = [
+    { label: 'Demo link', make: async () => 'demo' },
+    { label: 'Fresh link', make: async () => (await linkFor(10_000))?.token ?? null },
+    {
+      label: 'Already settled',
+      make: async () => {
+        const link = await linkFor(Infinity);
+        if (!link) return null;
+        const { groupId, fromMemberId, toMemberId, amount } = link;
+        await client.markSettledManually({ groupId, fromMemberId, toMemberId, amount, note: 'cash' });
+        return link.token;
+      },
+    },
+    { label: 'Unknown link', make: async () => 'no-such-link' },
+  ];
+
+  return (
+    <View style={sheet.scenarios}>
+      {scenarios.map((sc) => (
+        <Pressable key={sc.label} disabled={busy} onPress={run(sc.make)} style={sheet.chip}>
+          <Text style={sheet.chipText}>{sc.label}</Text>
+        </Pressable>
+      ))}
+      {note && <Text style={sheet.note}>{note}</Text>}
     </View>
   );
 }
@@ -193,4 +254,24 @@ const sheet = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   tabText: { ...type.label, color: color.inkFaint },
   tabTextActive: { color: color.accent },
+  scenarios: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: space.sm,
+    padding: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.line,
+    backgroundColor: color.surfaceSunken,
+  },
+  chip: {
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+    backgroundColor: color.surface,
+  },
+  chipText: { ...type.caption, color: color.inkMuted },
+  note: { ...type.caption, color: color.inkMuted, width: '100%', textAlign: 'center' },
 });
