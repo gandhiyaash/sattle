@@ -28,7 +28,14 @@ const ExpenseBody = z.object({
 
 export const CreateGroupBody = z.object({
   name: z.string().trim().min(1).max(80),
-  currency: z.string().length(3).default('INR'),
+  // Shaped like an ISO 4217 code. Anything else makes Intl.NumberFormat throw
+  // when the app formats one of the group's amounts.
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, 'expected a three-letter currency code like INR')
+    .default('INR'),
   memberNames: z.array(z.string().trim().min(1).max(40)).max(50),
 });
 

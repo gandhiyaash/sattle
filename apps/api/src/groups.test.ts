@@ -105,6 +105,20 @@ describe('POST /groups', () => {
     expect(res.body.code).toBe('invalid_input');
   });
 
+  it('uppercases the currency', async () => {
+    const { call } = setup();
+    const res = await call<Group>('POST', '/groups', { name: 'Trip', currency: ' usd ', memberNames: [] });
+    expect(res.status).toBe(201);
+    expect(res.body.currency).toBe('USD');
+  });
+
+  it.each(['12!', 'RUPEE', '', 'ab'])('refuses currency %j, which the app couldn’t format', async (currency) => {
+    const { call } = setup();
+    const res = await call<{ code: string; message: string }>('POST', '/groups', { name: 'Trip', currency, memberNames: [] });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'invalid_input', message: expect.stringContaining('currency') });
+  });
+
   it('replays a repeated idempotency key instead of making a second group', async () => {
     const { call } = setup();
     const h = { 'idempotency-key': 'new-group-1' };
