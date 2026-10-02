@@ -184,7 +184,7 @@ Auth is a bearer token looked up in `users.token`. With `DEMO_USER_ID` set, requ
 
 ### Deploying
 
-The API runs at `https://sattle.axiosiiitl.dev` on an Oracle VM, as the `sattle` systemd unit on port 3100 behind nginx. `.github/workflows/deploy.yml` redeploys it after every green `ci` run on `main`: it SSHes in, pulls, runs `npm ci` for the API, restarts the unit and waits for `/health`. It can also be run by hand from the Actions tab. It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets.
+The API runs at `https://sattle.axiosiiitl.dev` on an Oracle VM, as the `sattle` systemd unit on port 3100 behind nginx. `.github/workflows/deploy.yml` redeploys it after every green `ci` run on a push to `main`: it SSHes in, fast-forwards to the commit `ci` passed, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails. It can also be run by hand from the Actions tab, which deploys `main` as it is. It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets.
 
 The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. The demo server sets `PAYMENTS=sim` and `DEMO_USER_ID=u-yash`, because the app has no sign-in yet. The systemd unit and nginx site are copied in `apps/api/deploy/`. The deploy job doesn't install them, so after changing either, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. The TLS certificate comes from certbot and renews itself.
 

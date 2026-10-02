@@ -14,21 +14,38 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # A ci run on a pull request can report head_branch "main" too (a fork's
+    # main), so require that ci ran for a push.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
       - name: SSH in and redeploy
         uses: appleboy/ssh-action@v1
+        env:
+          # The commit ci passed, not whatever main has moved on to since. A
+          # manual run takes main as it is.
+          SHA: ${{ github.event.workflow_run.head_sha || 'origin/main' }}
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          envs: SHA
           script: |
             set -e
             cd ~/sattle
-            git pull --ff-only origin main
+            git fetch origin main
+            # Fast-forward to that commit. If a later deploy already went past
+            # it, this is a no-op rather than a step back.
+            git merge --ff-only "$SHA"
             npm ci -w @sattle/api -w @sattle/core --include-workspace-root --no-audit --no-fund
-            sudo systemctl restart sattle
+            # Clear a start-limit hit by earlier crashes, or systemd refuses the restart.
+            sudo systemctl reset-failed sattle || true
+            if ! sudo systemctl restart sattle; then
+              sudo journalctl -u sattle -n 50 --no-pager
+              exit 1
+            fi
             for i in $(seq 1 30); do
               curl -fsS localhost:3100/health && exit 0
               sleep 1
