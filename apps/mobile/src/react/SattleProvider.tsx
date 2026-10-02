@@ -82,6 +82,11 @@ export interface AsyncState<T> {
   loading: boolean;
   error: Error | null;
   reload: () => void;
+  /**
+   * Fetches again in the background: no loading state, and a failure keeps
+   * the data already on screen. For keeping a screen current.
+   */
+  refresh: () => void;
 }
 
 /** Runs `fn` on mount and whenever `deps` change. Ignores stale results. */
@@ -109,7 +114,31 @@ export function useAsync<T>(fn: () => Promise<T>, deps: DependencyList): AsyncSt
   }, [...deps, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { data, loading, error, reload };
+
+  // Results from a refresh started before the deps changed are dropped.
+  const generation = useRef(0);
+  useEffect(() => {
+    generation.current++;
+  }, [...deps, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () => () => {
+      generation.current = -1;
+    },
+    []
+  );
+  const refresh = useCallback(() => {
+    const started = generation.current;
+    fnRef
+      .current()
+      .then((d) => {
+        if (generation.current === started) setData(d);
+      })
+      .catch(() => {
+        // Keep what's on screen; the next refresh tries again.
+      });
+  }, []);
+
+  return { data, loading, error, reload, refresh };
 }
 
 /** Live view of one settlement: created → awaiting_payment → in_flight → confirmed. */

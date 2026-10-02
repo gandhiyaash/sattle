@@ -5,7 +5,7 @@
  *
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
- *   paying / done     lifecycle
+ *   paying / done     lifecycle; on the invoice rail, the invoice to pay
  *
  * The blocked screen is not an error state. It offers three routes to the
  * same outcome, ordered by how likely they are to actually work: get an
@@ -13,11 +13,12 @@
  * that it was handled outside the app.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatFiat, type Debt, type Member } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
+import { InvoicePanel } from './InvoicePanel';
 import { Button, Card, ErrorState, SatLine } from './primitives';
 import { color, radius, space, type } from './theme';
 
@@ -38,6 +39,9 @@ export function SettleUpSheet({
 }: SettleUpSheetProps) {
   const flow = useSettleFlow(debt, members, groupName);
   const [draft, setDraft] = useState('');
+  // The quote ran out on screen before the server marked the invoice expired.
+  const [lapsed, setLapsed] = useState(false);
+  useEffect(() => setLapsed(false), [flow.settlement?.id]);
 
   const recipient = members.find((m) => m.id === debt.toMemberId);
   const amount = formatFiat(debt.amount, currency);
@@ -45,6 +49,54 @@ export function SettleUpSheet({
   if (!recipient || !flow.options) return null;
 
   // -- paying / done -------------------------------------------------------
+
+  // The payer pays this from their own wallet, so show them what to pay.
+  const invoice =
+    flow.step === 'paying' &&
+    flow.settlement?.rail === 'invoice' &&
+    flow.settlement.status === 'awaiting_payment' &&
+    flow.settlement.destination
+      ? flow.settlement
+      : null;
+
+  if (invoice) {
+    return (
+      <View style={s.sheet}>
+        <Text style={s.title}>Pay {recipient.displayName}</Text>
+        <View style={s.amountBlock}>
+          <Text style={s.amount}>{amount}</Text>
+          {invoice.quote && <SatLine sats={invoice.quote.amountSat} />}
+        </View>
+
+        {lapsed ? (
+          <>
+            <Text style={s.body}>
+              This invoice expired. Lightning invoices only last a few minutes, and the sats price moves. Nothing
+              moved.
+            </Text>
+            <Button
+              label="Get a new invoice"
+              variant="primary"
+              busy={flow.busy}
+              onPress={() => flow.choose('invoice')}
+            />
+          </>
+        ) : (
+          <>
+            <InvoicePanel
+              invoice={invoice.destination!}
+              expiresAt={invoice.quote?.expiresAt}
+              onExpired={() => setLapsed(true)}
+            />
+            <View style={s.waitingInline}>
+              <ActivityIndicator color={color.accent} size="small" />
+              <Text style={s.waitingNote}>Waiting for the payment. This updates on its own.</Text>
+            </View>
+          </>
+        )}
+      </View>
+    );
+  }
 
   if (flow.step === 'paying' || flow.step === 'done') {
     const done = flow.step === 'done';
@@ -198,6 +250,9 @@ const s = StyleSheet.create({
   error: { ...type.caption, color: color.danger, marginBottom: space.sm },
 
   waiting: { alignItems: 'center', gap: space.sm, paddingVertical: space.xl },
+  waitingInline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.md },
+  amountBlock: { alignItems: 'center', gap: space.xs, marginBottom: space.md },
+  amount: { ...type.amountLg, color: color.ink },
   waitingStep: { ...type.body, color: color.ink },
   waitingNote: { ...type.caption, color: color.inkFaint, textAlign: 'center' },
 
