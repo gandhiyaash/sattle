@@ -18,16 +18,20 @@ import type { AppEnv, Ctx } from './context';
 import type { Db } from './db';
 import { STATUS } from './http';
 import { auth } from './middleware';
+import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
 import { groupRoutes } from './routes/groups';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
 import { walletRoutes } from './routes/wallet';
+import { createWalletStore, type WalletStore } from './walletStore';
 
 export interface AppDeps {
   db: Db;
-  payments: (repo: Repo) => PaymentBackend;
+  payments: (repo: Repo, wallets: WalletStore) => PaymentBackend;
+  /** Defaults to a real NwcClient over the URI's relays. */
+  nwc?: (uri: string) => NwcApi;
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
   demoUserId?: string;
   corsOrigin?: string | string[];
@@ -35,7 +39,9 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps) {
   const repo = createRepo(deps.db);
-  const ctx: Ctx = { db: deps.db, repo, payments: deps.payments(repo) };
+  const wallets = createWalletStore(deps.db);
+  const nwc = deps.nwc ?? ((uri: string) => new NwcClient(uri));
+  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, payments: deps.payments(repo, wallets) };
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {

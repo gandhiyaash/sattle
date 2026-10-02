@@ -42,7 +42,7 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql']);
   });
 });
 
@@ -50,8 +50,6 @@ describe('stubs', () => {
   const pending: Array<[string, string, unknown?]> = [
     ['POST', '/groups', { name: 'Trip', memberNames: ['Om'] }],
     ['POST', '/groups/g-goa/members', { displayName: 'Riya' }],
-    ['PUT', '/me/wallet', { nwcUri: 'nostr+walletconnect://abc?relay=wss://r&secret=s' }],
-    ['GET', '/me/wallet'],
   ];
 
   it.each(pending)('%s %s returns 501 until built', async (method, path, body) => {
@@ -59,12 +57,5 @@ describe('stubs', () => {
     const res = await call(method, path, body);
     expect(res.status).toBe(501);
     expect(await res.json()).toMatchObject({ code: 'not_implemented' });
-  });
-
-  it('validates input before reaching a stub', async () => {
-    const { call } = setup('u-yash');
-    const res = await call('PUT', '/me/wallet', { nwcUri: 'https://not-nwc' });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: 'invalid_wallet' });
   });
 });

@@ -164,6 +164,9 @@ export interface NwcClientOptions {
 
 type Encryption = 'nip44_v2' | 'nip04';
 
+/** What the rest of the server uses, so tests can hand in a fake wallet. */
+export type NwcApi = Pick<NwcClient, 'getInfo' | 'makeInvoice' | 'lookupInvoice' | 'close'>;
+
 export class NwcClient {
   readonly walletPubkey: string;
   readonly relays: string[];
