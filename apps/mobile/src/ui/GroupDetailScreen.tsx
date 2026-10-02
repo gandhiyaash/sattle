@@ -10,7 +10,7 @@
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, Share, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -64,7 +64,7 @@ export function GroupDetailScreen({
 }: GroupDetailScreenProps) {
   const client = useClient();
 
-  const { data, loading, error, reload } = useAsync<GroupView>(async () => {
+  const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
     const [user, group, members, expenses, settlements] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
@@ -87,6 +87,16 @@ export function GroupDetailScreen({
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
     };
   }, [groupId]);
+
+  // A payment can land while this is open: a guest paying a link, someone
+  // else settling up. Keep the balances current without a loading flash.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refresh();
+    }, REFRESH_MS);
+    return () => clearInterval(t);
+  }, [refresh]);
 
   if (loading) {
     return (
@@ -240,6 +250,8 @@ export function GroupDetailScreen({
     </Screen>
   );
 }
+
+const REFRESH_MS = 4000;
 
 type LinkState =
   | { kind: 'idle' }
