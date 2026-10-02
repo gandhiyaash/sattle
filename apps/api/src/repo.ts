@@ -10,6 +10,7 @@ import {
   type Expense,
   type Group,
   type Member,
+  type PayLink,
   type Settlement,
   type User,
 } from '@sattle/core';
@@ -64,6 +65,15 @@ const toSettlement = (r: Row): Settlement => ({
   updatedAt: r.updated_at as string,
 });
 
+const toPayLink = (r: Row): PayLink => ({
+  token: r.token as string,
+  groupId: r.group_id as string,
+  fromMemberId: r.from_member_id as string,
+  toMemberId: r.to_member_id as string,
+  amount: r.amount as number,
+  createdAt: r.created_at as string,
+});
+
 export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
@@ -89,6 +99,15 @@ export function createRepo(db: Db) {
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status,
                                 note, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ),
+    payLinkByToken: db.prepare('SELECT * FROM pay_links WHERE token = ?'),
+    insertPayLink: db.prepare(
+      `INSERT INTO pay_links (token, group_id, from_member_id, to_member_id, amount, created_by_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ),
+    attachToPayLink: db.prepare('UPDATE settlements SET pay_link_token = ? WHERE id = ?'),
+    latestForPayLink: db.prepare(
+      'SELECT * FROM settlements WHERE pay_link_token = ? ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ),
   };
 
@@ -126,6 +145,12 @@ export function createRepo(db: Db) {
         throw new SattleError('not_found', 'That group doesn’t exist.');
       }
       return repo.hydrateGroup(r);
+    },
+
+    /** No membership check. Only for public routes that reach a group through a token. */
+    group: (id: string) => {
+      const r = q.groupById.get(id) as Row | undefined;
+      return r && repo.hydrateGroup(r);
     },
 
     members: (groupId: string) => (q.membersOfGroup.all(groupId) as Row[]).map(toMember),
@@ -174,6 +199,26 @@ export function createRepo(db: Db) {
         id
       );
       return repo.settlement(id)!;
+    },
+
+    payLink: (token: string) => {
+      const r = q.payLinkByToken.get(token) as Row | undefined;
+      return r && toPayLink(r);
+    },
+    insertPayLink(link: PayLink, createdByUserId: string) {
+      q.insertPayLink.run(
+        link.token, link.groupId, link.fromMemberId, link.toMemberId, link.amount, createdByUserId, link.createdAt
+      );
+      return link;
+    },
+    /** Records that this settlement came from opening the link. */
+    attachToPayLink(settlementId: string, token: string) {
+      q.attachToPayLink.run(token, settlementId);
+    },
+    /** The settlement the link opened most recently, whatever its status. */
+    latestForPayLink: (token: string) => {
+      const r = q.latestForPayLink.get(token) as Row | undefined;
+      return r && toSettlement(r);
     },
   };
 
