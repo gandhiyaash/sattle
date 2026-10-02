@@ -7,6 +7,7 @@
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
  *   routes/wallet.ts       the payee's NWC connection
+ *   routes/events.ts       server-sent events for payment status
  */
 
 import { Hono } from 'hono';
@@ -21,6 +22,7 @@ import { auth } from './middleware';
 import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
+import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
@@ -32,6 +34,8 @@ export interface AppDeps {
   payments: (repo: Repo, wallets: WalletStore) => PaymentBackend;
   /** Defaults to a real NwcClient over the URI's relays. */
   nwc?: (uri: string) => NwcApi;
+  /** Stream timings; tests shorten them. */
+  events?: EventOptions;
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
   demoUserId?: string;
   corsOrigin?: string | string[];
@@ -72,6 +76,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', settlementRoutes(ctx));
   app.route('/', payLinkRoutes(ctx));
   app.route('/', walletRoutes(ctx));
+  app.route('/', eventRoutes(ctx, deps.events));
 
   return app;
 }
