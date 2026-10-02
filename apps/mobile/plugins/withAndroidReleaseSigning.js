@@ -24,13 +24,14 @@ module.exports = function withAndroidReleaseSigning(config) {
     gradle = patch(
       gradle,
       /versionCode \d+/,
-      `versionCode (findProperty('SATTLE_VERSION_CODE') ?: '1').toInteger()`,
+      // Parenthesised: Groovy reads `versionCode (x).toInteger()` as `versionCode(x).toInteger()`.
+      `versionCode((findProperty('SATTLE_VERSION_CODE') ?: '1').toInteger())`,
       'versionCode',
     );
     gradle = patch(
       gradle,
       /versionName "([^"]*)"/,
-      `versionName findProperty('SATTLE_VERSION_NAME') ?: "$1"`,
+      `versionName(findProperty('SATTLE_VERSION_NAME') ?: "$1")`,
       'versionName',
     );
     gradle = patch(
