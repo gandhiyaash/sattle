@@ -134,9 +134,17 @@ export class ApiClient implements SattleClient {
     return this.request<WalletConnection>('GET', '/me/wallet');
   }
 
-  /** Polls until terminal. Swap for SSE or a websocket when the server has one. */
+  /**
+   * Server-sent events where the platform has EventSource (web), so every
+   * status shows; polling everywhere else. EventSource can't send a bearer
+   * token, so with one set this polls too until the server issues stream
+   * tickets.
+   */
   onSettlementUpdate(settlementId: string, cb: (s: Settlement) => void) {
-    return poll(() => this.getSettlement(settlementId), cb, (s) => TERMINAL_STATUSES.includes(s.status));
+    const done = (s: Settlement) => TERMINAL_STATUSES.includes(s.status);
+    const polling = () => poll(() => this.getSettlement(settlementId), cb, done);
+    if (typeof EventSource === 'undefined' || this.getToken()) return polling();
+    return stream(`${this.baseUrl}/settlements/${encodeURIComponent(settlementId)}/events`, 'settlement', cb, done, polling);
   }
 
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void) {
@@ -146,6 +154,41 @@ export class ApiClient implements SattleClient {
       (v) => Boolean(v.settlement && TERMINAL_STATUSES.includes(v.settlement.status))
     );
   }
+}
+
+/**
+ * Listens to one SSE event until `done`. If the stream drops before then
+ * (server restart, the server's time limit, a proxy), it hands over to
+ * `fallback` for good rather than letting EventSource reconnect forever.
+ */
+function stream<T>(
+  url: string,
+  event: string,
+  cb: (v: T) => void,
+  done: (v: T) => boolean,
+  fallback: () => () => void
+) {
+  let finished = false;
+  let stopFallback: (() => void) | undefined;
+  const es = new EventSource(url);
+  es.addEventListener(event, (e) => {
+    const v = JSON.parse((e as MessageEvent<string>).data) as T;
+    cb(v);
+    if (done(v)) {
+      finished = true;
+      es.close();
+    }
+  });
+  es.onerror = () => {
+    es.close();
+    if (finished) return;
+    stopFallback ??= fallback();
+  };
+  return () => {
+    finished = true;
+    es.close();
+    stopFallback?.();
+  };
 }
 
 /** Calls `fetch` every POLL_MS until `done`, skipping transient errors. */
