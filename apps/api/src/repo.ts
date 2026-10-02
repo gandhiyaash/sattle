@@ -88,6 +88,7 @@ export function createRepo(db: Db) {
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
     memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
+    // group_id is bound twice: once for the row, once for the position subquery.
     appendMember: db.prepare(
       `INSERT INTO members (id, group_id, position, display_name, status, claimed_by_user_id)
        VALUES (?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM members WHERE group_id = ?), ?, ?, ?)`
