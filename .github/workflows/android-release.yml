@@ -64,6 +64,22 @@ jobs:
             fi
           done
 
+      - name: Check app config
+        env:
+          USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+          TRACK: ${{ github.event.inputs.track }}
+        run: |
+          # Both of these build fine and only show up once someone opens the app.
+          if [ "$USE_MOCK" = "true" ] && [ "$TRACK" = "production" ]; then
+            echo "::error::EXPO_PUBLIC_USE_MOCK is 'true'; refusing to ship the mock client to production"
+            exit 1
+          fi
+          if [ "$USE_MOCK" != "true" ] && [ -z "$API_URL" ]; then
+            echo "::error::Set the EXPO_PUBLIC_API_URL repository variable, or the app talks to localhost"
+            exit 1
+          fi
+
       - name: Configure Git
         if: ${{ github.event.inputs.bump_type != '' && github.event.inputs.bump_type != 'none' }}
         run: |
@@ -76,29 +92,16 @@ jobs:
         id: version_bump
         env:
           BUMP_TYPE: ${{ github.event.inputs.bump_type }}
-          BRANCH: ${{ github.ref_name }}
         run: |
           set -e
-          # Bump on top of the latest remote branch and retry if the push loses a race.
-          # Branch and tag are pushed atomically so neither lands alone.
-          for attempt in 1 2 3 4 5; do
-            git fetch --force --tags origin "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-            npm version "$BUMP_TYPE" --no-git-tag-version -w @sattle/mobile
-            NEW_VERSION=$(node -p "require('./apps/mobile/package.json').version")
-            git add apps/mobile/package.json package-lock.json
-            git commit -m "chore(release): bump version to v$NEW_VERSION"
-            git tag "v$NEW_VERSION"
-            if git push --atomic origin "HEAD:$BRANCH" "refs/tags/v$NEW_VERSION"; then
-              echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-              exit 0
-            fi
-            echo "Push rejected (attempt $attempt), retrying on top of latest $BRANCH..."
-            git tag -d "v$NEW_VERSION"
-            sleep $((attempt * 5))
-          done
-          echo "Failed to push version bump after 5 attempts" >&2
-          exit 1
+          # Commit and tag locally only. They are pushed after the build succeeds, so a
+          # failed build leaves no version commit or tag behind.
+          npm version "$BUMP_TYPE" --no-git-tag-version -w @sattle/mobile
+          NEW_VERSION=$(node -p "require('./apps/mobile/package.json').version")
+          git add apps/mobile/package.json package-lock.json
+          git commit -m "chore(release): bump version to v$NEW_VERSION"
+          git tag "v$NEW_VERSION"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
       - name: Install Dependencies
         run: npm ci
@@ -161,6 +164,18 @@ jobs:
             -PSATTLE_UPLOAD_KEY_ALIAS="$KEY_ALIAS" \
             -PSATTLE_UPLOAD_KEY_PASSWORD="$KEY_PASSWORD"
 
+      - name: Push Version Bump
+        if: ${{ github.event.inputs.bump_type != '' && github.event.inputs.bump_type != 'none' }}
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          # Branch and tag go together so neither lands alone. No rebase-and-retry: if the
+          # branch moved during the build, the tag would point at code that wasn't built.
+          if ! git push --atomic origin "HEAD:$BRANCH" "refs/tags/v$NEW_VERSION"; then
+            echo "::error::$BRANCH moved while building v$NEW_VERSION. Re-run the workflow."
+            exit 1
+          fi
+
       - name: Extract Release Notes
         id: changelog
         run: |
@@ -206,7 +221,8 @@ jobs:
         env:
           PLAY_STORE_CREDENTIALS: ${{ secrets.PLAY_STORE_CREDENTIALS }}
         if: ${{ env.PLAY_STORE_CREDENTIALS != '' }}
-        uses: r0adkll/upload-google-play@v1
+        # Pinned to a commit: this action is handed the Play service account key.
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_CREDENTIALS }}
           packageName: com.chanakya.sattle
