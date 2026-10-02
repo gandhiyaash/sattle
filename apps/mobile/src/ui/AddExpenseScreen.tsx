@@ -11,7 +11,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatFiat, resolveParts, type Member, type SplitMode } from '@sattle/core';
-import { useClient } from '../react/SattleProvider';
+import { useActionKeys, useClient } from '../react/SattleProvider';
 import {
   Avatar,
   Button,
@@ -45,6 +45,7 @@ export function AddExpenseScreen({
   onAdded,
 }: AddExpenseScreenProps) {
   const client = useClient();
+  const keys = useActionKeys();
 
   const [description, setDescription] = useState('');
   const [amountText, setAmountText] = useState('');
@@ -89,14 +90,15 @@ export function AddExpenseScreen({
     setBusy(true);
     setError(null);
     try {
-      await client.addExpense({
+      const input = {
         groupId,
         description: description.trim(),
         amount: amountMinor,
         paidByMemberId: paidBy,
-        splitMode: 'equal',
+        splitMode: 'equal' as const,
         parts: included.map((memberId) => ({ memberId })),
-      });
+      };
+      await keys.run('add-expense', input, (k) => client.addExpense(input, k));
       onAdded();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save that.');

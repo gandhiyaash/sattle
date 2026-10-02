@@ -4,7 +4,8 @@
  *
  * Writes that move money or create records send an `idempotency-key`. The
  * server must honour it: a retried settlement that mints a second invoice is
- * a double payment.
+ * a double payment. The key comes from the caller when it's retrying a user
+ * action (see ActionKeys); otherwise each call mints its own.
  */
 
 import {
@@ -38,11 +39,11 @@ export class ApiClient implements SattleClient {
     method: 'GET' | 'POST' | 'PUT',
     path: string,
     body?: unknown,
-    idempotent = false
+    idempotencyKey?: string
   ): Promise<T> {
     const headers: Record<string, string> = { accept: 'application/json' };
     if (body !== undefined) headers['content-type'] = 'application/json';
-    if (idempotent) headers['idempotency-key'] = newIdempotencyKey();
+    if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     const token = this.getToken();
     if (token) headers.authorization = `Bearer ${token}`;
 
@@ -76,20 +77,20 @@ export class ApiClient implements SattleClient {
   getGroup(groupId: string) {
     return this.request<Group>('GET', `/groups/${groupId}`);
   }
-  createGroup(input: CreateGroupInput) {
-    return this.request<Group>('POST', '/groups', input, true);
+  createGroup(input: CreateGroupInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups', input, idempotencyKey);
   }
   getMembers(groupId: string) {
     return this.request<Member[]>('GET', `/groups/${groupId}/members`);
   }
-  addMember(groupId: string, displayName: string) {
-    return this.request<Member>('POST', `/groups/${groupId}/members`, { displayName }, true);
+  addMember(groupId: string, displayName: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Member>('POST', `/groups/${groupId}/members`, { displayName }, idempotencyKey);
   }
   getExpenses(groupId: string) {
     return this.request<Expense[]>('GET', `/groups/${groupId}/expenses`);
   }
-  addExpense(input: ExpenseInput) {
-    return this.request<Expense>('POST', `/groups/${input.groupId}/expenses`, input, true);
+  addExpense(input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Expense>('POST', `/groups/${input.groupId}/expenses`, input, idempotencyKey);
   }
   getDebts(groupId: string) {
     return this.request<Debt[]>('GET', `/groups/${groupId}/debts`);
@@ -100,15 +101,18 @@ export class ApiClient implements SattleClient {
   getSettlement(settlementId: string) {
     return this.request<Settlement>('GET', `/settlements/${settlementId}`);
   }
-  createSettlement(input: CreateSettlementInput) {
-    return this.request<Settlement>('POST', `/groups/${input.groupId}/settlements`, input, true);
+  createSettlement(input: CreateSettlementInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Settlement>('POST', `/groups/${input.groupId}/settlements`, input, idempotencyKey);
   }
-  markSettledManually(input: Omit<CreateSettlementInput, 'rail'> & { note?: string }) {
+  markSettledManually(
+    input: Omit<CreateSettlementInput, 'rail'> & { note?: string },
+    idempotencyKey = newIdempotencyKey()
+  ) {
     return this.request<Settlement>(
       'POST',
       `/groups/${input.groupId}/settlements/manual`,
       input,
-      true
+      idempotencyKey
     );
   }
   setMemberPayoutAddress(memberId: string, address: string) {
@@ -116,12 +120,12 @@ export class ApiClient implements SattleClient {
   }
 
 
-  createPayLink(input: CreatePayLinkInput) {
+  createPayLink(input: CreatePayLinkInput, idempotencyKey = newIdempotencyKey()) {
     const { groupId, ...body } = input;
-    return this.request<PayLink>('POST', `/groups/${groupId}/pay-links`, body, true);
+    return this.request<PayLink>('POST', `/groups/${groupId}/pay-links`, body, idempotencyKey);
   }
   openPayLink(token: string) {
-    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, undefined, true);
+    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, undefined, newIdempotencyKey());
   }
   getGuestView(token: string) {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);

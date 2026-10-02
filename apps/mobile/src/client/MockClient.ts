@@ -36,7 +36,11 @@ import type { SattleClient } from './SattleClient';
 export interface MockClientOptions {
   /** Delay applied to every call. Default 400ms. */
   latencyMs?: number;
-  /** 0..1 chance that any call throws a network error. */
+  /**
+   * 0..1 chance that any call throws a network error. Half of those happen
+   * after a write was carried out, as if the response was lost, so retrying
+   * with a new key does it twice.
+   */
   failureRate?: number;
   /** Every settlement ends in `failed`. */
   alwaysFailSettlement?: boolean;
@@ -56,6 +60,8 @@ export class MockClient implements SattleClient {
   private payLinkSettlements: Record<string, string>;
   private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
   private listeners = new Map<string, Set<(s: Settlement) => void>>();
+  /** idempotency key → the first reply, like the server's table. */
+  private replies = new Map<string, unknown>();
   private seq = 0;
   private readonly opts: Required<MockClientOptions>;
 
@@ -79,12 +85,23 @@ export class MockClient implements SattleClient {
 
   // -- plumbing -------------------------------------------------------------
 
-  private async call<T>(fn: () => T): Promise<T> {
+  /** With a key, a repeat returns the first reply instead of running `fn` again. */
+  private async call<T>(fn: () => T, idempotencyKey?: string): Promise<T> {
     if (this.opts.latencyMs > 0) await sleep(this.opts.latencyMs * (0.6 + Math.random() * 0.8));
-    if (Math.random() < this.opts.failureRate) {
-      throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
+    const lost = Math.random() < this.opts.failureRate;
+    if (lost && Math.random() < 0.5) throw networkError();
+
+    let reply: T;
+    if (idempotencyKey && this.replies.has(idempotencyKey)) {
+      reply = this.replies.get(idempotencyKey) as T;
+    } else {
+      reply = structuredClone(fn());
+      if (idempotencyKey) this.replies.set(idempotencyKey, reply);
     }
-    return structuredClone(fn());
+
+    // The write happened; only the response goes missing.
+    if (lost) throw networkError();
+    return structuredClone(reply);
   }
 
   private id(prefix: string) {
@@ -127,7 +144,7 @@ export class MockClient implements SattleClient {
     return this.call(() => this.findGroup(groupId));
   }
 
-  createGroup(input: CreateGroupInput) {
+  createGroup(input: CreateGroupInput, idempotencyKey?: string) {
     return this.call(() => {
       const name = input.name.trim();
       if (!name) throw new SattleError('invalid_input', 'Give the group a name.');
@@ -146,10 +163,10 @@ export class MockClient implements SattleClient {
       for (const n of input.memberNames) add({ displayName: n.trim(), status: 'ghost' });
       this.groups.unshift(group);
       return group;
-    });
+    }, idempotencyKey);
   }
 
-  addMember(groupId: string, displayName: string) {
+  addMember(groupId: string, displayName: string, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(groupId);
       const name = displayName.trim();
@@ -158,7 +175,7 @@ export class MockClient implements SattleClient {
       this.members.push(member);
       g.memberIds.push(member.id);
       return member;
-    });
+    }, idempotencyKey);
   }
 
   getMembers(groupId: string) {
@@ -194,7 +211,7 @@ export class MockClient implements SattleClient {
 
   // -- writes ---------------------------------------------------------------
 
-  addExpense(input: ExpenseInput) {
+  addExpense(input: ExpenseInput, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
       const bad = [input.paidByMemberId, ...input.parts.map((p) => p.memberId)].find(
@@ -210,7 +227,7 @@ export class MockClient implements SattleClient {
       };
       this.expenses.push(expense);
       return expense;
-    });
+    }, idempotencyKey);
   }
 
   setMemberPayoutAddress(memberId: string, address: string) {
@@ -224,7 +241,7 @@ export class MockClient implements SattleClient {
     });
   }
 
-  markSettledManually(input: Omit<CreateSettlementInput, 'rail'> & { note?: string }) {
+  markSettledManually(input: Omit<CreateSettlementInput, 'rail'> & { note?: string }, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
       const s: Settlement = {
@@ -242,11 +259,11 @@ export class MockClient implements SattleClient {
       };
       this.settlements.push(s);
       return s;
-    });
+    }, idempotencyKey);
   }
 
-  async createSettlement(input: CreateSettlementInput) {
-    const created = await this.call(() => {
+  createSettlement(input: CreateSettlementInput, idempotencyKey?: string) {
+    return this.call(() => {
       if (input.rail === 'manual') {
         throw new SattleError('invalid_expense', 'Use markSettledManually for manual settlements.');
       }
@@ -269,11 +286,10 @@ export class MockClient implements SattleClient {
         updatedAt: this.now(),
       };
       this.settlements.push(s);
+      // Started here, not after the reply, so it runs even if the reply is lost.
+      void this.runLifecycle(s.id);
       return s;
-    });
-
-    this.runLifecycle(created.id);
-    return created;
+    }, idempotencyKey);
   }
 
   /** Drives a settlement to a terminal state in the background. */
@@ -331,7 +347,7 @@ export class MockClient implements SattleClient {
     };
   }
 
-  createPayLink(input: CreatePayLinkInput) {
+  createPayLink(input: CreatePayLinkInput, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
       const payee = this.members.find((m) => m.id === input.toMemberId);
@@ -346,7 +362,7 @@ export class MockClient implements SattleClient {
       };
       this.payLinks.push(link);
       return link;
-    });
+    }, idempotencyKey);
   }
 
   openPayLink(token: string) {
@@ -436,6 +452,10 @@ export function isTerminal(s: Settlement) {
 function isInProgress(s: Settlement) {
   if (isTerminal(s)) return false;
   return !(s.status === 'awaiting_payment' && s.quote && Date.parse(s.quote.expiresAt) < Date.now());
+}
+
+function networkError() {
+  return new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
 }
 
 function sleep(ms: number) {
