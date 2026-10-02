@@ -42,6 +42,7 @@ export function buildClient(): SattleClient {
   return new MockClient({
     latencyMs: num(process.env.EXPO_PUBLIC_MOCK_LATENCY, 400),
     failureRate: num(process.env.EXPO_PUBLIC_MOCK_FAILURE_RATE, 0),
+    alwaysFailSettlement: process.env.EXPO_PUBLIC_MOCK_ALWAYS_FAIL === 'true',
   });
 }
 
