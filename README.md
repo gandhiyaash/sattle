@@ -182,6 +182,12 @@ Payments go through `PaymentBackend` in `payments.ts`. Today that's `SimulatedPa
 
 Auth is a bearer token looked up in `users.token`. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
+### Deploying
+
+The API runs at `https://sattle.axiosiiitl.dev` on an Oracle VM, as the `sattle` systemd unit on port 3100 behind nginx. `.github/workflows/deploy.yml` redeploys it after every green `ci` run on `main`: it SSHes in, pulls, runs `npm ci` for the API, restarts the unit and waits for `/health`. It can also be run by hand from the Actions tab. It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets.
+
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. The demo server sets `PAYMENTS=sim` and `DEMO_USER_ID=u-yash`, because the app has no sign-in yet. The systemd unit and nginx site are copied in `apps/api/deploy/`. The TLS certificate comes from certbot and renews itself.
+
 ## Wiring the wallet
 
 Write `BreezWallet implements WalletProvider` against `breez-sdk-liquid`, then return it from `buildWallet()` in the provider instead of `MockWallet`. Web keeps `UnavailableWallet`, because the SDK ships Rust bindings and will not run in a browser.
