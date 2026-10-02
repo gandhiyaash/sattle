@@ -201,6 +201,6 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 - Invites and claims. Groups and members can be created, but a ghost has no way to become a user yet.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
 - Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
-- Nostr identity, the NWC connection flow, on-chain rails, and QR rendering.
+- Nostr identity, on-chain rails, and QR rendering.
 
 The types already have room for all of these. None of them are implemented.
