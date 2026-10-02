@@ -8,12 +8,14 @@
     "start": "tsx --env-file-if-exists=.env src/server.ts",
     "db:reset": "rm -f data/sattle.db data/sattle.db-wal data/sattle.db-shm",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "nwc:smoke": "tsx --env-file-if-exists=.env src/scripts/nwcSmoke.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",
     "@sattle/core": "*",
     "hono": "^4.9.0",
+    "nostr-tools": "^2.25.2",
     "zod": "^4.1.0"
   },
   "devDependencies": {
