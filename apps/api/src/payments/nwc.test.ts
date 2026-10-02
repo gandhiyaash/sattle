@@ -185,6 +185,25 @@ describe('confirmation loop', () => {
     expect((await omPaysYash()).status).toBe(201);
   });
 
+  it('waits out the grace period before believing an invoice expired', async () => {
+    // Expired 10s ago by its own clock: inside the grace period, so still watched.
+    lookup = () => ({ state: 'expired', expiresAt: NOW / 1000 - 10 });
+    const { id } = (await omPaysYash()).body;
+    await settled(id);
+    const before = lookups;
+    await until(id, () => lookups >= before + 3);
+    expect((await get(id)).status).toBe('awaiting_payment');
+
+    // The payment that landed at the last second shows up: it confirms.
+    lookup = () => ({ state: 'settled', settledAt: NOW / 1000 - 11 });
+    expect((await closed(id)).status).toBe('confirmed');
+  });
+
+  it('closes an invoice once it is past the grace period', async () => {
+    lookup = () => ({ state: 'expired', expiresAt: NOW / 1000 - 31 });
+    expect((await closed((await omPaysYash()).body.id)).status).toBe('expired');
+  });
+
   it('keeps asking through a wallet that does not answer, rather than guessing', async () => {
     lookup = () => new NwcError('TIMEOUT', 'slow');
     const { id } = (await omPaysYash()).body;

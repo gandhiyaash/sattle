@@ -47,6 +47,14 @@ interface Watched {
 
 const OPEN = `('awaiting_payment', 'in_flight')`;
 
+/**
+ * How long past its expiry an invoice is still watched before `expired` is
+ * believed. A payment that lands in the last second can take a moment to
+ * show up in the wallet's records; closing it early would leave a paid debt
+ * open and ask the payer to pay again.
+ */
+export const EXPIRY_GRACE_MS = 30_000;
+
 export class NwcPayments implements PaymentBackend {
   /** One client per connection string, kept open: each new one costs a relay handshake. */
   private readonly clients = new Map<string, NwcApi>();
@@ -186,6 +194,7 @@ export class NwcPayments implements PaymentBackend {
         return this.finish(w.settlementId, { status: 'confirmed', preimage: proof });
       }
       case 'expired':
+        if (inv.expiresAt !== undefined && this.now() < inv.expiresAt * 1000 + EXPIRY_GRACE_MS) return;
         return this.finish(w.settlementId, { status: 'expired' });
       case 'failed':
         return this.finish(w.settlementId, { status: 'failed', failureReason: 'The payment didn’t go through. Nothing moved.' });
