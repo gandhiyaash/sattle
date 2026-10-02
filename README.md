@@ -184,9 +184,19 @@ Auth is a bearer token looked up in `users.token`. With `DEMO_USER_ID` set, requ
 
 ### Deploying
 
-The API runs at `https://sattle.axiosiiitl.dev` on an Oracle VM, as the `sattle` systemd unit on port 3100 behind nginx. `.github/workflows/deploy.yml` redeploys it after every green `ci` run on a push to `main`: it SSHes in, fast-forwards to the commit `ci` passed, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails. It can also be run by hand from the Actions tab, which deploys `main` as it is. It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets.
+Both halves run on one Oracle VM behind nginx:
 
-The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. The demo server sets `PAYMENTS=sim` and `DEMO_USER_ID=u-yash`, because the app has no sign-in yet. The systemd unit and nginx site are copied in `apps/api/deploy/`. The deploy job doesn't install them, so after changing either, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. The TLS certificate comes from certbot and renews itself.
+- **API** at `https://battle.axiosiiitl.dev`: the `sattle` systemd unit on port 3100. Site config in `apps/api/deploy/nginx.conf`.
+- **Web app** at `https://sattle.axiosiiitl.dev`: static files from `expo export --platform web`, served from `/var/www/sattle-web/current`. Every path falls back to `index.html`, so pay links (`/s/<token>`) open the guest page. Site config in `apps/mobile/deploy/nginx.conf`.
+
+`.github/workflows/deploy.yml` redeploys both after every green `ci` run on a push to `main`, in two parallel jobs:
+
+- `api` SSHes in, fast-forwards to the commit `ci` passed, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails.
+- `web` builds the web app in Actions against the API above, uploads it to `releases/<sha>` on the VM and repoints the `current` symlink. The five newest builds stay there; to roll back, point `current` at an older one.
+
+Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
+
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. The demo server sets `PAYMENTS=sim` and `DEMO_USER_ID=u-yash`, because the app has no sign-in yet, and `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
 ## Wiring the wallet
 
