@@ -226,23 +226,26 @@ export function GroupDetailScreen({
 
       <View>
         <SectionLabel>Expenses</SectionLabel>
-        {data.expenses.length === 0 && <Text style={s.noExpenses}>Nothing yet. Add the first one below.</Text>}
-        <Card style={{ padding: 0 }}>
-          {data.expenses.map((expense, i) => (
-            <View key={expense.id}>
-              {i > 0 && <Divider />}
-              <View style={s.expenseRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.expenseName}>{expense.description}</Text>
-                  <Text style={s.expenseMeta}>
-                    {nameOf(expense.paidByMemberId)} paid · split {expense.parts.length} ways
-                  </Text>
+        {data.expenses.length === 0 ? (
+          <Text style={s.noExpenses}>Nothing yet. Add the first one below.</Text>
+        ) : (
+          <Card style={{ padding: 0 }}>
+            {data.expenses.map((expense, i) => (
+              <View key={expense.id}>
+                {i > 0 && <Divider />}
+                <View style={s.expenseRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.expenseName}>{expense.description}</Text>
+                    <Text style={s.expenseMeta}>
+                      {nameOf(expense.paidByMemberId)} paid · split {expense.parts.length} ways
+                    </Text>
+                  </View>
+                  <Amount minor={expense.amount} currency={data.currency} size="md" />
                 </View>
-                <Amount minor={expense.amount} currency={data.currency} size="md" />
               </View>
-            </View>
-          ))}
-        </Card>
+            ))}
+          </Card>
+        )}
       </View>
 
       <Button
