@@ -30,6 +30,7 @@ db.prepare(
      updated_at = ? WHERE status IN ${interrupted}`
 ).run(new Date().toISOString());
 
+let nwcPayments: NwcPayments | undefined;
 const rates = createRateService({ fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 9_000_000) } });
 
 const app = createApp({
@@ -38,7 +39,7 @@ const app = createApp({
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
   payments: (repo, wallets) =>
     realPayments
-      ? new NwcPayments({ db, repo, wallets, rates, nwc: (uri) => new NwcClient(uri) })
+      ? (nwcPayments = new NwcPayments({ db, repo, wallets, rates, nwc: (uri) => new NwcClient(uri) }))
       : new SimulatedPayments(repo, {
           stepMs: num(env.SIM_STEP_MS, 400),
           settleDelayMs: num(env.SIM_SETTLE_MS, 2500),
@@ -47,7 +48,10 @@ const app = createApp({
         }),
 });
 
+const resumed = nwcPayments?.resume() ?? 0;
+
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real NWC payments' : 'simulated payments'})`);
+  if (resumed > 0) console.log(`  watching ${resumed} open invoice(s) from before the restart`);
   if (env.DEMO_USER_ID) console.log(`  unauthenticated requests act as ${env.DEMO_USER_ID} (dev only)`);
 });
