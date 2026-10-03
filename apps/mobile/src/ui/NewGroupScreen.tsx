@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useClient } from '../react/SattleProvider';
+import { useActionKeys, useClient } from '../react/SattleProvider';
 import { Button, Card, ErrorState, Screen, SectionLabel } from './primitives';
 import { color, radius, space, type } from './theme';
 
@@ -20,6 +20,7 @@ export interface NewGroupScreenProps {
 
 export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
   const client = useClient();
+  const keys = useActionKeys();
 
   const [name, setName] = useState('');
   const [people, setPeople] = useState<string[]>(['']);
@@ -35,11 +36,12 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
     setBusy(true);
     setError(null);
     try {
-      const group = await client.createGroup({
+      const input = {
         name: name.trim(),
         currency: 'INR',
         memberNames: people.map((p) => p.trim()).filter(Boolean),
-      });
+      };
+      const group = await keys.run('create-group', input, (k) => client.createGroup(input, k));
       onCreated(group.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the group.');

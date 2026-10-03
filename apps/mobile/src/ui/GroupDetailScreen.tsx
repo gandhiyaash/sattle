@@ -23,7 +23,7 @@ import {
   type Expense,
   type Member,
 } from '@sattle/core';
-import { useAsync, useClient } from '../react/SattleProvider';
+import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
   Amount,
@@ -262,6 +262,7 @@ const REFRESH_MS = 4000;
 /** Adds a ghost by name. Like everyone else here, they don't need the app. */
 function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void }) {
   const client = useClient();
+  const keys = useActionKeys();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -271,7 +272,8 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
     setBusy(true);
     setError(null);
     try {
-      await client.addMember(groupId, name.trim());
+      const displayName = name.trim();
+      await keys.run('add-member', { groupId, displayName }, (k) => client.addMember(groupId, displayName, k));
       setName('');
       onAdded();
     } catch (e) {
@@ -323,18 +325,20 @@ function SendPayLink({
   currency: string;
 }) {
   const client = useClient();
+  const keys = useActionKeys();
   const [state, setState] = useState<LinkState>({ kind: 'idle' });
 
   const send = async () => {
     setState({ kind: 'busy' });
     let url: string;
     try {
-      const link = await client.createPayLink({
+      const input = {
         groupId: debt.groupId,
         fromMemberId: debt.fromMemberId,
         toMemberId: debt.toMemberId,
         amount: debt.amount,
-      });
+      };
+      const link = await keys.run('pay-link', input, (k) => client.createPayLink(input, k));
       url = `${APP_URL}${payLinkPath(link.token)}`;
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });

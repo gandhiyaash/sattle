@@ -19,7 +19,7 @@ import { Platform } from 'react-native';
 
 import { ApiClient } from '../client/ApiClient';
 import { MockClient } from '../client/MockClient';
-import type { SattleClient } from '../client/SattleClient';
+import { ActionKeys, type SattleClient } from '../client/SattleClient';
 import type { Settlement } from '@sattle/core';
 import { MockWallet, UnavailableWallet, type WalletProvider } from '../wallet/WalletProvider';
 
@@ -76,6 +76,11 @@ function useCtx() {
 
 export const useClient = () => useCtx().client;
 export const useWallet = () => useCtx().wallet;
+
+/** Idempotency keys for the user actions on one screen. See ActionKeys. */
+export function useActionKeys() {
+  return useState(() => new ActionKeys())[0];
+}
 
 export interface AsyncState<T> {
   data: T | undefined;

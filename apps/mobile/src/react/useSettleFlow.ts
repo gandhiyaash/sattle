@@ -23,7 +23,7 @@ import {
   type Settlement,
   type SettlementOptions,
 } from '@sattle/core';
-import { useClient, useWallet } from './SattleProvider';
+import { useActionKeys, useClient, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';
 
@@ -48,6 +48,9 @@ export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081
 export function useSettleFlow(debt: Debt, members: Member[], _groupName: string): SettleFlow {
   const client = useClient();
   const wallet = useWallet();
+  // A retry after a network error reuses the attempt's key, so a payment
+  // whose response was lost isn't started twice.
+  const keys = useActionKeys();
 
   const [recipient, setRecipient] = useState(() => members.find((m) => m.id === debt.toMemberId));
   const [step, setStep] = useState<SettleStep>('choosing');
@@ -102,11 +105,12 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
     choose: (rail) =>
       run(async () => {
         if (rail === 'manual') {
-          const s = await client.markSettledManually({ ...pick(debt), note: 'Settled outside the app' });
-          onUpdate(s);
+          const input = { ...pick(debt), note: 'Settled outside the app' };
+          onUpdate(await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k)));
           return;
         }
-        const s = await client.createSettlement({ ...pick(debt), rail });
+        const input = { ...pick(debt), rail };
+        const s = await keys.run('settle', input, (k) => client.createSettlement(input, k));
         setStep('paying');
         setSettlement(s);
         unsub.current?.();
@@ -117,7 +121,8 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
 
     markManual: (note) =>
       run(async () => {
-        onUpdate(await client.markSettledManually({ ...pick(debt), note }));
+        const input = { ...pick(debt), note };
+        onUpdate(await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k)));
       }),
 
     startAddressEntry: () => {

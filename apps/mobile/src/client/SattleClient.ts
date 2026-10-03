@@ -4,6 +4,11 @@
  *
  * Adding a method? Add it to MockClient in the same change, so the app keeps
  * running without the server.
+ *
+ * Writes take an optional `idempotencyKey`. Pass the same key when the user
+ * retries the same action (ActionKeys does this), so a request that reached
+ * the server before its response was lost isn't carried out twice. Without
+ * one, each call gets a fresh key.
  */
 
 import type {
@@ -33,13 +38,13 @@ export interface SattleClient {
   getGroups(): Promise<Group[]>;
   getGroup(groupId: string): Promise<Group>;
   /** The creator becomes a joined member; everyone in memberNames starts as a ghost. */
-  createGroup(input: CreateGroupInput): Promise<Group>;
+  createGroup(input: CreateGroupInput, idempotencyKey?: string): Promise<Group>;
   getMembers(groupId: string): Promise<Member[]>;
   /** Adds a ghost. */
-  addMember(groupId: string, displayName: string): Promise<Member>;
+  addMember(groupId: string, displayName: string, idempotencyKey?: string): Promise<Member>;
 
   getExpenses(groupId: string): Promise<Expense[]>;
-  addExpense(input: ExpenseInput): Promise<Expense>;
+  addExpense(input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
 
   /** Netted debts, counting only confirmed settlements. */
   getDebts(groupId: string): Promise<Debt[]>;
@@ -51,9 +56,10 @@ export interface SattleClient {
    * the rest. Throws `member_cannot_receive` for a recipient with nowhere to
    * receive — call resolveSettlementOptions first so that never happens.
    */
-  createSettlement(input: CreateSettlementInput): Promise<Settlement>;
+  createSettlement(input: CreateSettlementInput, idempotencyKey?: string): Promise<Settlement>;
   markSettledManually(
-    input: Omit<CreateSettlementInput, 'rail'> & { note?: string }
+    input: Omit<CreateSettlementInput, 'rail'> & { note?: string },
+    idempotencyKey?: string
   ): Promise<Settlement>;
   /** Returns an unsubscribe function. */
   onSettlementUpdate(settlementId: string, cb: (s: Settlement) => void): () => void;
@@ -64,7 +70,7 @@ export interface SattleClient {
   // -- pay links ------------------------------------------------------------
 
   /** Only the person owed can create one. Share `${APP_URL}${payLinkPath(token)}`. */
-  createPayLink(input: CreatePayLinkInput): Promise<PayLink>;
+  createPayLink(input: CreatePayLinkInput, idempotencyKey?: string): Promise<PayLink>;
   /**
    * Public. Call once when the guest page loads: mints a fresh invoice unless
    * one is already in progress. Throws `link_expired` if the debt is gone.
@@ -84,4 +90,40 @@ export interface SattleClient {
 
 export function newIdempotencyKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * One idempotency key per user action. The same action with the same input
+ * keeps its key until it succeeds, so retrying after a network error replays
+ * the first attempt if it got through, instead of doing it twice.
+ *
+ * Keeping the key after any error is safe: the server only stores a key once
+ * the request succeeds, so after a real failure the retry runs afresh.
+ * Changing the input makes it a different action with a new key.
+ *
+ * Running the same action again while it's still in flight (a double tap)
+ * joins that request instead of sending a second one, which the server
+ * would refuse with "still being processed" even though the first worked.
+ */
+export class ActionKeys {
+  private keys = new Map<string, string>();
+  private inFlight = new Map<string, Promise<unknown>>();
+
+  run<T>(action: string, input: unknown, fn: (key: string) => Promise<T>): Promise<T> {
+    const id = `${action} ${JSON.stringify(input)}`;
+    const running = this.inFlight.get(id);
+    if (running) return running as Promise<T>;
+
+    let key = this.keys.get(id);
+    if (!key) this.keys.set(id, (key = newIdempotencyKey()));
+    const k = key;
+    const attempt = new Promise<T>((resolve) => resolve(fn(k)))
+      .then((result) => {
+        this.keys.delete(id);
+        return result;
+      })
+      .finally(() => this.inFlight.delete(id));
+    this.inFlight.set(id, attempt);
+    return attempt;
+  }
 }
