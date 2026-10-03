@@ -68,26 +68,37 @@ class InAppUpdatesModule : Module() {
     // Immediate: Play takes over the screen, installs and restarts the app itself.
     // Starting an immediate update that is already under way resumes it.
     AsyncFunction("start") { immediate: Boolean, promise: Promise ->
-      val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
       val type = if (immediate) AppUpdateType.IMMEDIATE else AppUpdateType.FLEXIBLE
       val store = prefs
       manager.appUpdateInfo
         .addOnSuccessListener { info ->
-          manager.startUpdateFlow(info, activity, AppUpdateOptions.newBuilder(type).build())
-            .addOnSuccessListener { result ->
-              if (result == Activity.RESULT_CANCELED && !immediate) {
-                // Remembered across launches, so the same version isn't pushed twice.
-                store.edit().putInt(KEY_DECLINED, info.availableVersionCode()).apply()
-              }
-              promise.resolve(
-                when (result) {
-                  Activity.RESULT_OK -> "accepted"
-                  Activity.RESULT_CANCELED -> "declined"
-                  else -> "failed"
-                }
-              )
+          // startUpdateFlow starts an activity, which can throw. Out here that would crash
+          // the app, so it becomes a rejection instead.
+          try {
+            // Looked up now, not before Play answered: the screen may have closed since.
+            val activity = appContext.currentActivity
+            if (activity == null || activity.isFinishing || activity.isDestroyed) {
+              promise.reject(Exceptions.MissingActivity())
+              return@addOnSuccessListener
             }
-            .addOnFailureListener { e -> promise.reject("ERR_UPDATE_START", e.message, e) }
+            manager.startUpdateFlow(info, activity, AppUpdateOptions.newBuilder(type).build())
+              .addOnSuccessListener { result ->
+                if (result == Activity.RESULT_CANCELED && !immediate) {
+                  // Remembered across launches, so the same version isn't pushed twice.
+                  store.edit().putInt(KEY_DECLINED, info.availableVersionCode()).apply()
+                }
+                promise.resolve(
+                  when (result) {
+                    Activity.RESULT_OK -> "accepted"
+                    Activity.RESULT_CANCELED -> "declined"
+                    else -> "failed"
+                  }
+                )
+              }
+              .addOnFailureListener { e -> promise.reject("ERR_UPDATE_START", e.message, e) }
+          } catch (e: Exception) {
+            promise.reject("ERR_UPDATE_START", e.message, e)
+          }
         }
         .addOnFailureListener { e -> promise.reject("ERR_UPDATE_CHECK", e.message, e) }
     }

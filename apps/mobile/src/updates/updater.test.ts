@@ -137,6 +137,15 @@ describe('createUpdater', () => {
     expect(updater.getState()).toEqual({ phase: 'downloading', progress: 0.4 });
   });
 
+  it('never reports more than the whole download', async () => {
+    const play = fakePlay(info());
+    const updater = createUpdater(play.native);
+    await updater.check();
+
+    play.emit({ status: 'downloading', bytesDownloaded: 120, totalBytes: 100 });
+    expect(updater.getState()).toEqual({ phase: 'downloading', progress: 1 });
+  });
+
   it('keeps what the progress events said when "accepted" arrives after them', async () => {
     const play = fakePlay(info());
     let accept!: (r: FlowResult) => void;

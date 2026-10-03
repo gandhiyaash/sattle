@@ -132,7 +132,7 @@ export function createUpdater(native: NativeUpdates | null): Updater {
       case 'downloading':
         return set({
           phase: 'downloading',
-          progress: p.totalBytes > 0 ? p.bytesDownloaded / p.totalBytes : null,
+          progress: p.totalBytes > 0 ? Math.min(1, p.bytesDownloaded / p.totalBytes) : null,
         });
       case 'downloaded':
         return set({ phase: 'ready', progress: null });
