@@ -51,3 +51,7 @@ apps/api/data/
 /apps/mobile/ios
 *.keystore
 /dist-android
+
+# gradle output and caches of local native modules
+/apps/mobile/modules/*/android/build/
+/apps/mobile/modules/*/android/.gradle/

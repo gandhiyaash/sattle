@@ -86,6 +86,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
 
 apps/mobile/                 @sattle/mobile: Expo
   App.tsx                    Renders DemoApp
+  modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
   src/
     client/
       SattleClient.ts        The interface. The only seam.
@@ -93,9 +94,13 @@ apps/mobile/                 @sattle/mobile: Expo
       ApiClient.ts           HTTP client for apps/api.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
+    updates/
+      updater.ts             When to ask about an update, and what the banner shows.
+      nativeUpdates.ts       Native seam. Android talks to Play; iOS and web get null.
     react/
       SattleProvider.tsx     Context, hooks, and the mock/real swap.
       useSettleFlow.ts       One settle attempt, from open to terminal.
+      useAppUpdate.ts        Checks on every foreground; the banner's hook.
     ui/
       theme.ts               Design tokens. Warm paper, ink, one amber accent.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
@@ -105,6 +110,7 @@ apps/mobile/                 @sattle/mobile: Expo
       SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
+      UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
 
@@ -197,6 +203,66 @@ Both halves run on one Oracle VM behind nginx:
 Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
 
 The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
+
+### Releasing the Android app
+
+A release is one run of the `Create Android Release (APK & AAB)` workflow (`.github/workflows/android-release.yml`). Merge what should ship into `main`, then start it from the Actions tab, or:
+
+```sh
+gh workflow run android-release.yml -f bump_type=patch -f track=internal -f update_priority=0
+```
+
+| Input | Values | What it sets |
+| --- | --- | --- |
+| `bump_type` | `patch` (default), `minor`, `major`, `none` | How the version in `apps/mobile/package.json` moves. `none` rebuilds the version already there. |
+| `track` | `internal` (default), `alpha`, `beta`, `production` | The Play track the build is published to. |
+| `update_priority` | `0` (default) to `5` | How hard installed copies are pushed to update. See [Update priority](#update-priority). |
+
+The run then does the whole release:
+
+1. Bumps the version, and commits and tags it as `vX.Y.Z`, locally for now.
+2. Generates `android/` with `expo prebuild` and builds a signed APK and AAB. The version name is the bumped version. The version code is the workflow's run number, so it only ever goes up.
+3. Pushes the commit and the tag together. This comes after the build, so a failed build leaves neither behind.
+4. Creates the GitHub release `vX.Y.Z`, with both files attached and the commits since the last tag as its notes.
+5. Uploads the AAB to the chosen Play track, rolled out to everyone on it.
+
+`just android-release` builds the same signed APK and AAB on your own machine, into `dist-android/`, without bumping, tagging or uploading anything; `scripts/android-release.sh` lists its inputs.
+
+Send a release to `internal` first and install it from Play on a phone. Once it's checked, promote it to `production` in the Play Console, which ships the same file. An urgent fix is the exception: run the workflow straight to `production` with the priority set, because the priority is fixed at upload.
+
+What it needs from the repository:
+
+| | Name | For |
+| --- | --- | --- |
+| Secrets | `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | Signing. The run stops at the start without all four, rather than ship a build signed with the debug key. |
+| Secret | `PLAY_STORE_CREDENTIALS` | The Play upload: a service account's JSON key. Without it the run ends at the GitHub release. |
+| Variable | `EXPO_PUBLIC_USE_MOCK` | Leave unset. The run refuses to send a mock build to `production`. |
+| Ruleset | a bypass on `main` for the workflow | Step 3 pushes straight to `main`, which otherwise only takes pull requests. Without the bypass the run builds everything, fails at "Push Version Bump", and leaves no tag and no release. |
+
+### Android updates
+
+A copy installed from Google Play updates itself in place. On launch and on every return to the foreground the app asks Play whether a newer version is out. If one is, Play asks once, downloads it while the app stays open, and a line above the tab bar offers **Restart** when it's ready. A "no" is remembered for that version, and after that the same line offers **Update** without interrupting.
+
+#### Update priority
+
+Every Play release carries an in-app update priority, a number from 0 to 5 that installed copies read when they find the release. It is the `update_priority` input of the release workflow, and the app sorts it into two bands:
+
+| Priority | What an installed copy does | Use it for |
+| --- | --- | --- |
+| `0` to `3` | The flow above: Play asks once, downloads in the background, and the app offers **Restart**. | Ordinary releases. `0` is the default, and the app treats all four the same. |
+| `4` or `5` | Play takes over the screen, installs and restarts the app. Backing out leaves **Update** above the tab bar, and the next launch takes over again. | A release nobody should stay behind on: a security or payment fix, or a server change that older builds can't work with. The app treats both the same. |
+
+Three things about it come from Play, not from this app:
+
+- It is set at upload and can't be changed afterwards. A release that got the wrong priority needs another build.
+- It can only be set through the Play API, which is what the workflow uses. A release uploaded by hand in the Play Console gets `0`.
+- It carries over skipped versions, on any track. Someone updating across several versions gets the highest priority among them, even from a build that only went to `internal`. So a priority `5` build on `internal` makes the next `production` release urgent for everyone on an older version.
+
+The line between the bands is `URGENT_PRIORITY` in `src/updates/updater.ts`.
+
+`src/updates/updater.ts` holds the rules and runs under vitest against a fake Play. The native half is a local Expo module in `apps/mobile/modules/in-app-updates`, which autolinking picks up on `expo prebuild`, so there is nothing to add to `app.json`.
+
+Play only answers for a copy it installed. A debug build or the APK from a GitHub release gets no prompts, so the real flow can only be tried from a Play track: install one release from the internal track, publish a second, and open the app.
 
 ## Wiring the wallet
 

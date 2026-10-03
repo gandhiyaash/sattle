@@ -23,6 +23,18 @@ on:
           - alpha
           - beta
           - production
+      update_priority:
+        description: 'In-app update priority (0-3: download in the background, 4-5: take over the screen)'
+        required: true
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
 
 # Two runs bumping the version at once would race on the branch and the tag.
 concurrency:
@@ -229,4 +241,6 @@ jobs:
           packageName: com.chanakya.sattle
           releaseFiles: apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
           track: ${{ github.event.inputs.track }}
+          # Read by the app's updater (apps/mobile/src/updates/updater.ts) on installed copies.
+          inAppUpdatePriority: ${{ github.event.inputs.update_priority }}
           status: completed
