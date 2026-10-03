@@ -131,7 +131,11 @@ export class MockClient implements SattleClient {
     return this.call(() => {
       const name = input.name.trim();
       if (!name) throw new SattleError('invalid_input', 'Give the group a name.');
-      const group: Group = { id: this.id('g'), name, currency: input.currency, memberIds: [], createdAt: this.now() };
+      const currency = input.currency.trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw new SattleError('invalid_input', 'currency: expected a three-letter currency code like INR');
+      }
+      const group: Group = { id: this.id('g'), name, currency, memberIds: [], createdAt: this.now() };
       const me = fixtures.currentUser;
       const add = (m: Omit<Member, 'id' | 'groupId'>) => {
         const member: Member = { id: this.id('m'), groupId: group.id, ...m };

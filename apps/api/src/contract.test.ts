@@ -45,17 +45,3 @@ describe('migrations', () => {
     expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql']);
   });
 });
-
-describe('stubs', () => {
-  const pending: Array<[string, string, unknown?]> = [
-    ['POST', '/groups', { name: 'Trip', memberNames: ['Om'] }],
-    ['POST', '/groups/g-goa/members', { displayName: 'Riya' }],
-  ];
-
-  it.each(pending)('%s %s returns 501 until built', async (method, path, body) => {
-    const { call } = setup('u-yash');
-    const res = await call(method, path, body);
-    expect(res.status).toBe(501);
-    expect(await res.json()).toMatchObject({ code: 'not_implemented' });
-  });
-});

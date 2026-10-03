@@ -84,9 +84,15 @@ export function createRepo(db: Db) {
        ORDER BY g.created_at DESC`
     ),
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
+    insertGroup: db.prepare('INSERT INTO expense_groups (id, name, currency, created_at) VALUES (?, ?, ?, ?)'),
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
     memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
+    // group_id is bound twice: once for the row, once for the position subquery.
+    appendMember: db.prepare(
+      `INSERT INTO members (id, group_id, position, display_name, status, claimed_by_user_id)
+       VALUES (?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM members WHERE group_id = ?), ?, ?, ?)`
+    ),
     setAddress: db.prepare('UPDATE members SET lightning_address = ? WHERE id = ?'),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
@@ -153,7 +159,16 @@ export function createRepo(db: Db) {
       return r && repo.hydrateGroup(r);
     },
 
+    insertGroup(g: Omit<Group, 'memberIds'>) {
+      q.insertGroup.run(g.id, g.name, g.currency, g.createdAt);
+    },
+
     members: (groupId: string) => (q.membersOfGroup.all(groupId) as Row[]).map(toMember),
+    /** Adds the member after everyone already in the group. */
+    appendMember(m: Omit<Member, 'lightningAddress'>) {
+      q.appendMember.run(m.id, m.groupId, m.groupId, m.displayName, m.status, m.claimedByUserId ?? null);
+      return repo.member(m.id)!;
+    },
     member: (id: string) => {
       const r = q.memberById.get(id) as Row | undefined;
       return r && toMember(r);
