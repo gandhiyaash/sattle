@@ -20,6 +20,7 @@ import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
+import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
@@ -32,18 +33,27 @@ type Route =
   | { name: 'group'; groupId: string }
   | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
   | { name: 'wallet' }
+  | { name: 'join'; token?: string }
   | { name: 'guest'; token: string };
 
-export function DemoApp({ client }: { client?: SattleClient }) {
+export interface DemoAppProps {
+  client?: SattleClient;
+  /** The token from a /join/<token> link the app was opened with. It starts on the join screen. */
+  invite?: string | null;
+  /** The join screen is finished with that link, whether or not anyone joined. */
+  onInviteDone?: () => void;
+}
+
+export function DemoApp({ client, invite, onInviteDone }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
-      <Navigator />
+      <Navigator invite={invite ?? null} onInviteDone={onInviteDone} />
     </SattleProvider>
   );
 }
 
-function Navigator() {
-  const [route, setRoute] = useState<Route>({ name: 'groups' });
+function Navigator({ invite, onInviteDone }: { invite: string | null; onInviteDone?: () => void }) {
+  const [route, setRoute] = useState<Route>(invite ? { name: 'join', token: invite } : { name: 'groups' });
   const [settling, setSettling] = useState<{
     debt: Debt;
     members: Member[];
@@ -62,6 +72,23 @@ function Navigator() {
             onOpenGroup={(groupId) => setRoute({ name: 'group', groupId })}
             onOpenWallet={() => setRoute({ name: 'wallet' })}
             onNewGroup={() => setRoute({ name: 'newGroup' })}
+            onJoin={() => setRoute({ name: 'join' })}
+          />
+        );
+
+      case 'join':
+        return (
+          <JoinScreen
+            token={route.token}
+            onBack={() => {
+              onInviteDone?.();
+              setRoute({ name: 'groups' });
+            }}
+            onJoined={(groupId) => {
+              onInviteDone?.();
+              refresh();
+              setRoute({ name: 'group', groupId });
+            }}
           />
         );
 

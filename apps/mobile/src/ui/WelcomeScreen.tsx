@@ -15,7 +15,14 @@ import { API_URL } from '../react/SattleProvider';
 import { Button, Card, ErrorState, Screen } from './primitives';
 import { color, radius, space, type } from './theme';
 
-export function WelcomeScreen({ onReady }: { onReady: (token: string) => void }) {
+export function WelcomeScreen({
+  onReady,
+  intro,
+}: {
+  onReady: (token: string) => void;
+  /** Shown above the name, for someone who arrived from an invite. */
+  intro?: React.ReactNode;
+}) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +43,7 @@ export function WelcomeScreen({ onReady }: { onReady: (token: string) => void })
 
   return (
     <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
+      {intro}
       <Card style={{ gap: space.sm }}>
         <Text style={s.label}>What should your friends call you?</Text>
         <TextInput

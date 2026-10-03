@@ -29,6 +29,8 @@ export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
   onOpenWallet: () => void;
   onNewGroup?: () => void;
+  /** Opens the screen that takes an invite link. */
+  onJoin?: () => void;
 }
 
 interface GroupRow {
@@ -41,6 +43,7 @@ export function GroupsListScreen({
   onOpenGroup,
   onOpenWallet,
   onNewGroup,
+  onJoin,
 }: GroupsListScreenProps) {
   const client = useClient();
 
@@ -92,7 +95,12 @@ export function GroupsListScreen({
           <EmptyState
             title="No groups yet"
             body="Start one, add the people you split with, and share the link. They don't need the app."
-            action={onNewGroup && <Button label="New group" variant="primary" onPress={onNewGroup} />}
+            action={
+              <View style={{ gap: space.sm }}>
+                {onNewGroup && <Button label="New group" variant="primary" onPress={onNewGroup} />}
+                {onJoin && <Button label="Join with a link" onPress={onJoin} />}
+              </View>
+            }
           />
         )}
 
@@ -120,8 +128,11 @@ export function GroupsListScreen({
         )}
       </View>
 
-      {data && data.length > 0 && onNewGroup && (
-        <Button label="New group" onPress={onNewGroup} />
+      {data && data.length > 0 && (
+        <View style={{ gap: space.sm }}>
+          {onNewGroup && <Button label="New group" onPress={onNewGroup} />}
+          {onJoin && <Button label="Join with a link" variant="quiet" onPress={onJoin} />}
+        </View>
       )}
     </Screen>
   );
