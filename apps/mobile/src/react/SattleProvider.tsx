@@ -1,8 +1,9 @@
 /**
  * Context, hooks, and the mock/real swap.
  *
- * EXPO_PUBLIC_USE_MOCK decides which client the whole app talks to. Nothing
- * below this provider knows or cares which one it got.
+ * EXPO_PUBLIC_USE_MOCK=true swaps in the in-memory mock, with its demo data
+ * and fake wallet. Anything else talks to the real API. Nothing below this
+ * provider knows or cares which one it got.
  */
 
 import React, {
@@ -35,10 +36,14 @@ const num = (v: string | undefined, fallback: number) => {
   return v !== undefined && v !== '' && Number.isFinite(n) ? n : fallback;
 };
 
-export function buildClient(): SattleClient {
-  if (process.env.EXPO_PUBLIC_USE_MOCK === 'false') {
-    return new ApiClient(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000');
-  }
+/** Demo mode: opt-in, so a build that forgets the variable still talks to the real API. */
+export const isMock = () => process.env.EXPO_PUBLIC_USE_MOCK === 'true';
+
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
+/** `token` is the device account's; the mock ignores it. */
+export function buildClient(token: string | null = null): SattleClient {
+  if (!isMock()) return new ApiClient(API_URL, () => token);
   return new MockClient({
     latencyMs: num(process.env.EXPO_PUBLIC_MOCK_LATENCY, 400),
     failureRate: num(process.env.EXPO_PUBLIC_MOCK_FAILURE_RATE, 0),
@@ -46,9 +51,13 @@ export function buildClient(): SattleClient {
   });
 }
 
-/** Replace MockWallet with BreezWallet here when it exists. */
+/**
+ * There's no in-app wallet yet; people receive into their own wallet over
+ * NWC. MockWallet's made-up balance only appears in demo mode, on native.
+ * Replace UnavailableWallet with BreezWallet here when it exists.
+ */
 export function buildWallet(): WalletProvider {
-  return Platform.OS === 'web' ? new UnavailableWallet() : new MockWallet();
+  return isMock() && Platform.OS !== 'web' ? new MockWallet() : new UnavailableWallet();
 }
 
 export function SattleProvider({

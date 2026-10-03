@@ -53,8 +53,8 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
     return (
       <Screen title="Wallet" onBack={onBack}>
         <EmptyState
-          title="Wallet lives in the app"
-          body="The wallet needs the mobile app. On the web you can still see balances, add expenses, and pay anyone who sends you a link."
+          title="Use the wallet you already have"
+          body="Sattle doesn’t hold money. Connect your own Lightning wallet below and what people owe you lands there. To pay someone, scan their invoice with that wallet."
         />
         <ConnectWallet />
         <TrustModel />
@@ -226,8 +226,8 @@ function ConnectWallet() {
  *   Wallet connection   walletStore.ts keeps nwc_uri as plain text; nwc.ts only calls
  *                       get_info, make_invoice, lookup_invoice; there is no delete route
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
- *   No accounts         SattleProvider builds ApiClient with no token; middleware.ts
- *                       then treats every request as the one demo user
+ *   Your account        routes/accounts.ts: a name in, a random token out, nothing
+ *                       else; account/tokenStore keeps it on the device
  *   Is it paid          payments/nwc.ts confirms on the wallet's `settled`, and keeps
  *                       the preimage only if preimageMatches; the manual route lets
  *                       any member of the group settle a debt by hand
@@ -256,8 +256,8 @@ export function TrustModel() {
         />
         <Divider />
         <Row
-          title="No accounts yet"
-          body="The app doesn't sign you in. The server treats everyone using it as the same person, so anyone can see and change these groups and replace the wallet connection. Don't connect a wallet you rely on until there are accounts."
+          title="Your account"
+          body="It's a name and a random key that only this device has. No email, phone or password, so there's nothing to recover it with: clear this device's data or lose it, and you lose access to your groups and wallet connection."
         />
         <Divider />
         <Row

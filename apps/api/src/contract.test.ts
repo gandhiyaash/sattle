@@ -28,13 +28,14 @@ function setup(demoUserId?: string) {
 }
 
 describe('auth boundary', () => {
-  it('requires auth everywhere except /health and /s/', async () => {
+  it('requires auth everywhere except /health, /s/ and making an account', async () => {
     const { call } = setup(undefined);
     expect((await call('GET', '/groups')).status).toBe(401);
     expect((await call('GET', '/me/wallet')).status).toBe(401);
     expect((await call('GET', '/health')).status).toBe(200);
     expect((await call('GET', '/s/demo')).status).not.toBe(401);
     expect((await call('POST', '/s/demo/open')).status).not.toBe(401);
+    expect((await call('POST', '/accounts', { displayName: 'Riya' })).status).toBe(201);
   });
 });
 

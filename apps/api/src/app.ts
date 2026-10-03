@@ -3,6 +3,7 @@
  * method there, one route in routes/, same shapes.
  *
  * Route modules are split by owner so two people can work in parallel:
+ *   routes/accounts.ts     device accounts: a name in, a token out
  *   routes/groups.ts       groups, members, expenses, debts
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
@@ -22,6 +23,7 @@ import { auth } from './middleware';
 import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
+import { accountRoutes } from './routes/accounts';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
 import { payLinkRoutes } from './routes/payLinks';
@@ -72,6 +74,7 @@ export function createApp(deps: AppDeps) {
   app.use('*', auth(repo, deps.demoUserId));
 
   app.get('/health', (c) => c.json({ ok: true }));
+  app.route('/', accountRoutes(ctx));
   app.route('/', groupRoutes(ctx));
   app.route('/', settlementRoutes(ctx));
   app.route('/', payLinkRoutes(ctx));

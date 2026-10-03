@@ -78,6 +78,7 @@ export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
     userByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
+    insertUser: db.prepare('INSERT INTO users (id, display_name, token) VALUES (?, ?, ?)'),
     groupsForUser: db.prepare(
       `SELECT g.* FROM expense_groups g
        WHERE EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.id AND m.claimed_by_user_id = ?)
@@ -125,6 +126,10 @@ export function createRepo(db: Db) {
     userByToken: (token: string) => {
       const r = q.userByToken.get(token) as Row | undefined;
       return r && toUser(r);
+    },
+    insertUser(u: User, token: string): User {
+      q.insertUser.run(u.id, u.displayName, token);
+      return u;
     },
 
     groupsForUser(userId: string): Group[] {

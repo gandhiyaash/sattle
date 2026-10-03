@@ -15,7 +15,8 @@ const num = (v: string | undefined, fallback: number) => {
 const env = process.env;
 const port = num(env.PORT, 3000);
 const db = openDb(env.DATABASE_PATH ?? 'data/sattle.db');
-if (env.SEED !== 'false') seedIfEmpty(db);
+// Demo fixtures are opt-in, so a production database starts empty.
+if (env.SEED === 'true') seedIfEmpty(db);
 
 // PAYMENTS=nwc mints real invoices on payees' wallets; anything else simulates.
 const realPayments = env.PAYMENTS === 'nwc';

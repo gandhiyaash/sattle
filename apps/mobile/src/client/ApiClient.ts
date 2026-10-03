@@ -29,6 +29,28 @@ import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;
 
+/**
+ * Makes a device account. Not on SattleClient, because nobody is signed in
+ * yet when it's called; the token it returns is what ApiClient sends after.
+ */
+export async function createAccount(baseUrl: string, displayName: string): Promise<{ user: User; token: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/accounts`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName }),
+    });
+  } catch {
+    throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
+    throw new SattleError((err.code as SattleError['code']) ?? 'network', err.message ?? `Request failed (${res.status}).`);
+  }
+  return res.json() as Promise<{ user: User; token: string }>;
+}
+
 export class ApiClient implements SattleClient {
   constructor(
     private readonly baseUrl: string,
