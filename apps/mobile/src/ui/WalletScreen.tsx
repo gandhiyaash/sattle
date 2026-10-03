@@ -11,10 +11,11 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { WalletConnection } from '@sattle/core';
 import { useAsync, useClient, useWallet } from '../react/SattleProvider';
+import { APP_URL } from '../react/useSettleFlow';
 import {
   Badge,
   Button,
@@ -246,6 +247,14 @@ export function TrustModel() {
       <Text style={s.trustFooter}>
         If any of this changes, this screen changes with it.
       </Text>
+      {/* Play requires the policy to be reachable from inside the app, not only the listing. */}
+      <Text
+        style={s.privacyLink}
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(`${APP_URL}/privacy`)}
+      >
+        Privacy policy
+      </Text>
     </View>
   );
 }
@@ -268,6 +277,7 @@ const s = StyleSheet.create({
   rowTitle: { ...type.label, color: color.ink },
   rowBody: { ...type.caption, color: color.inkMuted, lineHeight: 18 },
   trustFooter: { ...type.caption, color: color.inkFaint, marginTop: space.sm },
+  privacyLink: { ...type.caption, color: color.accent, marginTop: space.sm, textDecorationLine: 'underline' },
   methods: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
   warning: { gap: space.xs, padding: space.md, borderRadius: radius.md, backgroundColor: color.dangerWash },
   warningTitle: { ...type.label, color: color.danger },

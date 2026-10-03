@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sattle Privacy Policy</title>
+<meta name="description" content="How Sattle collects, uses and shares data.">
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root {
+    --paper: #FAF8F5; --surface: #FFFFFF; --ink: #1A1714; --muted: #6B635A;
+    --line: #E6E0D7; --accent: #C2621C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #171411; --surface: #1F1B17; --ink: #F2EDE6; --muted: #A89E92;
+      --line: #332D27; --accent: #E38A45;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 8px; }
+  h3 { font-size: 1rem; margin: 20px 0 4px; }
+  p, ul { margin: 0 0 12px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); margin-bottom: 24px; }
+  .summary {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; margin: 24px 0;
+  }
+  .summary ul { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 0.95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Sattle · Effective 3 October 2026</p>
+
+  <p>Sattle is an app for splitting shared expenses with friends and settling up over the Bitcoin Lightning Network. It is run by the Sattle team ("we", "us"). This policy covers the Sattle app for Android, iOS and the web, the web app at <a href="https://sattle.axiosiiitl.dev">sattle.axiosiiitl.dev</a>, pay links, and the Sattle server that they talk to.</p>
+
+  <div class="summary">
+    <ul>
+      <li>We store what you enter to split expenses: group names, people's names, expenses, and payments between members.</li>
+      <li>We never hold your money. Payments go directly from one person's Lightning wallet to another's.</li>
+      <li>We don't ask for your email, phone number, contacts, location or photos.</li>
+      <li>We don't use advertising, analytics or tracking, and we don't sell or rent data to anyone.</li>
+      <li>You can ask us to delete your data at any time at <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>.</li>
+    </ul>
+  </div>
+
+  <h2>1. Data we collect</h2>
+
+  <h3>Data you enter</h3>
+  <div class="scroll">
+  <table>
+    <tr><th>Data</th><th>Why we need it</th></tr>
+    <tr><td>Your display name</td><td>To show you to the other members of your groups.</td></tr>
+    <tr><td>Group names and currency</td><td>To organise expenses.</td></tr>
+    <tr><td>Names of the people in your groups</td><td>To split expenses with them. You may add people who don't use Sattle; we store only the name you type for them.</td></tr>
+    <tr><td>Expenses: description, amount, who paid and how it was split</td><td>To work out who owes whom.</td></tr>
+    <tr><td>Lightning addresses you add for a member</td><td>So that member can be paid.</td></tr>
+    <tr><td>Your wallet connection (a Nostr Wallet Connect string), plus the wallet's name and the permissions it grants</td><td>So the server can ask your wallet to create invoices for money you are owed and check whether they were paid. See section 4.</td></tr>
+  </table>
+  </div>
+
+  <h3>Data created when you use the app</h3>
+  <ul>
+    <li><strong>Settlements:</strong> who paid whom, the amount, the payment method, its status, the exchange rate used, the Lightning invoice and the payment proof, or a note when a payment is marked as settled by hand (for example cash).</li>
+    <li><strong>Pay links:</strong> a random link token, the debt it is for, and who created it.</li>
+    <li><strong>Request keys</strong> that stop a repeated tap from making the same payment twice.</li>
+  </ul>
+
+  <h3>Technical data</h3>
+  <ul>
+    <li><strong>Server logs:</strong> when your device or browser contacts our server, our web server records the IP address, time, the address requested and the browser or app version. We use these logs only to keep the service running and secure. They are deleted after 14 days.</li>
+    <li><strong>Network provider:</strong> our traffic passes through Cloudflare, which processes IP addresses and request details to deliver and protect the service.</li>
+  </ul>
+
+  <h3>What we don't collect</h3>
+  <p>Sattle does not collect your email address, phone number, contacts, location, photos, files, device identifiers or advertising ID. It contains no advertising, analytics or crash-reporting software. It never asks for your wallet's recovery phrase or private keys, or for card or bank details.</p>
+
+  <h2>2. How we use data</h2>
+  <p>We use the data above only to provide Sattle: to show groups and balances, record expenses, create and track payments and pay links, and keep the service working and secure. We do not use it for advertising or profiling, and we do not sell or rent it.</p>
+
+  <h2>3. Who can see it</h2>
+  <ul>
+    <li><strong>Members of your groups</strong> see the group's name, its members, expenses, balances and payments.</li>
+    <li><strong>Anyone you send a pay link to</strong> (or anyone they pass it on to) sees the payer's name, the payee's name, the group's name, the amount and the payment's status. A pay link does not show other members, other expenses or any other group data.</li>
+    <li><strong>The person paying you</strong> sees the Lightning invoice, which includes the amount and a description containing your name and the group's name.</li>
+  </ul>
+
+  <h2>4. Service providers and third parties</h2>
+  <ul>
+    <li><strong>Your Lightning wallet provider.</strong> If you connect a wallet, our server sends requests to it over Nostr Wallet Connect to create invoices and check their status. Each request contains the amount and a description with your name and the group's name. Requests travel through the Nostr relay named in your connection string; the contents are encrypted, but the relay can see when messages are sent. Your wallet provider handles this data under its own privacy policy.</li>
+    <li><strong>The Lightning Network.</strong> When a payment is made, it is routed by Lightning nodes that are not run by us. Like any Bitcoin payment, it is handled by the payer's and payee's wallets and the nodes along the route.</li>
+    <li><strong>Oracle Cloud</strong> hosts our server and database in India.</li>
+    <li><strong>Cloudflare</strong> delivers and protects our website and server traffic.</li>
+    <li><strong>CoinGecko</strong> provides the Bitcoin exchange rate. Our server requests the rate on its own; no user data is sent.</li>
+  </ul>
+  <p>We may also disclose data if the law requires it, or to protect the safety of our users or the service.</p>
+
+  <h2>5. Your wallet connection</h2>
+  <p>The wallet connection string you paste is a secret that lets whoever holds it make requests to your wallet. We store it on our server and use it only to create and check invoices for payments made to you. We never use it to send money from your wallet. The app shows you which permissions the connection grants and warns you if it allows more than receiving. You can revoke the connection at any time in your wallet app, after which we can no longer use it.</p>
+
+  <h2>6. Where data is stored and how it is protected</h2>
+  <p>Data is stored on our server in India. All connections between the app and the server are encrypted with HTTPS. Access to the server is limited to the people who run Sattle. Data on the server is not end-to-end encrypted, so it can be read by us. No method of storing data is completely secure, and we cannot guarantee absolute security.</p>
+
+  <h2>7. How long we keep data</h2>
+  <p>We keep groups, expenses and payment records for as long as the group exists, because they make up the group's shared history. Server logs are kept for 14 days. Wallet connections are kept until you ask us to remove them. When you ask us to delete your data, we delete it within 30 days, except where we must keep it by law.</p>
+
+  <h2>8. Your choices and rights</h2>
+  <p>You can ask us to access, correct, export or delete your personal data, or to remove your wallet connection, by emailing <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>. Depending on where you live, you may have further rights under laws such as India's Digital Personal Data Protection Act, 2023 or the EU's GDPR, including the right to complain to a data protection authority. If someone added you to a group without your knowledge, you can ask us to remove your name.</p>
+
+  <h2>9. Children</h2>
+  <p>Sattle involves payments and is intended for people aged 18 and over. We do not knowingly collect data from children. If you believe a child has given us data, contact us and we will delete it.</p>
+
+  <h2>10. Changes to this policy</h2>
+  <p>If we change this policy, we will update it on this page and change the effective date above. If the changes are significant, we will also tell you in the app.</p>
+
+  <h2>11. Contact</h2>
+  <p>For questions or requests about privacy, email the Sattle team at <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>.</p>
+</main>
+</body>
+</html>
