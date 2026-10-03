@@ -6,6 +6,10 @@ on:
     workflows: [ci]
     types: [completed]
     branches: [main]
+  # Also trigger directly on push (i.e. PR merge) to main, so the deploy is
+  # never skipped if GitHub reuses a passing CI result from the PR branch.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -21,6 +25,7 @@ jobs:
     # main), so require that ci ran for a push.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
@@ -29,7 +34,7 @@ jobs:
         env:
           # The commit ci passed, not whatever main has moved on to since. A
           # manual run takes main as it is.
-          SHA: ${{ github.event.workflow_run.head_sha || 'origin/main' }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha || 'origin/main' }}
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
@@ -60,6 +65,7 @@ jobs:
   web:
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
