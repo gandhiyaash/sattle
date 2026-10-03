@@ -9,11 +9,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-api
+  group: deploy
   cancel-in-progress: false
 
+# Both jobs ship the same commit to the same VM: the API to battle.axiosiiitl.dev and
+# the web app to sattle.axiosiiitl.dev. They don't depend on each other, so they run
+# side by side and one failing doesn't stop the other.
 jobs:
-  deploy:
+  api:
     # A ci run on a pull request can report head_branch "main" too (a fork's
     # main), so require that ci ran for a push.
     if: >-
@@ -53,3 +56,62 @@ jobs:
             done
             sudo journalctl -u sattle -n 50 --no-pager
             exit 1
+
+  web:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit ci passed, as the api job deploys.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the web app
+        working-directory: ./apps/mobile
+        env:
+          # Inlined into the bundle at build time.
+          EXPO_PUBLIC_USE_MOCK: 'false'
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+        run: |
+          npx expo export --platform web --output-dir dist
+          tar -czf "$GITHUB_WORKSPACE/sattle-web.tgz" -C dist .
+          echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Upload the build
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.ORACLE_VM_HOST }}
+          username: ${{ secrets.ORACLE_VM_USER }}
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          source: sattle-web.tgz
+          target: /tmp/sattle-web
+
+      - name: Switch to the new build
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ORACLE_VM_HOST }}
+          username: ${{ secrets.ORACLE_VM_USER }}
+          key: ${{ secrets.ORACLE_VM_SSH_KEY }}
+          envs: SHA
+          script: |
+            set -e
+            R=/var/www/sattle-web
+            mkdir -p "$R/releases/$SHA"
+            tar -xzf /tmp/sattle-web/sattle-web.tgz -C "$R/releases/$SHA"
+            rm -rf /tmp/sattle-web
+            # Swap the symlink with a rename, so nginx never sees a missing or half-written root.
+            ln -sfn "releases/$SHA" "$R/current.tmp"
+            mv -Tf "$R/current.tmp" "$R/current"
+            # Keep the five newest builds for a quick manual rollback.
+            ls -1t "$R/releases" | tail -n +6 | xargs -r -I{} rm -rf "$R/releases/{}"
+            curl -fsS -m 5 -o /dev/null --resolve sattle.axiosiiitl.dev:443:127.0.0.1 https://sattle.axiosiiitl.dev/s/check

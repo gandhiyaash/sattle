@@ -67,7 +67,7 @@ jobs:
       - name: Check app config
         env:
           USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
-          API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
           TRACK: ${{ github.event.inputs.track }}
         run: |
           # Both of these build fine and only show up once someone opens the app.
@@ -148,8 +148,9 @@ jobs:
           # EXPO_PUBLIC_* values are inlined into the JS bundle at build time. They are
           # public, so they live in repository variables rather than secrets.
           EXPO_PUBLIC_USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
-          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
-          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL }}
+          # Default to the deployed API and web app; repository variables override them.
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
