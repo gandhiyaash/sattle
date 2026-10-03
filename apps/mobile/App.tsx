@@ -6,6 +6,7 @@ import { SattleError } from '@sattle/core';
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
+import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
 import { Loading, Screen } from './src/ui/primitives';
@@ -31,6 +32,8 @@ function guestToken(): string | null {
 
 export default function App() {
   const [token] = useState(guestToken);
+  // Android only: Play downloads a new version in the background. See updates/updater.ts.
+  useEffect(watchForUpdates, []);
   if (token) {
     // Nothing but the one payment: no navigator, no demo bar, no app state.
     return (
