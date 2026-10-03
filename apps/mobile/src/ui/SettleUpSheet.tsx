@@ -14,12 +14,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatFiat, type Debt, type Member } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
 import { Button, Card, ErrorState, SatLine } from './primitives';
+import { share } from './share';
 import { color, radius, space, type } from './theme';
 
 export interface SettleUpSheetProps {
@@ -42,6 +43,19 @@ export function SettleUpSheet({
   // The quote ran out on screen before the server marked the invoice expired.
   const [lapsed, setLapsed] = useState(false);
   useEffect(() => setLapsed(false), [flow.settlement?.id]);
+  const [invite, setInvite] = useState<
+    { kind: 'idle' } | { kind: 'busy' } | { kind: 'sent'; url: string; note: string } | { kind: 'failed'; message: string }
+  >({ kind: 'idle' });
+
+  const sendInvite = async () => {
+    setInvite({ kind: 'busy' });
+    try {
+      const { url, message } = await flow.createInvite(groupName);
+      setInvite({ kind: 'sent', url, note: await share(message, 'Sent. It works once, for a week.') });
+    } catch (e) {
+      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
+    }
+  };
 
   const recipient = members.find((m) => m.id === debt.toMemberId);
   const amount = formatFiat(debt.amount, currency);
@@ -176,8 +190,6 @@ export function SettleUpSheet({
   // -- blocked: recipient has nowhere to receive ---------------------------
 
   if (flow.options.blocked) {
-    const invite = flow.buildInvite(groupName);
-
     return (
       <View style={s.sheet}>
         <Text style={s.title}>You owe {recipient.displayName} {amount}</Text>
@@ -190,13 +202,21 @@ export function SettleUpSheet({
           onPress={flow.startAddressEntry}
         />
 
-        {invite && (
-          <Button
-            label={`Invite ${recipient.displayName}`}
-            hint="They see the group and can get paid here from then on."
-            onPress={() => Share.share({ message: invite.message, url: invite.url })}
-          />
+        <Button
+          label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
+          hint="They see the group and can get paid here from then on."
+          busy={invite.kind === 'busy'}
+          onPress={sendInvite}
+        />
+        {invite.kind === 'sent' && (
+          <View style={s.inviteResult}>
+            <Text style={s.inviteNote}>{invite.note}</Text>
+            <Text style={s.inviteUrl} selectable numberOfLines={1}>
+              {invite.url}
+            </Text>
+          </View>
         )}
+        {invite.kind === 'failed' && <Text style={s.error}>{invite.message}</Text>}
 
         <Button
           label="Mark as settled"
@@ -248,6 +268,9 @@ const s = StyleSheet.create({
   },
   inputError: { borderColor: color.danger },
   error: { ...type.caption, color: color.danger, marginBottom: space.sm },
+  inviteResult: { gap: space.xs, marginLeft: space.xs, marginBottom: space.sm },
+  inviteNote: { ...type.caption, color: color.inkMuted },
+  inviteUrl: { ...type.amountSm, color: color.inkFaint },
 
   waiting: { alignItems: 'center', gap: space.sm, paddingVertical: space.xl },
   waitingInline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.md },

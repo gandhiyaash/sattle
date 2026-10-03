@@ -20,17 +20,14 @@ import type {
   ExpenseInput,
   Group,
   GuestView,
+  Invite,
+  InviteView,
   Member,
   PayLink,
   Settlement,
   User,
   WalletConnection,
 } from '@sattle/core';
-
-export interface Invite {
-  url: string;
-  message: string;
-}
 
 export interface SattleClient {
   getCurrentUser(): Promise<User>;
@@ -80,6 +77,19 @@ export interface SattleClient {
   getGuestView(token: string): Promise<GuestView>;
   /** Public. Returns an unsubscribe function. */
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
+
+  // -- invites --------------------------------------------------------------
+
+  /**
+   * For a ghost in a group you're in. Share `${APP_URL}${invitePath(token)}`.
+   * Whoever accepts becomes a full member, so each link works once, lasts a
+   * week, and making another for the same ghost kills the last.
+   */
+  createInvite(groupId: string, memberId: string, idempotencyKey?: string): Promise<Invite>;
+  /** Public. Throws `not_found` for a dead link, `link_expired` once it's used or too old. */
+  getInvite(token: string): Promise<InviteView>;
+  /** The signed-in user becomes the invite's member. Returns the group they're now in. */
+  acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
 
   // -- wallet connection ----------------------------------------------------
 

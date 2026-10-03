@@ -5,18 +5,19 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README.
+ *    of a line in a README. Anyone not joined can be invited from their row.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   canReceive,
   computeBalances,
   formatFiat,
+  invitePath,
   payLinkPath,
   simplifyDebts,
   type Debt,
@@ -37,6 +38,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
+import { share } from './share';
 import { color, radius, space, type } from './theme';
 
 export interface GroupDetailScreenProps {
@@ -193,30 +195,7 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <View style={s.memberRow}>
-                <Avatar name={member.displayName} dim={member.status === 'ghost'} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>
-                    {member.displayName}
-                    {member.id === data.myMemberId ? ' (you)' : ''}
-                  </Text>
-                  <Text style={s.memberMeta}>
-                    {member.status === 'joined'
-                      ? 'In app'
-                      : member.status === 'nwc_linked'
-                        ? 'External wallet'
-                        : member.lightningAddress
-                          ? member.lightningAddress
-                          : 'Not joined'}
-                  </Text>
-                </View>
-                {member.status === 'ghost' && (
-                  <Badge
-                    text={member.lightningAddress ? 'Payable' : 'No app'}
-                    tone={member.lightningAddress ? 'accent' : 'neutral'}
-                  />
-                )}
-              </View>
+              <MemberRow member={member} isMe={member.id === data.myMemberId} groupName={data.name} />
             </View>
           ))}
           <Divider />
@@ -258,6 +237,87 @@ export function GroupDetailScreen({
 }
 
 const REFRESH_MS = 4000;
+
+type LinkState =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'sent'; url: string; note: string }
+  | { kind: 'failed'; message: string };
+
+/**
+ * One member, with their state. Someone who hasn't joined gets an Invite
+ * action: it mints a link that lets one person become this member, and hands
+ * it to the share sheet. Whoever uses it can see and add to the whole group.
+ */
+function MemberRow({ member, isMe, groupName }: { member: Member; isMe: boolean; groupName: string }) {
+  const client = useClient();
+  const keys = useActionKeys();
+  const [invite, setInvite] = useState<LinkState>({ kind: 'idle' });
+
+  const send = async () => {
+    setInvite({ kind: 'busy' });
+    let url: string;
+    try {
+      const input = { groupId: member.groupId, memberId: member.id };
+      const made = await keys.run('invite', input, (k) => client.createInvite(input.groupId, input.memberId, k));
+      url = `${APP_URL}${invitePath(made.token)}`;
+    } catch (e) {
+      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
+      return;
+    }
+    const message = `${member.displayName}, join "${groupName}" on Sattle to see what we’ve split and settle up: ${url}`;
+    setInvite({ kind: 'sent', url, note: await share(message, 'Sent. It works once, for a week.') });
+  };
+
+  return (
+    <View>
+      <View style={s.memberRow}>
+        <Avatar name={member.displayName} dim={member.status === 'ghost'} />
+        <View style={{ flex: 1 }}>
+          <Text style={s.memberName}>
+            {member.displayName}
+            {isMe ? ' (you)' : ''}
+          </Text>
+          <Text style={s.memberMeta}>
+            {member.status === 'joined'
+              ? 'In app'
+              : member.status === 'nwc_linked'
+                ? 'External wallet'
+                : member.lightningAddress
+                  ? member.lightningAddress
+                  : 'Not joined'}
+          </Text>
+        </View>
+        {member.status === 'ghost' && (
+          <Badge
+            text={member.lightningAddress ? 'Payable' : 'No app'}
+            tone={member.lightningAddress ? 'accent' : 'neutral'}
+          />
+        )}
+        {!member.claimedByUserId && (
+          <Pressable onPress={send} disabled={invite.kind === 'busy'} hitSlop={12}>
+            <Text style={[s.memberAction, invite.kind === 'busy' && { opacity: 0.4 }]}>
+              {invite.kind === 'sent' ? 'Invite again' : 'Invite'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      {invite.kind === 'sent' && (
+        <View style={s.inviteResult}>
+          <Text style={s.linkNote}>{invite.note}</Text>
+          <Text style={s.linkUrl} selectable numberOfLines={1}>
+            {invite.url}
+          </Text>
+        </View>
+      )}
+      {invite.kind === 'failed' && (
+        <View style={s.inviteResult}>
+          <Text style={s.linkError}>{invite.message}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
 /** Adds a ghost by name. Like everyone else here, they don't need the app. */
 function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void }) {
@@ -302,16 +362,9 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
   );
 }
 
-type LinkState =
-  | { kind: 'idle' }
-  | { kind: 'busy' }
-  | { kind: 'sent'; url: string; note: string }
-  | { kind: 'failed'; message: string };
-
 /**
  * Only on debts owed to you: mints a pay link and hands it to the share
- * sheet. On web without navigator.share it copies instead. The URL stays on
- * screen either way, so it can be copied by hand if both are blocked.
+ * sheet. The URL stays on screen afterwards, so it can be copied by hand.
  */
 function SendPayLink({
   debt,
@@ -345,7 +398,7 @@ function SendPayLink({
       return;
     }
     const message = `${payerName}, you owe me ${formatFiat(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
-    setState({ kind: 'sent', url, note: await share(message) });
+    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until it’s paid.') });
   };
 
   return (
@@ -366,29 +419,6 @@ function SendPayLink({
       {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
     </View>
   );
-}
-
-/** Returns a line saying what happened, for under the button. */
-async function share(message: string): Promise<string> {
-  if (Platform.OS !== 'web') {
-    const r = await Share.share({ message }).catch(() => null);
-    return r?.action === Share.sharedAction ? 'Sent. It works until it’s paid.' : 'Not sent. Here’s the link:';
-  }
-  const nav = typeof navigator === 'undefined' ? undefined : navigator;
-  if (nav?.share) {
-    try {
-      await nav.share({ text: message });
-      return 'Sent. It works until it’s paid.';
-    } catch {
-      // Cancelled or refused: fall through to copying.
-    }
-  }
-  try {
-    await nav!.clipboard.writeText(message);
-    return 'Copied. Paste it in a chat.';
-  } catch {
-    return 'Copy this link and send it:';
-  }
 }
 
 const s = StyleSheet.create({
@@ -412,6 +442,9 @@ const s = StyleSheet.create({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
+  memberAction: { ...type.label, color: color.accent },
+  // Lines up under the name: row padding, avatar, gap.
+  inviteResult: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md, gap: space.xs },
   addMember: { padding: space.md, gap: space.xs },
   addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addInput: {
