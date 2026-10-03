@@ -78,10 +78,20 @@ describe('Your wallet connection', () => {
   });
 });
 
-describe('No accounts yet', () => {
-  it('"treats everyone using it as the same person": a request with no token is the demo user', async () => {
+describe('Your account', () => {
+  it('"a name and a random key": that is all an account is made from', async () => {
     const { call } = setup();
-    expect((await call<User>('GET', '/me')).body.id).toBe('u-yash');
+    const res = await call<{ user: User; token: string }>('POST', '/accounts', {
+      displayName: 'Riya',
+      email: 'riya@example.com',
+      phone: '+910000000000',
+    });
+    expect(res.status).toBe(201);
+    expect(Object.keys(res.body.user).sort()).toEqual(['displayName', 'id']);
+    expect(res.body.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect((await call<User>('GET', '/me', undefined, { authorization: `Bearer ${res.body.token}` })).body).toEqual(
+      res.body.user
+    );
   });
 });
 

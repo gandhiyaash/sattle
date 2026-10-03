@@ -2,8 +2,8 @@
  * Demo navigator.
  *
  * A deliberately dumb state machine rather than expo-router, so the whole
- * flow is clickable before any routing is configured. Drop <DemoApp /> into
- * App.tsx and the app runs on iOS, Android and web against the mock client.
+ * flow is clickable before any routing is configured. App.tsx renders it
+ * with the signed-in account's client, or bare against the mock in demo mode.
  *
  * When expo-router lands, each case below becomes a route file and this
  * file gets deleted. Nothing inside the screens changes — they only ever
@@ -14,7 +14,8 @@ import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Debt, Member } from '@sattle/core';
-import { SattleProvider, useClient } from '../react/SattleProvider';
+import type { SattleClient } from '../client/SattleClient';
+import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupsListScreen } from './GroupsListScreen';
@@ -32,9 +33,9 @@ type Route =
   | { name: 'wallet' }
   | { name: 'guest'; token: string };
 
-export function DemoApp() {
+export function DemoApp({ client }: { client?: SattleClient }) {
   return (
-    <SattleProvider>
+    <SattleProvider client={client}>
       <Navigator />
     </SattleProvider>
   );
@@ -146,8 +147,9 @@ function Navigator() {
 }
 
 /**
- * Only exists so a judge can jump straight to the guest page during a demo
- * without a second device. Delete before shipping.
+ * Groups and Wallet. In demo mode, also a Guest link tab, so a judge can jump
+ * straight to the guest page without a second device. It opens the seeded
+ * `demo` link and Flat 4B fixtures, which only the mock has.
  */
 function DemoBar({
   route,
@@ -159,7 +161,7 @@ function DemoBar({
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
-    { label: 'Guest link', route: { name: 'guest', token: 'demo' } },
+    ...(isMock() ? [{ label: 'Guest link', route: { name: 'guest', token: 'demo' } } as const] : []),
   ];
 
   return (

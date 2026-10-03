@@ -6,8 +6,8 @@ import type { AppEnv } from './context';
 import type { Db } from './db';
 import { nowIso, type Repo } from './repo';
 
-/** Reachable without signing in. The guest pay page lives under /s/. */
-const PUBLIC_PREFIXES = ['/health', '/s/'];
+/** Reachable without signing in: the guest pay page under /s/, and making an account. */
+const PUBLIC_PREFIXES = ['/health', '/s/', '/accounts'];
 
 export const isPublic = (path: string) => PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p));
 

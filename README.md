@@ -20,7 +20,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-The demo opens on your groups. The bottom bar has three tabs: **Groups**, **Wallet**, and **Guest link**. The guest tab shows the page someone gets when you send them a pay link.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups.
 
 Try these flows:
 
@@ -40,7 +40,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EXPO_PUBLIC_USE_MOCK` | `true` | `false` switches to `ApiClient` (`npm run dev` sets this for you) |
+| `EXPO_PUBLIC_USE_MOCK` | `false` | `true` swaps in the in-memory mock with its demo data and fake wallet. `.env.example` sets it; `npm run dev` overrides it to `false` |
 | `EXPO_PUBLIC_MOCK_LATENCY` | `400` | ms added to every mock call |
 | `EXPO_PUBLIC_MOCK_FAILURE_RATE` | `0` | 0–1 chance any mock call fails |
 | `EXPO_PUBLIC_MOCK_ALWAYS_FAIL` | `false` | `true` makes every mock payment end in `failed` |
@@ -53,7 +53,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 |---|---|---|
 | `PORT` | `3000` | |
 | `DATABASE_PATH` | `data/sattle.db` | SQLite file, relative to `apps/api` |
-| `SEED` | `true` | load the demo fixtures into an empty database |
+| `SEED` | `false` | `true` loads the demo fixtures into an empty database. Leave unset in production |
 | `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
 | `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
 | `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
@@ -180,7 +180,7 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 Payments go through `PaymentBackend` in `payments.ts`. Today that's `SimulatedPayments`, which walks the same states as the mock with a fake preimage. The NWC backend replaces it without touching the routes.
 
-Auth is a bearer token looked up in `users.token`. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
+Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
 ### Deploying
 
@@ -196,7 +196,7 @@ Both halves run on one Oracle VM behind nginx:
 
 Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
 
-The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. The demo server sets `PAYMENTS=sim` and `DEMO_USER_ID=u-yash`, because the app has no sign-in yet, and `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
 ## Wiring the wallet
 
@@ -207,7 +207,7 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 ## Not in here yet
 
 - Real payments. The API's `SimulatedPayments` stands in until the NWC backend lands.
-- Real auth. There's no sign-in flow yet; see `DEMO_USER_ID` above.
+- Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Invites and claims. Groups and members can be created, but a ghost has no way to become a user yet.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
 - Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
