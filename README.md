@@ -228,6 +228,8 @@ The run then does the whole release:
 
 `just android-release` builds the same signed APK and AAB on your own machine, into `dist-android/`, without bumping, tagging or uploading anything; `scripts/android-release.sh` lists its inputs.
 
+Every pull request gets a release build too, from the `android-build` workflow, so a change that breaks the release shows up before anything is tagged. It needs no secrets: the APK is signed with the debug key and kept on the run for 7 days as `sattle-pr-<number>.apk`. That APK installs on a phone, but not over a copy from Play.
+
 Send a release to `internal` first and install it from Play on a phone. Once it's checked, promote it to `production` in the Play Console, which ships the same file. An urgent fix is the exception: run the workflow straight to `production` with the priority set, because the priority is fixed at upload.
 
 What it needs from the repository:
