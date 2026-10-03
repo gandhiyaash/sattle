@@ -1,0 +1,49 @@
+[Unit]
+Description=Sattle API (Hono on Node)
+After=network.target
+# A crash on boot (a bad .env, say) gives up after 5 tries instead of looping forever.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=ubuntu
+WorkingDirectory=/home/ubuntu/sattle/apps/api
+Environment=NODE_ENV=production
+# What `npm start` runs, minus npm and the tsx CLI, which each fork a child.
+# This way the main PID systemd tracks and signals is the server itself.
+ExecStart=/usr/local/bin/node --env-file-if-exists=.env --import tsx src/server.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Sandbox. The only thing the server writes is its SQLite database in data/.
+# If DATABASE_PATH in .env points elsewhere, ReadWritePaths has to follow it.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/sattle/apps/api/data
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Refuse a filtered syscall instead of killing the process, so Node falls back.
+SystemCallErrorNumber=EPERM
+UMask=0077
+# No MemoryDenyWriteExecute: V8's JIT needs memory that is writable and executable.
+
+[Install]
+WantedBy=multi-user.target
