@@ -4,7 +4,7 @@
  * The TrustModel block is the Freedom Stack argument made visible in the
  * product rather than buried in a README. The track asks you to make the
  * trust assumptions underneath visible or remove them; this names exactly
- * what is being trusted, in the place where a user's money actually sits.
+ * what is being trusted, in the place where a user connects their wallet.
  *
  * Writing it plainly is the point. "Your funds are secured by advanced
  * cryptography" is the sentence this screen exists to refuse.
@@ -217,7 +217,23 @@ function ConnectWallet() {
 
 /**
  * Deliberately not hidden behind a "learn more". A user deciding whether to
- * keep money here should read this without hunting for it.
+ * connect a wallet should read this without hunting for it.
+ *
+ * Every sentence states what the code does today, including the parts that
+ * aren't flattering. Change the code and this has to change with it:
+ *
+ *   Your money          payments/nwc.ts mints on the payee's wallet; nothing spends
+ *   Wallet connection   walletStore.ts keeps nwc_uri as plain text; nwc.ts only calls
+ *                       get_info, make_invoice, lookup_invoice; there is no delete route
+ *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
+ *   No accounts         SattleProvider builds ApiClient with no token; middleware.ts
+ *                       then treats every request as the one demo user
+ *   Is it paid          payments/nwc.ts confirms on the wallet's `settled`, and keeps
+ *                       the preimage only if preimageMatches; the manual route lets
+ *                       any member of the group settle a debt by hand
+ *   Group data          migrations/001_init.sql: plain columns, no encryption
+ *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
+ *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
  */
 export function TrustModel() {
   return (
@@ -225,23 +241,43 @@ export function TrustModel() {
       <SectionLabel>What you're trusting</SectionLabel>
       <Card style={{ gap: space.md }}>
         <Row
-          title="Your keys"
-          body="Generated on this device and never sent anywhere. We cannot move your money, freeze it, or see your balance. If you lose the device and the backup, we cannot help you recover it either."
+          title="Your money"
+          body="Sattle never holds it. To collect a debt, the server asks the wallet of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
         />
         <Divider />
         <Row
-          title="Liquid federation"
-          body="Balances are held on Liquid, a Bitcoin sidechain run by a federation of functionaries. That federation could, in principle, collude to censor or seize. It is a weaker guarantee than holding Bitcoin on-chain, and a stronger one than a custodial app."
+          title="Your wallet connection"
+          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. There is no disconnect button yet: to cut Sattle off, delete the connection in your wallet."
+        />
+        <Divider />
+        <Row
+          title="The relay in between"
+          body="Requests to your wallet travel through the Nostr relay named in your connection. They are encrypted, so the relay sees when a request is sent, not what it says."
+        />
+        <Divider />
+        <Row
+          title="No accounts yet"
+          body="The app doesn't sign you in. The server treats everyone using it as the same person, so anyone can see and change these groups and replace the wallet connection. Don't connect a wallet you rely on until there are accounts."
+        />
+        <Divider />
+        <Row
+          title="Is it really paid?"
+          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. Settled by hand is different: any member of a group can mark a debt that way, and it is their word, not proof."
         />
         <Divider />
         <Row
           title="Your group data"
-          body="Expenses and balances are encrypted on your device before they sync. Relays store ciphertext they cannot read. There is no server holding a list of who you eat dinner with."
+          body="Group names, people's names, expenses and payments are stored on Sattle's server. They are not end-to-end encrypted, so the people who run Sattle can read them. Everyone in a group sees everything in that group."
         />
         <Divider />
         <Row
-          title="Swaps"
-          body="Paying an outside Lightning wallet routes through a swap provider, which briefly sees the amount and the destination. In-app payments skip this entirely."
+          title="Pay links"
+          body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
+        />
+        <Divider />
+        <Row
+          title="The exchange rate"
+          body="Debts are kept in your currency and paid in sats. The server takes the rate from CoinGecko and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If CoinGecko is down, it uses the last rate it had, or a fixed one."
         />
       </Card>
       <Text style={s.trustFooter}>
