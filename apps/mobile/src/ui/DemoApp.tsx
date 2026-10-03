@@ -19,12 +19,14 @@ import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
+import { NewGroupScreen } from './NewGroupScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { WalletScreen } from './WalletScreen';
 import { color, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
+  | { name: 'newGroup' }
   | { name: 'group'; groupId: string }
   | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
   | { name: 'wallet' }
@@ -57,6 +59,18 @@ function Navigator() {
             key={nonce}
             onOpenGroup={(groupId) => setRoute({ name: 'group', groupId })}
             onOpenWallet={() => setRoute({ name: 'wallet' })}
+            onNewGroup={() => setRoute({ name: 'newGroup' })}
+          />
+        );
+
+      case 'newGroup':
+        return (
+          <NewGroupScreen
+            onBack={() => setRoute({ name: 'groups' })}
+            onCreated={(groupId) => {
+              refresh();
+              setRoute({ name: 'group', groupId });
+            }}
           />
         );
 

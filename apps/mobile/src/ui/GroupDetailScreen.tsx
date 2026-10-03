@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   canReceive,
@@ -37,7 +37,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
-import { color, space, type } from './theme';
+import { color, radius, space, type } from './theme';
 
 export interface GroupDetailScreenProps {
   groupId: string;
@@ -219,27 +219,33 @@ export function GroupDetailScreen({
               </View>
             </View>
           ))}
+          <Divider />
+          <AddMember groupId={groupId} onAdded={refresh} />
         </Card>
       </View>
 
       <View>
         <SectionLabel>Expenses</SectionLabel>
-        <Card style={{ padding: 0 }}>
-          {data.expenses.map((expense, i) => (
-            <View key={expense.id}>
-              {i > 0 && <Divider />}
-              <View style={s.expenseRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.expenseName}>{expense.description}</Text>
-                  <Text style={s.expenseMeta}>
-                    {nameOf(expense.paidByMemberId)} paid · split {expense.parts.length} ways
-                  </Text>
+        {data.expenses.length === 0 ? (
+          <Text style={s.noExpenses}>Nothing yet. Add the first one below.</Text>
+        ) : (
+          <Card style={{ padding: 0 }}>
+            {data.expenses.map((expense, i) => (
+              <View key={expense.id}>
+                {i > 0 && <Divider />}
+                <View style={s.expenseRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.expenseName}>{expense.description}</Text>
+                    <Text style={s.expenseMeta}>
+                      {nameOf(expense.paidByMemberId)} paid · split {expense.parts.length} ways
+                    </Text>
+                  </View>
+                  <Amount minor={expense.amount} currency={data.currency} size="md" />
                 </View>
-                <Amount minor={expense.amount} currency={data.currency} size="md" />
               </View>
-            </View>
-          ))}
-        </Card>
+            ))}
+          </Card>
+        )}
       </View>
 
       <Button
@@ -252,6 +258,47 @@ export function GroupDetailScreen({
 }
 
 const REFRESH_MS = 4000;
+
+/** Adds a ghost by name. Like everyone else here, they don't need the app. */
+function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void }) {
+  const client = useClient();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const add = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.addMember(groupId, name.trim());
+      setName('');
+      onAdded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t add them. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={s.addMember}>
+      <View style={s.addMemberRow}>
+        <TextInput
+          style={s.addInput}
+          value={name}
+          onChangeText={setName}
+          onSubmitEditing={add}
+          returnKeyType="done"
+          placeholder="Add someone by name"
+          placeholderTextColor={color.inkFaint}
+        />
+        <Button label="Add" busy={busy} disabled={!name.trim()} onPress={add} />
+      </View>
+      {error && <Text style={s.linkError}>{error}</Text>}
+    </View>
+  );
+}
 
 type LinkState =
   | { kind: 'idle' }
@@ -361,7 +408,21 @@ const s = StyleSheet.create({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
+  addMember: { padding: space.md, gap: space.xs },
+  addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  addInput: {
+    flex: 1,
+    height: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    ...type.body,
+    color: color.ink,
+    backgroundColor: color.paper,
+  },
   memberMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
+  noExpenses: { ...type.caption, color: color.inkFaint, marginBottom: space.sm },
   expenseRow: {
     flexDirection: 'row',
     alignItems: 'center',

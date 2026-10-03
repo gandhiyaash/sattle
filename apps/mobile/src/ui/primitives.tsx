@@ -11,8 +11,10 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
@@ -247,6 +249,12 @@ export function EmptyState({
   );
 }
 
+// Android draws the app under the status bar, so the header starts below it.
+// Used if currentHeight is unavailable; 24dp is the stock Android status bar height.
+const ANDROID_STATUS_BAR_FALLBACK = 24;
+const HEADER_TOP =
+  Platform.OS === 'android' ? (StatusBar.currentHeight ?? ANDROID_STATUS_BAR_FALLBACK) + space.md : space.xl;
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.paper },
   header: {
@@ -254,7 +262,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.lg,
-    paddingTop: space.xl,
+    paddingTop: HEADER_TOP,
     paddingBottom: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.line,
