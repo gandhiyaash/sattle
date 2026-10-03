@@ -14,3 +14,7 @@ android *args:
 # Build and run on the iOS simulator or a connected device
 ios *args:
     cd {{mobile}} && npx expo run:ios {{args}}
+
+# Signed release APK + AAB into dist-android/. KEYSTORE_BASE64="$(pbpaste)" just android-release
+android-release:
+    scripts/android-release.sh
