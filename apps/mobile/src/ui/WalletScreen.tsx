@@ -11,10 +11,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useWallet } from '../react/SattleProvider';
+import type { WalletConnection } from '@sattle/core';
+import { useAsync, useClient, useWallet } from '../react/SattleProvider';
 import {
+  Badge,
   Button,
   Card,
   Divider,
@@ -53,6 +55,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
           title="Wallet lives in the app"
           body="The wallet needs the mobile app. On the web you can still see balances, add expenses, and pay anyone who sends you a link."
         />
+        <ConnectWallet />
         <TrustModel />
       </Screen>
     );
@@ -89,8 +92,125 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
         <Button label="Send" />
       </View>
 
+      <ConnectWallet />
+
       <TrustModel />
     </Screen>
+  );
+}
+
+/** What each NWC method lets the holder of the connection do, in plain words. */
+const METHOD_NAMES: Record<string, string> = {
+  make_invoice: 'Create invoices',
+  lookup_invoice: 'Check invoices',
+  get_info: 'Read wallet info',
+  get_balance: 'See your balance',
+  list_transactions: 'See your payments',
+  pay_invoice: 'Spend',
+  pay_keysend: 'Spend',
+  multi_pay_invoice: 'Spend',
+  multi_pay_keysend: 'Spend',
+};
+
+const methodName = (m: string) => METHOD_NAMES[m] ?? m.replaceAll('_', ' ');
+
+/**
+ * Receiving into a wallet the user already has, over Nostr Wallet Connect.
+ * The server only needs to create invoices and check them. Anything more the
+ * connection grants is shown as a warning, because the server stores it.
+ */
+function ConnectWallet() {
+  const client = useClient();
+  const current = useAsync(() => client.getWalletConnection(), []);
+  const [connection, setConnection] = useState<WalletConnection | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [uri, setUri] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const conn = connection ?? current.data;
+
+  const connect = async () => {
+    if (!uri.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setConnection(await client.connectWallet(uri.trim()));
+      setUri('');
+      setReplacing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t connect that wallet.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <SectionLabel>Your own wallet</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {current.loading && !conn && <Loading lines={2} />}
+        {current.error && !conn && <ErrorState message={current.error.message} onRetry={current.reload} />}
+
+        {conn?.connected && (
+          <View style={{ gap: space.sm }}>
+            <Text style={s.rowTitle}>Connected to {conn.alias ?? 'your wallet'}</Text>
+            {conn.connectedAt && (
+              <Text style={s.rowBody}>Since {new Date(conn.connectedAt).toLocaleDateString()}</Text>
+            )}
+            <Text style={s.rowBody}>Money people owe you lands in this wallet. Sattle is allowed to:</Text>
+            <View style={s.methods}>
+              {[...new Set(conn.methods.map(methodName))].map((name) => (
+                <Badge key={name} text={name} />
+              ))}
+            </View>
+          </View>
+        )}
+
+        {conn?.connected && conn.excessMethods.length > 0 && (
+          <View style={s.warning}>
+            <Text style={s.warningTitle}>
+              This connection can also: {[...new Set(conn.excessMethods.map(methodName))].join(', ').toLowerCase()}
+            </Text>
+            <Text style={s.warningBody}>
+              Sattle doesn’t use that, but it keeps this connection on its server, so anyone who got hold of it
+              could too. Make a new connection in your wallet that only allows receiving, and paste it here.
+            </Text>
+          </View>
+        )}
+
+        {conn && !conn.connected && (
+          <Text style={s.rowBody}>
+            Already have a Lightning wallet? Connect it with Nostr Wallet Connect and money people owe you lands
+            there. In your wallet, make a connection that only allows creating and checking invoices.
+          </Text>
+        )}
+
+        {conn && (!conn.connected || replacing) && (
+          <View style={{ gap: space.sm }}>
+            <TextInput
+              style={s.input}
+              value={uri}
+              onChangeText={setUri}
+              onSubmitEditing={connect}
+              placeholder="nostr+walletconnect://…"
+              placeholderTextColor={color.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+            <Text style={s.rowBody}>Treat it like a password. It never comes back from the server.</Text>
+            <Button label="Connect" variant="primary" busy={busy} disabled={!uri.trim()} onPress={connect} />
+          </View>
+        )}
+
+        {error && <Text style={s.error}>{error}</Text>}
+
+        {conn?.connected && !replacing && (
+          <Button label="Replace connection" onPress={() => setReplacing(true)} />
+        )}
+      </Card>
+    </View>
   );
 }
 
@@ -148,4 +268,19 @@ const s = StyleSheet.create({
   rowTitle: { ...type.label, color: color.ink },
   rowBody: { ...type.caption, color: color.inkMuted, lineHeight: 18 },
   trustFooter: { ...type.caption, color: color.inkFaint, marginTop: space.sm },
+  methods: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  warning: { gap: space.xs, padding: space.md, borderRadius: radius.md, backgroundColor: color.dangerWash },
+  warningTitle: { ...type.label, color: color.danger },
+  warningBody: { ...type.caption, color: color.ink, lineHeight: 18 },
+  input: {
+    height: 46,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    ...type.body,
+    color: color.ink,
+    backgroundColor: color.paper,
+  },
+  error: { ...type.caption, color: color.danger },
 });

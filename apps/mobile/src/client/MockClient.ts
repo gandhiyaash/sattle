@@ -425,10 +425,24 @@ export class MockClient implements SattleClient {
       if (!nwcUri.trim().startsWith('nostr+walletconnect://')) {
         throw new SattleError('invalid_wallet', 'That isn’t an NWC connection string. It starts with nostr+walletconnect://');
       }
+      // Mock only: `mock_methods=a,b` in the string stands in for what the
+      // wallet's get_info would grant, so the warnings can be seen.
+      const listed = /[?&]mock_methods=([^&]*)/.exec(nwcUri)?.[1];
+      const methods = listed
+        ? decodeURIComponent(listed).split(',').filter(Boolean)
+        : [...NWC_REQUIRED_METHODS, 'get_info'];
+      const missing = NWC_REQUIRED_METHODS.filter((m) => !methods.includes(m));
+      if (missing.length > 0) {
+        throw new SattleError(
+          'invalid_wallet',
+          `This connection can’t ${missing.join(' or ').replaceAll('_', ' ')}. Make a new one that allows receiving.`
+        );
+      }
+      const needed = new Set<string>([...NWC_REQUIRED_METHODS, 'get_info']);
       this.wallet = {
         connected: true,
-        methods: [...NWC_REQUIRED_METHODS, 'get_info'],
-        excessMethods: [],
+        methods,
+        excessMethods: methods.filter((m) => !needed.has(m)),
         alias: 'Mock wallet',
         connectedAt: this.now(),
       };
