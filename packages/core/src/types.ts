@@ -273,6 +273,11 @@ export interface InviteView {
   invitedBy: string;
   /** Everyone in the group who hasn't joined: who the person opening this could be. */
   members: InviteMember[];
+  /**
+   * The names of the people who have. The page shows them so the whole group is
+   * on it, but they can't be picked: each belongs to an account already.
+   */
+  joined: string[];
 }
 
 // -- group links -----------------------------------------------------------

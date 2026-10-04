@@ -7,17 +7,22 @@
  * says so above the button.
  *
  * Nobody on the list types who they are. The group already has a row for each
- * person, so the page lists the ones nobody has joined as yet and the person
- * picks one. Someone the group hasn't listed taps + and gives their name, and
- * joins as a new member.
+ * person, so the page lists them all and the person picks one that nobody has
+ * joined as yet. The ones who have joined are there too, marked, so the list
+ * is the whole group and never comes up empty. Someone the group hasn't listed
+ * taps + and gives their name, and joins as a new member.
+ *
+ * Someone already in the group has nobody left to be. For them the link just
+ * opens the group.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, parseInviteToken, type JoinAs } from '@sattle/core';
 import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
+import { joinedGroupFor } from '../client/joinedGroup';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -37,10 +42,23 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
   const [active, setActive] = useState(token ?? null);
   // What they're already called, for the name field if they add themselves.
   const me = useAsync(() => client.getCurrentUser(), [client]);
+  // The link is the one in the group's chat, so the people in the group tap it too. Not being
+  // able to tell is no reason to stop anyone joining, so a failure reads as not being in it.
+  const mine = useAsync(
+    () => (active ? joinedGroupFor(client, active).catch(() => null) : Promise.resolve(null)),
+    [client, active]
+  );
+  const already = active ? mine.data : null;
+  useEffect(() => {
+    if (already) onJoined(already);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [already]);
 
   return (
     <Screen title="Join a group" onBack={onBack}>
-      {active ? (
+      {active && (mine.loading || already) ? (
+        <Loading lines={3} />
+      ) : active ? (
         <WhoAreYou
           token={active}
           note="Once you join, you can see everything in this group and add to it."
@@ -172,10 +190,11 @@ function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
 const NEW = '+';
 
 /**
- * Who invited you to what, the people you could be, and Join. Someone who
- * isn't one of them taps + and gives their own name. `join` does the joining
- * and leaves the screen; if it throws, the message is shown and the list is
- * read again, since the name may just have been taken.
+ * Who invited you to what, the people in the group, and Join. The ones nobody
+ * has joined as can be picked; the rest are shown as joined. Someone who isn't
+ * any of them taps + and gives their own name. `join` does the joining and
+ * leaves the screen; if it throws, the message is shown and the list is read
+ * again, since the name may just have been taken.
  */
 function WhoAreYou({
   token,
@@ -217,8 +236,11 @@ function WhoAreYou({
     );
   }
 
-  // With nobody left to pick, adding yourself is the only way in.
-  const adding = picked === NEW || data.members.length === 0;
+  // A server from before the page named them sends none.
+  const joined = data.joined ?? [];
+  const listed = data.members.length + joined.length;
+  // With nobody on the list at all, adding yourself is the only thing to do.
+  const adding = picked === NEW || listed === 0;
   const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
@@ -267,7 +289,18 @@ function WhoAreYou({
               </View>
             );
           })}
-          {data.members.length > 0 && <Divider />}
+          {joined.map((name, i) => (
+            // Not a choice: that name is someone's account already.
+            <View key={`joined-${i}`}>
+              {(i > 0 || data.members.length > 0) && <Divider />}
+              <View style={s.row}>
+                <Avatar name={name} dim />
+                <Text style={[s.name, { color: color.inkFaint }]}>{name}</Text>
+                <Text style={s.joined}>Joined</Text>
+              </View>
+            </View>
+          ))}
+          {listed > 0 && <Divider />}
           <Pressable
             onPress={() => setPicked(NEW)}
             disabled={busy}
@@ -275,7 +308,7 @@ function WhoAreYou({
             accessibilityState={{ selected: adding }}
             style={({ pressed }) => [
               s.row,
-              data.members.length === 0 && s.rowFirst,
+              listed === 0 && s.rowFirst,
               !adding && s.rowLast,
               (adding || pressed) && s.rowOn,
             ]}
@@ -283,7 +316,7 @@ function WhoAreYou({
             <View style={[s.plus, adding && { backgroundColor: color.surface }]}>
               <Text style={s.plusText}>+</Text>
             </View>
-            <Text style={s.name}>{data.members.length === 0 ? 'Add yourself' : 'I’m not on this list'}</Text>
+            <Text style={s.name}>{listed === 0 ? 'Add yourself' : 'I’m not on this list'}</Text>
             <View style={[s.radio, adding && s.radioOn]}>{adding && <View style={s.radioDot} />}</View>
           </Pressable>
           {adding && (
@@ -306,7 +339,9 @@ function WhoAreYou({
         <Text style={s.hint}>
           {adding
             ? 'You’re added to the group as a new member, with nothing owed either way.'
-            : 'You take over that name as it is, with the balance already on it.'}
+            : data.members.length === 0
+              ? 'Everyone on the list has already joined. If one of them is you, open the group on the phone or browser you joined with. Otherwise add yourself.'
+              : 'You take over that name as it is, with the balance already on it.'}
         </Text>
       </View>
 
@@ -340,6 +375,7 @@ const useStyles = makeStyles((color) => ({
   plusText: { ...type.heading, color: color.accent },
   adding: { backgroundColor: color.accentWash, paddingHorizontal: space.lg, paddingBottom: space.lg },
   name: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
+  joined: { ...type.caption, color: color.inkFaint },
   radio: {
     width: 20,
     height: 20,

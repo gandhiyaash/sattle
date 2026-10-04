@@ -17,6 +17,8 @@ describe('MockClient invites', () => {
     expect(view).toMatchObject({ groupName: 'Goa trip', invitedBy: 'Yash' });
     expect(view.members.map((m) => m.name)).toEqual(ghosts);
     expect(view.members.map((m) => m.name)).toContain('Aman');
+    // The ones who have joined are named too, with nothing to pick them by.
+    expect(view.joined).toEqual(['Yash', 'Om', 'Priya']);
     // Names and refs only: nothing on the page is a member id.
     for (const m of view.members) expect(m.ref).not.toMatch(/^m-/);
   });

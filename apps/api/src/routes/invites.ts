@@ -101,16 +101,18 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
     return c.json({ ok: true });
   });
 
-  /** Public, read-only: what the join page shows, and who it offers to join as. */
+  /** Public, read-only: what the join page shows, who it offers to join as, and who already has. */
   r.get('/join/:token', (c) => {
     const invite = live(c.req.param('token'));
+    const members = repo.members(invite.groupId);
     const view: InviteView = {
       groupName: repo.group(invite.groupId)!.name,
       invitedBy: repo.memberForUser(invite.groupId, invite.createdByUserId)?.displayName ?? 'Someone',
-      members: repo
-        .members(invite.groupId)
+      members: members
         .filter((m) => !m.claimedByUserId)
         .map((m) => ({ ref: memberRef(invite.token, m.id), name: m.displayName })),
+      // Names only, with no ref: there is nothing to send back for someone who can't be picked.
+      joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
     };
     return c.json(view);
   });

@@ -579,12 +579,14 @@ export class MockClient implements SattleClient {
   getInvite(token: string) {
     return this.call((): InviteView => {
       const invite = this.liveInvite(token);
+      const members = this.members.filter((m) => m.groupId === invite.groupId);
       return {
         groupName: this.findGroup(invite.groupId).name,
         invitedBy: invite.invitedBy,
-        members: this.members
-          .filter((m) => m.groupId === invite.groupId && !m.claimedByUserId)
+        members: members
+          .filter((m) => !m.claimedByUserId)
           .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
+        joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
       };
     });
   }

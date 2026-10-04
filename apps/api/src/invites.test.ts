@@ -137,6 +137,7 @@ describe('GET /join/:token', () => {
         { ref: expect.any(String), name: 'Kabir' },
         { ref: expect.any(String), name: 'Aman' },
       ],
+      joined: ['Riya'],
     });
   });
 
@@ -149,6 +150,17 @@ describe('GET /join/:token', () => {
 
     await joinAs('Kabir', token, (await signUp('Kabir')).token);
     expect((await page(token)).body.members.map((m) => m.name)).toEqual(['Aman']);
+  });
+
+  it('names the people who have joined, so the page shows the whole group, with nothing to pick them by', async () => {
+    const { call, signUp, invite, page, joinAs } = await setup();
+    const { token } = (await invite()).body;
+    await joinAs('Kabir', token, (await signUp('Kabir')).token);
+    await call('POST', '/groups/join', { token, displayName: 'Dev' }, (await signUp('Dev')).token);
+
+    const { body } = await page(token);
+    expect(body.joined).toEqual(['Riya', 'Kabir', 'Dev']);
+    expect(body.members.map((m) => m.name)).toEqual(['Aman']);
   });
 
   it('gives the same person a different ref on a new link', async () => {

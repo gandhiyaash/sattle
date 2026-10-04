@@ -108,6 +108,7 @@ apps/mobile/                 @sattle/mobile: Expo
       SattleClient.ts        The interface. The only seam.
       MockClient.ts          In-memory, with latency and failure injection.
       ApiClient.ts           HTTP client for apps/api.
+      joinedGroup.ts         The group behind an invite, for someone already in it.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
     updates/
@@ -222,7 +223,7 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and the people in the group, picks the one they are from those nobody has joined as yet, and joins. The ones who have joined are listed too, marked and not pickable, so the page is the whole group even when every name is taken. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as. Someone already in the group has nobody left to be, so for them the link opens the group (`joinedGroupFor`).
 
 Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
@@ -236,7 +237,7 @@ Joining is full membership. There are no roles, so the new member can read every
 
 What it does not do is check who is on the other end. Anyone holding the link can join as any ghost, or add themselves, for as long as it works: it does not run out when the list does. That is the price of one link for everyone. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off.
 
-`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person who hasn't joined, with an opaque `ref` in place of an id. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
+`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 On an Android phone with the app installed, tapping the link opens the app on the join screen. Everywhere else it opens the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
 
