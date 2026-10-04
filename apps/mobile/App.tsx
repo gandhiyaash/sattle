@@ -8,6 +8,7 @@ import type { SattleClient } from './src/client/SattleClient';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
+import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
 import { InviteSummary } from './src/ui/JoinScreen';
 import { Loading, Screen } from './src/ui/primitives';
@@ -15,6 +16,8 @@ import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** The path payLinkPath() builds: /s/<token>. */
 const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
+/** The path groupLinkPath() builds: /g/<token>. */
+const GROUP_PATH = /^\/g\/([^/]+)\/?$/;
 /** The path invitePath() builds: /join/<token>. */
 const JOIN_PATH = /^\/join\/([^/]+)\/?$/;
 
@@ -32,11 +35,14 @@ function tokenFromPath(path: RegExp): string | null {
 
 /** A pay link: that's where a guest with no app lands. Everything else gets the app. */
 const guestToken = () => tokenFromPath(GUEST_PATH);
+/** A group link: the whole group, to read and to pay from, for someone with no app. */
+const groupToken = () => tokenFromPath(GROUP_PATH);
 /** An invite: the app opens on the join screen, after making an account if there isn't one. */
 const inviteToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
   const [token] = useState(guestToken);
+  const [group] = useState(groupToken);
   const [invite, setInvite] = useState(inviteToken);
   // Off the address bar too, so a reload opens the app instead of a used link.
   const inviteDone = () => {
@@ -50,6 +56,14 @@ export default function App() {
     return (
       <SattleProvider>
         <GuestPayScreen token={token} />
+      </SattleProvider>
+    );
+  }
+  if (group) {
+    // The same: one group, read-only, and nothing of the app around it.
+    return (
+      <SattleProvider>
+        <GroupGuestScreen token={group} />
       </SattleProvider>
     );
   }

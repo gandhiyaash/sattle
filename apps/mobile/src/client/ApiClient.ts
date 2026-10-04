@@ -18,6 +18,8 @@ import {
   type Expense,
   type ExpenseInput,
   type Group,
+  type GroupGuestView,
+  type GroupLink,
   type GuestView,
   type Invite,
   type InviteView,
@@ -167,6 +169,27 @@ export class ApiClient implements SattleClient {
   }
   acceptInvite(token: string, idempotencyKey = newIdempotencyKey()) {
     return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
+  }
+
+  getGroupLink(groupId: string) {
+    return this.request<GroupLink | null>('GET', `/groups/${groupId}/link`);
+  }
+  createGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<GroupLink>('POST', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  async removeGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  getGroupGuestView(token: string) {
+    return this.request<GroupGuestView>('GET', `/g/${encodeURIComponent(token)}`);
+  }
+  payFromGroupLink(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<{ token: string }>(
+      'POST',
+      `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/pay-link`,
+      undefined,
+      idempotencyKey
+    );
   }
 
   updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {

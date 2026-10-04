@@ -11,8 +11,9 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { computeBalances, isInProgress, simplifyDebts, type Member } from '@sattle/core';
+import { computeBalances, groupLinkPath, isInProgress, simplifyDebts, type GroupLink, type Member } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
+import { APP_URL } from '../react/useSettleFlow';
 import {
   Avatar,
   Button,
@@ -44,6 +45,8 @@ interface Settings {
   settled: boolean;
   /** A payment in the group hasn't finished. The server won't delete the group until it has. */
   paying: boolean;
+  /** The group's link, if someone has made one. */
+  link: GroupLink | null;
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
@@ -51,12 +54,13 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
   const keys = useActionKeys();
 
   const { data, loading, error, reload } = useAsync<Settings>(async () => {
-    const [user, group, members, expenses, settlements] = await Promise.all([
+    const [user, group, members, expenses, settlements, link] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
+      client.getGroupLink(groupId),
     ]);
     const named = new Set<string>();
     for (const e of expenses) {
@@ -75,6 +79,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       accounts: members.filter((m) => m.claimedByUserId).length,
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
       paying: settlements.some(isInProgress),
+      link,
     };
   }, [groupId]);
 
@@ -133,6 +138,44 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
           Only someone added by mistake can be removed. Once a person is in an expense or a payment they stay in the
           group’s history, and someone who has joined can only leave by themselves.
         </Text>
+      </View>
+
+      <View>
+        <SectionLabel>Group link</SectionLabel>
+        <Card style={{ gap: space.md }}>
+          {data.link ? (
+            <>
+              <Text style={s.body}>
+                Anyone holding this link can see the group’s spends and who owes what, and pay a debt. They can’t
+                change anything.
+              </Text>
+              <Text style={s.url} selectable numberOfLines={1}>
+                {`${APP_URL}${groupLinkPath(data.link.token)}`}
+              </Text>
+              <ConfirmButton
+                label="Make a new link"
+                confirmLabel="Yes, replace the link"
+                hint="The old one stops working for everyone who has it."
+                onConfirm={async () => {
+                  await keys.run('replace-link', { groupId, old: data.link!.token }, (k) => client.createGroupLink(groupId, k));
+                  reload();
+                }}
+              />
+              <ConfirmButton
+                label="Turn off the link"
+                confirmLabel="Yes, turn it off"
+                onConfirm={async () => {
+                  await keys.run('remove-link', { groupId, old: data.link!.token }, (k) => client.removeGroupLink(groupId, k));
+                  reload();
+                }}
+              />
+            </>
+          ) : (
+            <Text style={s.body}>
+              This group has no link, so only the people in it can see it. Share one from the group screen.
+            </Text>
+          )}
+        </Card>
       </View>
 
       <View>
@@ -230,6 +273,7 @@ const s = StyleSheet.create({
   body: { ...type.body, color: color.inkMuted },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
   error: { ...type.caption, color: color.danger },
+  url: { ...type.amountSm, color: color.inkFaint },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg },
   memberName: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
   // Lines up under the name: row padding, avatar, gap.
