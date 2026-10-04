@@ -45,6 +45,33 @@ export function checkSettlement(repo: Repo, g: Group, body: Pair) {
   return repo.member(body.toMemberId)!;
 }
 
+/** Only the payer starts a payment. Call after checkSettlement. */
+export function checkPayer(repo: Repo, body: Pair, userId: string) {
+  const payer = repo.member(body.fromMemberId)!;
+  if (payer.claimedByUserId !== userId) {
+    throw new SattleError('invalid_input', `Only ${payer.displayName} can pay this.`);
+  }
+}
+
+/**
+ * Who may record a payment made outside the app. Nobody can check it, so the
+ * person it costs if it's false makes it: the payee. A ghost payee has no
+ * account to ask, so for them the payer may record it instead. Call after
+ * checkSettlement.
+ */
+export function checkManualRecorder(repo: Repo, body: Pair, userId: string) {
+  const payer = repo.member(body.fromMemberId)!;
+  const payee = repo.member(body.toMemberId)!;
+  if (payee.claimedByUserId === userId) return;
+  if (!payee.claimedByUserId && payer.claimedByUserId === userId) return;
+  throw new SattleError(
+    'invalid_input',
+    payee.claimedByUserId
+      ? `Only ${payee.displayName} can mark this as settled.`
+      : `Only ${payer.displayName} can mark this as settled.`
+  );
+}
+
 /** The settlement already running for this pair, if any. */
 export function inProgressFor(repo: Repo, g: Group, body: Pair) {
   return repo

@@ -227,10 +227,15 @@ describe('POST /s/:token/open', () => {
   });
 
   it('refuses while the same debt is being paid outside the link', async () => {
-    const { call, createLink, priyaOwesYash } = setup('stalled');
+    const { db, call, createLink, priyaOwesYash } = setup('stalled');
     const link = await createLink();
     const d = await priyaOwesYash();
-    expect((await call('POST', '/groups/g-flat/settlements', { ...d, rail: 'invoice' })).status).toBe(201);
+    // Priya is a ghost, so no route lets anyone start this payment for her; put it in place directly.
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, created_at, updated_at)
+       VALUES ('s-elsewhere', 'g-flat', ?, ?, ?, 'INR', 'invoice', 'awaiting_payment', ?, ?)`
+    ).run(d.fromMemberId, d.toMemberId, d.amount, now, now);
 
     const { status, body } = await call<{ code: string }>('POST', `/s/${link.token}/open`);
     expect(status).toBe(409);

@@ -230,7 +230,8 @@ function ConnectWallet() {
  *                       else; account/tokenStore keeps it on the device
  *   Is it paid          payments/nwc.ts confirms on the wallet's `settled`, and keeps
  *                       the preimage only if preimageMatches; the manual route lets
- *                       any member of the group settle a debt by hand
+ *                       the payee settle a debt by hand (the payer, if the payee is
+ *                       a ghost): settlementRules.ts checkManualRecorder
  *   Group data          migrations/001_init.sql: plain columns, no encryption
  *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
@@ -262,7 +263,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Is it really paid?"
-          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. Settled by hand is different: any member of a group can mark a debt that way, and it is their word, not proof."
+          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
         />
         <Divider />
         <Row

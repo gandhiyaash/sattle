@@ -96,7 +96,7 @@ describe('Your account', () => {
 });
 
 describe('Is it really paid?', () => {
-  it('"any member of a group can mark a debt that way": Om settles Priya’s debt to Yash by hand', async () => {
+  it('"the person who is owed marks it": Om can’t settle Priya’s debt to Yash by hand, Yash can', async () => {
     const { db, call } = setup();
     db.prepare("UPDATE users SET token = 't-om' WHERE id = 'u-om'").run();
     const asOm = { authorization: 'Bearer t-om' };
@@ -104,14 +104,21 @@ describe('Is it really paid?', () => {
     const debt = (await call<Debt[]>('GET', '/groups/g-flat/debts', undefined, asOm)).body.find(
       (d) => d.fromMemberId === 'm-flat-priya' && d.toMemberId === 'm-flat-yash'
     )!;
-    const res = await call<Settlement>(
-      'POST',
-      '/groups/g-flat/settlements/manual',
-      { fromMemberId: debt.fromMemberId, toMemberId: debt.toMemberId, amount: debt.amount, note: 'cash' },
-      asOm
-    );
+    const body = { fromMemberId: debt.fromMemberId, toMemberId: debt.toMemberId, amount: debt.amount, note: 'cash' };
+    expect((await call('POST', '/groups/g-flat/settlements/manual', body, asOm)).status).toBe(400);
+
+    const res = await call<Settlement>('POST', '/groups/g-flat/settlements/manual', body);
     expect(res.status).toBe(201);
     expect(res.body.status).toBe('manually_confirmed');
     expect(res.body).not.toHaveProperty('preimage');
+  });
+
+  it('"or the person paying if the one owed hasn’t joined": Yash settles his debt to Aman by hand', async () => {
+    const { call } = setup();
+    const debt = (await call<Debt[]>('GET', '/groups/g-goa/debts')).body.find(
+      (d) => d.fromMemberId === 'm-goa-yash' && d.toMemberId === 'm-goa-aman'
+    )!;
+    const res = await call<Settlement>('POST', '/groups/g-goa/settlements/manual', { ...debt, note: 'cash' });
+    expect(res.status).toBe(201);
   });
 });
