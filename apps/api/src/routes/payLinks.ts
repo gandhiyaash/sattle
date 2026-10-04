@@ -13,12 +13,13 @@ import { randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, canReceive, toGuestSettlement, type GuestView, type PayLink } from '@sattle/core';
+import { SattleError, canReceive, toGuestSettlement, type GuestView, type PayLink, type Settlement } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
+import { applyProof, hashOfPreimage, ProofBody, readPreimage } from '../proof';
 import { nowIso } from '../repo';
 import { checkSettlement, debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
 
@@ -41,8 +42,9 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
     return link;
   };
 
-  const guestView = (link: PayLink): GuestView => {
-    const latest = repo.latestForPayLink(link.token);
+  /** With `shown`, that settlement instead of the latest. */
+  const guestView = (link: PayLink, shown?: Settlement): GuestView => {
+    const latest = shown ?? repo.latestForPayLink(link.token);
     return {
       payerName: repo.member(link.fromMemberId)!.displayName,
       payeeName: repo.member(link.toMemberId)!.displayName,
@@ -124,6 +126,24 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
 
   /** Public, read-only, polled by the guest page. GuestView with the latest settlement. */
   r.get('/s/:token', (c) => c.json(guestView(findLink(c.req.param('token')))));
+
+  /**
+   * Public. The guest's proof of payment for any invoice this link opened,
+   * not just the latest: they may have paid an older one. Returns the
+   * GuestView showing the settlement it proved.
+   *   not 64 hex characters                  → 400 invalid_input
+   *   for no invoice this link opened        → 400 invalid_input, same
+   *     message whether or not it exists elsewhere
+   */
+  r.post('/s/:token/proof', once, async (c) => {
+    const link = findLink(c.req.param('token'));
+    const preimage = readPreimage(parse(ProofBody, await c.req.json()).preimage);
+    const s = repo.settlementByPaymentHash(hashOfPreimage(preimage));
+    if (!s || repo.invoiceOf(s.id)?.payLinkToken !== link.token) {
+      throw new SattleError('invalid_input', 'That proof is for a different payment.');
+    }
+    return c.json(guestView(link, applyProof(repo, s, preimage)));
+  });
 
   return r;
 }

@@ -62,6 +62,13 @@ export interface SattleClient {
     input: Omit<CreateSettlementInput, 'rail'> & { note?: string },
     idempotencyKey?: string
   ): Promise<Settlement>;
+  /**
+   * Proof of payment: the preimage the payer's wallet handed back. Confirms
+   * the payment if it's this invoice's, even one already called expired
+   * (it may have been paid late). Sending it twice is fine. Throws
+   * `invalid_input` for anything else.
+   */
+  submitProof(settlementId: string, preimage: string, idempotencyKey?: string): Promise<Settlement>;
   /** Returns an unsubscribe function. */
   onSettlementUpdate(settlementId: string, cb: (s: Settlement) => void): () => void;
 
@@ -82,6 +89,11 @@ export interface SattleClient {
   openPayLink(token: string): Promise<GuestView>;
   /** Public, read-only. */
   getGuestView(token: string): Promise<GuestView>;
+  /**
+   * Public. Proof of payment for any invoice this link opened; the view
+   * shows the payment it proved. Throws `invalid_input` if it isn't one.
+   */
+  submitGuestProof(token: string, preimage: string, idempotencyKey?: string): Promise<GuestView>;
   /** Public. Returns an unsubscribe function. */
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
 

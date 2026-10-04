@@ -147,6 +147,14 @@ export function createRepo(db: Db) {
     ),
     settlementsOfGroup: db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY created_at'),
     settlementById: db.prepare('SELECT * FROM settlements WHERE id = ?'),
+    settlementByPaymentHash: db.prepare('SELECT * FROM settlements WHERE payment_hash = ?'),
+    paymentHashOf: db.prepare('SELECT payment_hash, pay_link_token FROM settlements WHERE id = ?'),
+    // Any open or closed-unpaid row: a proof can confirm an invoice we'd
+    // already called expired, since it may have been paid late.
+    confirmWithProof: db.prepare(
+      `UPDATE settlements SET status = 'confirmed', preimage = ?, failure_reason = NULL, updated_at = ?
+       WHERE id = ? AND status NOT IN ('confirmed', 'manually_confirmed')`
+    ),
     // Finished payments are left out here, so a long history isn't loaded to answer "is anything open?".
     unfinishedToUser: db.prepare(
       `SELECT s.* FROM settlements s JOIN members m ON m.id = s.to_member_id
@@ -394,6 +402,20 @@ export function createRepo(db: Db) {
       return link;
     },
     /** Records that this settlement came from opening the link. */
+    /** Server-side invoice details the Settlement type leaves out. */
+    invoiceOf(id: string) {
+      const r = q.paymentHashOf.get(id) as { payment_hash: string | null; pay_link_token: string | null } | undefined;
+      return r && { paymentHash: opt<string>(r.payment_hash), payLinkToken: opt<string>(r.pay_link_token) };
+    },
+    settlementByPaymentHash: (hash: string) => {
+      const r = q.settlementByPaymentHash.get(hash) as Row | undefined;
+      return r && toSettlement(r);
+    },
+    /** Confirms with a checked preimage. False if it was already confirmed. */
+    confirmWithProof(id: string, preimage: string) {
+      return q.confirmWithProof.run(preimage, nowIso(), id).changes === 1;
+    },
+
     attachToPayLink(settlementId: string, token: string) {
       q.attachToPayLink.run(token, settlementId);
     },
