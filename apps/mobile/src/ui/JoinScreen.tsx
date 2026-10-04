@@ -224,8 +224,9 @@ function WhoAreYou({
     try {
       await join(member ? { ref: member.ref } : { displayName: name }, name);
     } catch (e) {
+      // The choice stays. After a dropped connection the retry is one tap, with the name still
+      // in the field; a name that was just taken leaves the list when it is read again.
       setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
-      setPicked(null);
       setBusy(false);
       refresh();
     }

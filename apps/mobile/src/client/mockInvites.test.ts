@@ -47,6 +47,14 @@ describe('MockClient invites', () => {
     expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-aman')?.status).toBe('ghost');
   });
 
+  it('turns away an empty or overlong name before anything else, as the server does', async () => {
+    const c = client();
+    const invite = await c.createInvite('g-goa');
+    await expect(c.acceptInvite(invite.token, { displayName: '   ' })).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(c.acceptInvite(invite.token, { displayName: 'x'.repeat(41) })).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(c.acceptInvite('nope', { displayName: '' })).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
   it('is not_found for a token nobody made', async () => {
     await expect(client().getInvite('nope')).rejects.toMatchObject({ code: 'not_found' });
   });

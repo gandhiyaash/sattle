@@ -544,6 +544,10 @@ export class MockClient implements SattleClient {
    */
   acceptInvite(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call(() => {
+      // The server checks the body before it looks at the invite: a name is 1 to 40 characters.
+      if ('displayName' in as && (!as.displayName.trim() || as.displayName.trim().length > 40)) {
+        throw new SattleError('invalid_input', 'Give a name of up to 40 characters.');
+      }
       const invite = this.liveInvite(token);
       const me = fixtures.currentUser;
       const g = this.findGroup(invite.groupId);
