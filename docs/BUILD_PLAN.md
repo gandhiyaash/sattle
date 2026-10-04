@@ -105,3 +105,132 @@ Each task is one branch and one PR. "Done when" is what the reviewer checks.
 - **Replace the 501 test when you build a stub.** `contract.test.ts` lists every stub that's still open.
 - **Never commit the NWC test string.** Keep it in a shared password manager and pass it in through `apps/api/.env`.
 - **Merge to `main` at least twice a day.** CI runs typecheck and tests on every PR.
+
+## Next: receive with a Lightning address
+
+Today only someone with an NWC wallet can receive real payments, and most wallets people already have can't do NWC (Wallet of Satoshi, Phoenix, Blink and others). This lets someone receive by typing a Lightning address instead. The server asks the address for an invoice the same way any wallet does. NWC stays as it is.
+
+Knowing it was paid, in order of preference:
+
+1. **Poll.** The provider returns a verify URL (LUD-21) and we poll it. 6 of the 16 providers tested do: Alby, Blink, Zeus Pay, Minibits, Speed, Stacker News.
+2. **Proof.** For the rest, a browser wallet hands back the preimage (WebLN `sendPayment`), or the payer pastes it.
+3. **Manual.** The person owed marks it settled, as today.
+
+Polling and proof are both checked with `preimageMatches` against the payment hash we stored when we fetched the invoice, so they are as strong as the NWC path. **That only holds if the person owed chose the address**, which is why L1 comes first.
+
+### Why L1 comes first
+
+A preimage proves an invoice was paid, not that the money reached the person owed. With NWC the server mints on the payee's own wallet, so the two are the same. With an address, the server trusts whoever typed it, and today:
+
+- anyone in the group can set a ghost's address (`routes/groups.ts`, `PUT /members/:id/payout-address`), and
+- `claimMember` keeps that address when the ghost joins.
+
+So a payer can put their own address on a ghost, wait for the ghost to join, pay themselves, and get a valid proof. Harmless today (the address rail is only offered for ghosts, and the payer can already mark a ghost's debt settled), but a fake `confirmed` once this ships.
+
+### Dependency graph
+
+```mermaid
+graph TD
+  L1[L1 Who set the address]
+  L2[L2 BOLT11 decoder + safe fetch]
+  L3[L3 LNURL-pay client]
+  L4[L4 Split the payment backend]
+  L5[L5 Proof submission + expiry]
+  L6[L6 Receive-with-address screen]
+  L7[L7 Proof on the guest page]
+
+  L2 --> L3
+  L1 --> L4
+  L3 --> L4
+  L4 --> L5
+  L4 --> L6
+  L5 --> L7
+  L5 --> I4{{I4 Real address payment, end to end}}
+  L6 --> I4
+  L7 --> I4
+```
+
+**Critical path:** L2 → L3 → L4 → L5 → I4. L1 has no dependencies and ships first on its own.
+
+### Tasks
+
+Each task is one branch and one PR. "Done when" is what the reviewer checks.
+
+#### Yash
+
+| ID | Task | Needs | Files | Done when |
+|---|---|---|---|---|
+| L1 | Record who set each address. On claim, an address a groupmate typed is cleared; the member sets their own. | — | `migrations/007_address_set_by.sql`, `routes/groups.ts`, `repo.ts` | Test: payer sets their own address on a ghost, the ghost joins, the address is gone |
+| L2 | BOLT11 decoder (payment hash, amount, description hash, expiry). Safe fetch: https only, private and loopback IPs blocked after DNS, no redirects, short timeout, size cap. | — | `apps/api/src/bolt11.ts`, `apps/api/src/safeFetch.ts` | Decodes invoices from every tested provider; fetch refuses `localhost`, `10.x`, `169.254.x`, a redirect, an oversized body |
+| L3 | LNURL-pay client: read `/.well-known/lnurlp/<name>`, check min/max, request the invoice, check amount and `description_hash`, keep `verify` if present | L2 | `apps/api/src/lnurl.ts` | Tests on recorded responses from the 16 providers; a wrong amount or hash is refused |
+| L4 | `NwcPayments` becomes one backend with two steps: get an invoice (NWC or address), confirm it (NWC lookup, LUD-21 verify, or wait for proof). A joined member with a self-set address and no NWC can receive on `invoice`. LUD-21 confirms only when the preimage matches. | L1 L3 | `payments/nwc.ts` → `payments/lightning.ts`, `migrations/008_verify_url.sql`, `server.ts`, `settlementOptions.ts` (core) | Existing NWC tests pass unchanged; `PAYMENTS=nwc` mints from a real address and confirms over verify |
+| L5 | Proof submission: `POST /groups/:id/settlements/:sid/proof` (authed payer) and `POST /s/:token/proof` (guest), both through `preimageMatches`. A proof can confirm an expired settlement. Without a verify URL, expiry closes the row as "unknown" with a message to paste proof or ask the payee. | L4 | `routes/settlements.ts`, `routes/payLinks.ts`, `payments/lightning.ts`, `SattleClient.ts`, `MockClient.ts`, `nostrLedger.ts` | A wrong preimage is refused; a right one confirms, also after expiry; the Nostr ledger records the late confirmation |
+
+#### Om
+
+| ID | Task | Needs | Files | Done when |
+|---|---|---|---|---|
+| L6 | "Receive with a Lightning address" on the wallet screen, next to NWC, with copy for providers we can't confirm automatically | L4 | `ui/WalletScreen.tsx` | Works on the mock; on the API a self-set address makes the member payable |
+| L7 | Guest page: a browser wallet pays and sends the proof back; otherwise a field to paste it | L5 | `ui/GuestPayScreen.tsx` | Both paths reachable on the mock; a pasted proof flips the page to settled |
+
+#### Together
+
+| ID | Milestone | Needs | Done when |
+|---|---|---|---|
+| I4 | A real address payment, end to end | L5 L6 L7 | One provider that supports verify and one that doesn't, both reach `confirmed` from a phone. Run each 5 times. |
+
+### Review: secure, scalable, reliable
+
+A second pass over the plan above before building it. Each item lands in the PR named, or as its own `R` task.
+
+**Security**
+
+| ID | Finding | Fix | Lands in |
+|---|---|---|---|
+| R1 | Nothing stops two settlements sharing a payment hash. An LNURL server that returns the same invoice twice would let one payment confirm two debts. | Unique index on `settlements.payment_hash` (NULLs allowed). Minting refuses a hash we already hold. | Own PR, before L4 |
+| R2 | Checking the IP once and then connecting by name lets DNS rebinding reach internal addresses. | Resolve once, check every address, connect to the checked IP with the original `Host`/SNI. | L2 |
+| R3 | Every pay-link open asks the payee's provider for an invoice. Anyone with a link can make us hammer a third party. | Opens are already refused while a payment for the pair is in progress. Add a cap on mints per address per minute, so an open–expire–reopen loop can't either. | L4 |
+| R4 | A verify URL is a bearer for payment status. | Never in an API response, a guest view, a log line or the Nostr ledger. Store it, use it, nothing else. | L4 |
+| R5 | A typed address can change while an invoice is open. | The settlement keeps the invoice, hash and verify URL it was minted with; a new address applies to the next one. | L4 |
+| R6 | Proof bodies are user input. | Exactly 64 hex characters, checked before anything else; no other fields read. | L5 |
+
+**Scalability**
+
+| ID | Finding | Fix | Lands in |
+|---|---|---|---|
+| R7 | The confirmation loop polls every open invoice every 1.5s, all at once. Fine for NWC on our relay; rude to a third party's HTTP server and a waste for invoices nobody is paying. | Back off per invoice (1.5s, rising to 30s after the first minutes), cap concurrent requests per host, and stop polling providers without `verify` at all. | L4 |
+| R8 | LNURL metadata is fetched on every mint. | Cache the `/.well-known/lnurlp` answer per address for a few minutes. | L3 |
+| R9 | Open invoices are watched in one process's memory, so only one API instance can run. | Not needed yet. When it is: a lease column (`watched_by`, `lease_until`) so instances split the work. Written down so nobody adds a second instance by accident. | Later |
+
+**Reliability**
+
+| ID | Finding | Fix | Lands in |
+|---|---|---|---|
+| R10 | A slow provider could hang a mint. | Every outside call has a timeout; a failed mint fails the settlement with a message naming the provider, as NWC does. | L3 |
+| R11 | A retried proof submit must not error. | Submitting the proof of an already confirmed settlement returns it as is. | L5 |
+| R12 | Providers change their answers. | Tests run on recorded responses from each provider, plus an `lnurl:smoke` script like `nwc:smoke` that mints a real invoice from a real address. | L3 |
+
+### Implementation order
+
+Each line is one PR off `main`, on a `yash/` branch.
+
+1. This plan.
+2. L1: record who set an address.
+3. R1: unique payment hash.
+4. L2: BOLT11 decoder and safe fetch (with R2).
+5. L3: LNURL-pay client (with R8, R10, R12).
+6. L4, L5, then Om's L6 and L7.
+
+### Open decisions
+
+Need answers before L1 and L2.
+
+| Question | Options | Lean |
+|---|---|---|
+| BOLT11 decoder | Small vetted package, or our own (~80 lines of bech32) | Package, unless we want zero new dependencies |
+| Address a groupmate typed, after the ghost joins | Clear it, or keep it blocked until the member confirms it | Clear it: simpler, nothing to get wrong |
+| Late payment at a stale rate | Accept the proof anyway, or refuse and ask the payee | Accept: it's real money, and the drift is small |
+
+### Rules
+
+Same as [Rules](#rules) above. Migrations here take 007 and 008. L4 and L5 change `@sattle/core` and `SattleClient`, so they are contract changes: talk first.
