@@ -414,11 +414,16 @@ export class LightningPayments implements PaymentBackend {
     return payee?.claimedByUserId ? this.deps.wallets.nwcUriFor(payee.claimedByUserId) : undefined;
   }
 
-  /** A joined member's own address. A ghost's was typed by someone else, so it doesn't count. */
+  /**
+   * The payee's own address: the one they set for receiving everywhere, else
+   * one they set in this group. A ghost's was typed by someone else, so it
+   * doesn't count.
+   */
   private addressFor(memberId: string) {
     if (!this.deps.lnurl) return undefined;
     const payee = this.deps.repo.member(memberId);
-    return payee?.claimedByUserId ? payee.lightningAddress : undefined;
+    if (!payee?.claimedByUserId) return undefined;
+    return this.deps.wallets.receiveAddress(payee.claimedByUserId) ?? payee.lightningAddress;
   }
 
   private client(uri: string) {

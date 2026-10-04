@@ -28,6 +28,7 @@ import type {
   LedgerBackup,
   Member,
   PayLink,
+  ReceiveAddress,
   Settlement,
   User,
   WalletConnection,
@@ -185,6 +186,19 @@ export interface SattleClient {
   getWalletConnection(): Promise<WalletConnection>;
   /** The server forgets the connection string. Throws `conflict` while a payment to you is under way. */
   disconnectWallet(): Promise<WalletConnection>;
+
+  /**
+   * The user's own Lightning address for receiving, for wallets that can't do
+   * NWC. Covers every group they're in; their NWC connection, if any, is used
+   * first.
+   */
+  getReceiveAddress(): Promise<ReceiveAddress>;
+  /**
+   * The server asks the address for its payment details before saving, so a
+   * typo is caught here. Throws `invalid_address`, or `network` if it didn't answer.
+   */
+  setReceiveAddress(address: string): Promise<ReceiveAddress>;
+  clearReceiveAddress(): Promise<ReceiveAddress>;
 
   // -- account --------------------------------------------------------------
 

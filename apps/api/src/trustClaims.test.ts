@@ -171,3 +171,15 @@ describe('Group links', () => {
     expect((await call('GET', `/g/${replaced.body.token}`)).status).toBe(404);
   });
 });
+
+describe('Your Lightning address', () => {
+  it('"Sattle\'s server keeps it" and "Only you can set yours": each person sets their own, and no one else\'s', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET token = 't-om' WHERE id = 'u-om'").run();
+    // Om sets his, as himself: there's no route that takes someone else's id.
+    expect((await call('PUT', '/me/receive-address', { address: 'om@blink.sv' }, { authorization: 'Bearer t-om' })).status).toBe(200);
+    const rows = db.prepare('SELECT id, receive_address FROM users ORDER BY id').all() as { id: string; receive_address: string | null }[];
+    expect(rows.filter((r) => r.receive_address)).toEqual([{ id: 'u-om', receive_address: 'om@blink.sv' }]);
+    expect((await call('PUT', '/users/u-yash/receive-address', { address: 'om@blink.sv' }, { authorization: 'Bearer t-om' })).status).toBe(404);
+  });
+});

@@ -46,6 +46,9 @@ db.prepare(
 ).run(new Date().toISOString());
 
 let lightning: LightningPayments | undefined;
+// One client for checking receive addresses and minting from them, so the
+// pay details fetched on save are reused. `bc` is mainnet; LIGHTNING_NETWORK=tbs for signet.
+const lnurl = realPayments ? new LnurlClient({ network: env.LIGHTNING_NETWORK || 'bc' }) : undefined;
 const rates = createRateService({ fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 9_000_000) } });
 
 // Unset or empty: entries are signed and kept, and go out once relays are set.
@@ -56,6 +59,7 @@ const app = createApp({
   db,
   ledger,
   demoUserId: env.DEMO_USER_ID || undefined,
+  lnurl,
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
   payments: (repo, wallets) =>
     realPayments
@@ -65,8 +69,7 @@ const app = createApp({
           wallets,
           rates,
           nwc: (uri) => new NwcClient(uri),
-          // `bc` is mainnet; set LIGHTNING_NETWORK=tbs to test on signet.
-          lnurl: new LnurlClient({ network: env.LIGHTNING_NETWORK || 'bc' }),
+          lnurl,
         }))
       : new SimulatedPayments(repo, {
           stepMs: num(env.SIM_STEP_MS, 400),

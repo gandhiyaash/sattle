@@ -316,6 +316,14 @@ export interface WalletConnection {
   connectedAt?: string;
 }
 
+/**
+ * A person's own Lightning address for receiving, for wallets that can't do
+ * NWC. Used when they have no NWC connection. Null when they haven't set one.
+ */
+export interface ReceiveAddress {
+  address: string | null;
+}
+
 export type SattleErrorCode =
   | 'not_found'
   | 'network'

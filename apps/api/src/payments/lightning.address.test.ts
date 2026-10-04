@@ -193,6 +193,19 @@ describe('minting from an address', () => {
     expect(requested).toEqual([]);
   });
 
+  it('uses the address the payee set for every group, ahead of one set in this group', async () => {
+    db.prepare(`UPDATE users SET receive_address = 'yash@everywhere.example' WHERE id = 'u-yash'`).run();
+    await minted(await omPaysYash());
+    expect(requested[0].address).toBe('yash@everywhere.example');
+  });
+
+  it('uses the payee’s receive address when they set none in this group', async () => {
+    db.prepare(`UPDATE members SET lightning_address = NULL WHERE id = 'm-flat-yash'`).run();
+    db.prepare(`UPDATE users SET receive_address = 'yash@everywhere.example' WHERE id = 'u-yash'`).run();
+    expect((await minted(await omPaysYash())).status).toBe('awaiting_payment');
+    expect(requested[0].address).toBe('yash@everywhere.example');
+  });
+
   it('has nowhere to mint when the server has no LNURL client', async () => {
     backend = newBackend(false);
     const s = await minted(await omPaysYash());

@@ -28,6 +28,7 @@ import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
 import { accountRoutes } from './routes/accounts';
+import type { LnurlClient } from './lnurl';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
 import { groupLinkRoutes } from './routes/groupLinks';
@@ -41,6 +42,8 @@ import { createWalletStore, type WalletStore } from './walletStore';
 export interface AppDeps {
   db: Db;
   payments: (repo: Repo, wallets: WalletStore) => PaymentBackend;
+  /** Checks a receive address answers before it's saved; without it, any well-formed address is kept. */
+  lnurl?: Pick<LnurlClient, 'payParams'>;
   /** Defaults to a real NwcClient over the URI's relays. */
   nwc?: (uri: string) => NwcApi;
   /** Mirrors the ledger to Nostr. Defaults to one that signs entries but publishes nowhere. */
@@ -57,7 +60,7 @@ export function createApp(deps: AppDeps) {
   const wallets = createWalletStore(deps.db);
   const nwc = deps.nwc ?? ((uri: string) => new NwcClient(uri));
   const ledger = deps.ledger ?? new NostrLedger({ db: deps.db, relays: [] });
-  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, payments: deps.payments(repo, wallets) };
+  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, lnurl: deps.lnurl, payments: deps.payments(repo, wallets) };
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {

@@ -27,6 +27,7 @@ import {
   type LedgerBackup,
   type Member,
   type PayLink,
+  type ReceiveAddress,
   type Settlement,
   type User,
   type WalletConnection,
@@ -229,6 +230,15 @@ export class ApiClient implements SattleClient {
   }
   getWalletConnection() {
     return this.request<WalletConnection>('GET', '/me/wallet');
+  }
+  getReceiveAddress() {
+    return this.request<ReceiveAddress>('GET', '/me/receive-address');
+  }
+  setReceiveAddress(address: string) {
+    return this.request<ReceiveAddress>('PUT', '/me/receive-address', { address });
+  }
+  clearReceiveAddress() {
+    return this.request<ReceiveAddress>('DELETE', '/me/receive-address');
   }
   disconnectWallet() {
     return this.request<WalletConnection>('DELETE', '/me/wallet');
