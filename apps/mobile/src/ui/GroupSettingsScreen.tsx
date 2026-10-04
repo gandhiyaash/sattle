@@ -11,7 +11,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { computeBalances, simplifyDebts, type Member } from '@sattle/core';
+import { computeBalances, isInProgress, simplifyDebts, type Member } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import {
   Avatar,
@@ -42,6 +42,8 @@ interface Settings {
   /** People with an account, the user included. */
   accounts: number;
   settled: boolean;
+  /** A payment in the group hasn't finished. The server won't delete the group until it has. */
+  paying: boolean;
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
@@ -72,6 +74,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
       accounts: members.filter((m) => m.claimedByUserId).length,
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
+      paying: settlements.some(isInProgress),
     };
   }, [groupId]);
 
@@ -157,11 +160,13 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
         <SectionLabel>Delete</SectionLabel>
         <Card style={{ gap: space.md }}>
           <Text style={s.body}>
-            {data.settled
-              ? 'Deletes the group and everything in it, for everyone. This can’t be undone.'
-              : 'A group can only be deleted once nothing is owed in it, so that deleting it can’t erase a debt. Settle up first.'}
+            {data.paying
+              ? 'A payment in this group is still in progress. The group can be deleted once it has finished.'
+              : data.settled
+                ? 'Deletes the group and everything in it, for everyone. This can’t be undone.'
+                : 'A group can only be deleted once nothing is owed in it, so that deleting it can’t erase a debt. Settle up first.'}
           </Text>
-          {data.settled && (
+          {data.settled && !data.paying && (
             <ConfirmButton
               label="Delete this group"
               confirmLabel="Yes, delete it for everyone"

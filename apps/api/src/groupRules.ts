@@ -30,7 +30,7 @@ export function checkExpenseOwner(repo: Repo, expense: Expense, userId: string) 
  * lands on their member, so neither can go until it has finished.
  */
 export function checkNothingIncoming(repo: Repo, userId: string, groupId?: string) {
-  const open = repo.settlementsToUser(userId).some((s) => isInProgress(s) && (!groupId || s.groupId === groupId));
+  const open = repo.unfinishedToUser(userId).some((s) => isInProgress(s) && (!groupId || s.groupId === groupId));
   if (open) throw conflict('A payment to you is still in progress. Wait for it to finish.');
 }
 

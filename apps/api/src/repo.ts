@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   SattleError,
+  TERMINAL_STATUSES,
   type Expense,
   type Group,
   type Invite,
@@ -114,10 +115,11 @@ export function createRepo(db: Db) {
     unclaimAllOf: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE claimed_by_user_id = ?`),
     claimedCount: db.prepare('SELECT COUNT(*) AS n FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL'),
     deleteMember: db.prepare('DELETE FROM members WHERE id = ?'),
-    // Rows that point at a member and so keep it from being deleted.
+    // Rows that point at a member and so keep it from being deleted. The member id is bound
+    // four times: a numbered ?1 is refused by node:sqlite on some of the Node versions we support.
     memberRefs: db.prepare(
-      `SELECT (SELECT COUNT(*) FROM settlements WHERE from_member_id = ?1 OR to_member_id = ?1)
-            + (SELECT COUNT(*) FROM pay_links WHERE from_member_id = ?1 OR to_member_id = ?1) AS n`
+      `SELECT (SELECT COUNT(*) FROM settlements WHERE from_member_id = ? OR to_member_id = ?)
+            + (SELECT COUNT(*) FROM pay_links WHERE from_member_id = ? OR to_member_id = ?) AS n`
     ),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
@@ -134,8 +136,10 @@ export function createRepo(db: Db) {
     ),
     settlementsOfGroup: db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY created_at'),
     settlementById: db.prepare('SELECT * FROM settlements WHERE id = ?'),
-    settlementsToUser: db.prepare(
-      `SELECT s.* FROM settlements s JOIN members m ON m.id = s.to_member_id WHERE m.claimed_by_user_id = ?`
+    // Finished payments are left out here, so a long history isn't loaded to answer "is anything open?".
+    unfinishedToUser: db.prepare(
+      `SELECT s.* FROM settlements s JOIN members m ON m.id = s.to_member_id
+       WHERE m.claimed_by_user_id = ? AND s.status NOT IN (${TERMINAL_STATUSES.map((st) => `'${st}'`).join(', ')})`
     ),
     insertSettlement: db.prepare(
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status,
@@ -280,7 +284,7 @@ export function createRepo(db: Db) {
     claimedCount: (groupId: string) => (q.claimedCount.get(groupId) as { n: number }).n,
     /** In an expense, a payment or a pay link. Such a member can't be deleted without rewriting the ledger. */
     memberHasHistory(groupId: string, memberId: string): boolean {
-      if ((q.memberRefs.get(memberId) as { n: number }).n > 0) return true;
+      if ((q.memberRefs.get(memberId, memberId, memberId, memberId) as { n: number }).n > 0) return true;
       return repo
         .expenses(groupId)
         .some((e) => e.paidByMemberId === memberId || e.parts.some((p) => p.memberId === memberId));
@@ -317,8 +321,12 @@ export function createRepo(db: Db) {
       const r = q.settlementById.get(id) as Row | undefined;
       return r && toSettlement(r);
     },
-    /** Every payment whose payee is a member this user holds, in any group and any state. */
-    settlementsToUser: (userId: string) => (q.settlementsToUser.all(userId) as Row[]).map(toSettlement),
+    /**
+     * Payments that haven't reached an end state, whose payee is a member this
+     * user holds, in any group. Not all of them are still open: an invoice
+     * whose quote has lapsed is in here too (isInProgress tells them apart).
+     */
+    unfinishedToUser: (userId: string) => (q.unfinishedToUser.all(userId) as Row[]).map(toSettlement),
     insertSettlement(s: Settlement) {
       q.insertSettlement.run(
         s.id, s.groupId, s.fromMemberId, s.toMemberId, s.amount, s.currency, s.rail, s.status,

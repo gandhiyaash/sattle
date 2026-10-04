@@ -284,6 +284,21 @@ describe('POST /groups/:id/leave', () => {
     expect((await call('POST', `${base}/leave`, undefined, kabir.token)).status).toBe(409);
     expect((await members()).find((m) => m.id === mKabir)?.status).toBe('joined');
   });
+
+  it('isn’t held up by a payment that has finished, or by an invoice nobody can pay any more', async () => {
+    const { db, call, base, kabir, mRiya, mKabir, openPayment } = await setup();
+    openPayment(mRiya, mKabir);
+    const lapsed = JSON.stringify({ amountFiat: 100, currency: 'INR', amountSat: 11, feeSat: 1, rateFiatPerBtc: 9_000_000, expiresAt: new Date(Date.now() - 1000).toISOString() });
+    db.prepare("UPDATE settlements SET status = 'awaiting_payment', quote = ? WHERE id = 's-open'").run(lapsed);
+    const now = new Date().toISOString();
+    for (const [id, status] of [['s-paid', 'confirmed'], ['s-failed', 'failed'], ['s-expired', 'expired'], ['s-cash', 'manually_confirmed']]) {
+      db.prepare(
+        `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, created_at, updated_at)
+         SELECT ?, group_id, from_member_id, to_member_id, 100, 'INR', 'invoice', ?, ?, ? FROM settlements WHERE id = 's-open'`
+      ).run(id, status, now, now);
+    }
+    expect((await call('POST', `${base}/leave`, undefined, kabir.token)).status).toBe(200);
+  });
 });
 
 describe('DELETE /me/wallet', () => {

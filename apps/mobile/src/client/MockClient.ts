@@ -16,6 +16,7 @@ import {
   canChangeExpense,
   canReceive,
   computeBalances,
+  isInProgress,
   fixtures,
   parseLightningAddress,
   resolveParts,
@@ -698,12 +699,6 @@ export class MockClient implements SattleClient {
 
 export function isTerminal(s: Settlement) {
   return TERMINAL_STATUSES.includes(s.status);
-}
-
-/** Same rule as the server: an invoice whose quote has lapsed no longer counts. */
-function isInProgress(s: Settlement) {
-  if (isTerminal(s)) return false;
-  return !(s.status === 'awaiting_payment' && s.quote && Date.parse(s.quote.expiresAt) < Date.now());
 }
 
 function networkError() {
