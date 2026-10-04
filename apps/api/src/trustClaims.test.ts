@@ -59,7 +59,7 @@ describe('Your wallet connection', () => {
   });
 
   it('"It has no code that spends": nothing that talks to a wallet names a paying method', () => {
-    for (const file of ['./nwc.ts', './payments/nwc.ts', './routes/wallet.ts']) {
+    for (const file of ['./nwc.ts', './payments/lightning.ts', './lnurl.ts', './safeFetch.ts', './routes/wallet.ts']) {
       expect(source(file)).not.toMatch(/pay_invoice|pay_keysend/);
     }
   });
