@@ -8,7 +8,7 @@
  * wifi will see all three.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -96,6 +96,7 @@ export function Button({
   variant = 'secondary',
   disabled,
   busy,
+  danger,
 }: {
   label: string;
   hint?: string;
@@ -103,6 +104,8 @@ export function Button({
   variant?: 'primary' | 'secondary' | 'quiet';
   disabled?: boolean;
   busy?: boolean;
+  /** For something that can't be undone. */
+  danger?: boolean;
 }) {
   const isPrimary = variant === 'primary';
   return (
@@ -114,17 +117,66 @@ export function Button({
           s.btn,
           isPrimary && s.btnPrimary,
           variant === 'quiet' && s.btnQuiet,
+          danger && variant === 'secondary' && { borderColor: color.danger },
           pressed && { opacity: 0.85 },
           (disabled || busy) && { opacity: 0.4 },
         ]}
       >
         {busy ? (
-          <ActivityIndicator color={isPrimary ? color.onAccent : color.ink} />
+          <ActivityIndicator color={isPrimary ? color.onAccent : danger ? color.danger : color.ink} />
         ) : (
-          <Text style={[s.btnLabel, isPrimary && s.btnLabelPrimary]}>{label}</Text>
+          <Text style={[s.btnLabel, isPrimary && s.btnLabelPrimary, danger && !isPrimary && { color: color.danger }]}>
+            {label}
+          </Text>
         )}
       </Pressable>
       {hint && <Text style={s.btnHint}>{hint}</Text>}
+    </View>
+  );
+}
+
+/**
+ * Two taps for anything that can't be undone: the first asks, the second
+ * does it. `onConfirm` may throw; the message shows under the button and the
+ * button goes back to asking.
+ */
+export function ConfirmButton({
+  label,
+  confirmLabel,
+  hint,
+  onConfirm,
+}: {
+  label: string;
+  /** What the second tap says, e.g. "Yes, delete it". */
+  confirmLabel: string;
+  hint?: string;
+  onConfirm: () => Promise<void>;
+}) {
+  const [state, setState] = useState<'idle' | 'confirming' | 'busy'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = async () => {
+    setState('busy');
+    setError(null);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That didn’t work. Try again.');
+    }
+    setState('idle');
+  };
+
+  return (
+    <View style={{ gap: space.sm }}>
+      {state === 'idle' ? (
+        <Button label={label} hint={hint} danger variant="quiet" onPress={() => setState('confirming')} />
+      ) : (
+        <>
+          <Button label={confirmLabel} danger busy={state === 'busy'} onPress={confirm} />
+          {state === 'confirming' && <Button label="Cancel" variant="quiet" onPress={() => setState('idle')} />}
+        </>
+      )}
+      {error && <Text style={[type.caption, { color: color.danger }]}>{error}</Text>}
     </View>
   );
 }

@@ -228,6 +228,51 @@ export interface InviteView {
   invitedBy: string;
 }
 
+// -- group links -----------------------------------------------------------
+
+/**
+ * A link that shows a whole group to anyone who holds it: every spend, who
+ * owes whom, and a way to pay a debt. It can't change anything. A group has
+ * none until someone in it makes one, and at most one at a time; anyone in
+ * the group can replace it or turn it off.
+ */
+export interface GroupLink {
+  token: string;
+  groupId: string;
+  createdAt: string;
+}
+
+/** A spend as the group page shows it. Names and amounts, no ids. */
+export interface GroupGuestExpense {
+  description: string;
+  /** Minor units. */
+  amount: number;
+  paidBy: string;
+  /** Each person's part of it. */
+  shares: { name: string; amount: number }[];
+  createdAt: string;
+}
+
+/** A debt as the group page shows it. */
+export interface GroupGuestDebt {
+  /** What the page sends back to pay this debt. Opaque, and only good with this group link. */
+  ref: string;
+  from: string;
+  to: string;
+  /** Minor units. */
+  amount: number;
+  /** Whether the person owed has somewhere to receive it (canReceive). */
+  payable: boolean;
+}
+
+/** Only what the group page may show. Names and amounts, no member or group ids. */
+export interface GroupGuestView {
+  groupName: string;
+  currency: Currency;
+  expenses: GroupGuestExpense[];
+  debts: GroupGuestDebt[];
+}
+
 // -- wallet connection -----------------------------------------------------
 
 /**

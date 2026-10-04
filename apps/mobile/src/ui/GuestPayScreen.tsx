@@ -22,7 +22,7 @@
  *   one we've called expired, since it may have been paid late.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, formatFiat, type GuestSettlement, type GuestView } from '@sattle/core';
@@ -34,14 +34,26 @@ import { color, radius, shadow, space, type } from './theme';
 export interface GuestPayScreenProps {
   /** From /s/<token>. The only thing the page knows on arrival. */
   token: string;
+  /** Reached by tapping Settle on the group page, so the reader has seen the group. */
+  fromGroup?: boolean;
 }
+
+const FromGroup = createContext(false);
 
 type Load =
   | { kind: 'loading' }
   | { kind: 'ready'; view: GuestView }
   | { kind: 'failed'; error: SattleError };
 
-export function GuestPayScreen({ token }: GuestPayScreenProps) {
+export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps) {
+  return (
+    <FromGroup.Provider value={fromGroup}>
+      <GuestPay token={token} />
+    </FromGroup.Provider>
+  );
+}
+
+function GuestPay({ token }: { token: string }) {
   const client = useClient();
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   // Bumped to open the link again: after a failure, or once an invoice lapses.
@@ -447,7 +459,15 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 function Footer() {
-  return <Text style={s.footer}>No account needed. This link only shows this one payment — not the group.</Text>;
+  // From the group page that last part would be wrong: they came here from the group.
+  const fromGroup = useContext(FromGroup);
+  return (
+    <Text style={s.footer}>
+      {fromGroup
+        ? 'No account needed. Pay from any Lightning wallet.'
+        : 'No account needed. This link only shows this one payment — not the group.'}
+    </Text>
+  );
 }
 
 /** Whole seconds until `iso`, ticking once a second; null when there's no deadline. */
