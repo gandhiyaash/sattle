@@ -106,21 +106,24 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
    * The caller's member becomes a ghost again and they lose the group. Their
    * name, history and balance stay; an invite can bring them back. 409 for
    * the only person with an account, or while a payment to them is under way.
+   * A member that is on another device too stays joined, held by that one.
    */
   r.post('/groups/:id/leave', once, (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    transaction(db, () => leaveGroup(repo, g, user.id));
+    transaction(db, () => leaveGroup(repo, wallets, g, user.id));
     return c.json({ ok: true });
   });
 
   r.get('/groups/:id/members', (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     // With whether each can be paid now, which only the server can tell under real payments,
     // and whether they take UPI. The UPI ID itself is only for someone who owes them.
+    // The caller's own member reads as claimed by them, even when it is paid through another of its accounts.
     return c.json(
       repo.members(g.id).map((m) => ({
-        ...m,
+        ...repo.seenBy(m, user.id),
         receivable: receivable(payments, m),
         ...(takesUpi(wallets, m) ? { upi: true } : {}),
       }))
@@ -228,7 +231,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     // sets their own, or a groupmate could redirect what they're paid. Joining
     // clears the address a groupmate typed, so a joined member's address is
     // always one they chose. A payment proven to it is a payment to them.
-    if (member.claimedByUserId && member.claimedByUserId !== user.id) {
+    if (member.claimedByUserId && !repo.holds(member, user.id)) {
       throw new SattleError('invalid_input', `Only ${member.displayName} can change where they get paid.`);
     }
 
@@ -236,7 +239,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const parsed = parseLightningAddress(address);
     if (!parsed.ok) throw new SattleError('invalid_address', parsed.reason);
     // Status stays as-is: a ghost with an address is payable, not joined.
-    return c.json(repo.setMemberAddress(member.id, parsed.address));
+    return c.json(repo.seenBy(repo.setMemberAddress(member.id, parsed.address), user.id));
   });
 
   return r;

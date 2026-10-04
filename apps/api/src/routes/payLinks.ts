@@ -72,7 +72,7 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
     const link = transaction(db, () => {
       const payee = repo.member(body.toMemberId);
       if (!payee || payee.groupId !== g.id) throw new SattleError('not_found', 'That member isn’t in this group.');
-      if (payee.claimedByUserId !== user.id) {
+      if (!repo.holds(payee, user.id)) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
       }
       checkSettlement(repo, g, body);

@@ -16,6 +16,7 @@ import { transaction } from '../db';
 import { parse } from '../http';
 import { checkNothingIncoming } from '../groupRules';
 import { LnurlError } from '../lnurl';
+import { settleAccount } from '../memberAccounts';
 import { NwcError, parseNwcUri } from '../nwc';
 import { nowIso } from '../repo';
 
@@ -57,15 +58,18 @@ export function walletRoutes({ db, repo, wallets, nwc, lnurl }: Ctx) {
       );
     }
 
-    const saved = transaction(db, () =>
-      wallets.save(user.id, {
+    const saved = transaction(db, () => {
+      const connection = wallets.save(user.id, {
         nwcUri,
         walletPubkey: conn.walletPubkey,
         methods: info.methods,
         alias: info.alias,
         connectedAt: nowIso(),
-      })
-    );
+      });
+      // A member this account shares with a device that can't be paid is paid here from now on.
+      settleAccount(repo, wallets, user.id);
+      return connection;
+    });
     return c.json(saved);
   });
 
@@ -81,7 +85,9 @@ export function walletRoutes({ db, repo, wallets, nwc, lnurl }: Ctx) {
     const user = c.get('user');
     const gone = transaction(db, () => {
       checkNothingIncoming(repo, user.id);
-      return wallets.remove(user.id);
+      const connection = wallets.remove(user.id);
+      settleAccount(repo, wallets, user.id);
+      return connection;
     });
     return c.json(gone);
   });
@@ -114,13 +120,20 @@ export function walletRoutes({ db, repo, wallets, nwc, lnurl }: Ctx) {
         throw receiveAddressError(e);
       }
     }
-    wallets.setReceiveAddress(user.id, parsed.address);
+    transaction(db, () => {
+      wallets.setReceiveAddress(user.id, parsed.address);
+      settleAccount(repo, wallets, user.id);
+    });
     const body: ReceiveAddress = { address: parsed.address };
     return c.json(body);
   });
 
   r.delete('/me/receive-address', (c) => {
-    wallets.setReceiveAddress(c.get('user').id, null);
+    const user = c.get('user');
+    transaction(db, () => {
+      wallets.setReceiveAddress(user.id, null);
+      settleAccount(repo, wallets, user.id);
+    });
     const body: ReceiveAddress = { address: null };
     return c.json(body);
   });

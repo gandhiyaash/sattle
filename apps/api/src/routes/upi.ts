@@ -29,6 +29,7 @@ import {
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
+import { settleAccount } from '../memberAccounts';
 import { idempotency } from '../middleware';
 import { newId, nowIso } from '../repo';
 import { checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
@@ -76,16 +77,24 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
   /** Sets the user's own UPI ID, for every group they're in. 400 invalid_input when it isn't one. */
   r.put('/me/upi', async (c) => {
+    const user = c.get('user');
     const parsed = parseUpiId(parse(UpiBody, await c.req.json()).upiId);
     if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
-    wallets.setUpiId(c.get('user').id, parsed.upiId);
+    transaction(db, () => {
+      wallets.setUpiId(user.id, parsed.upiId);
+      settleAccount(repo, wallets, user.id);
+    });
     const body: UpiProfile = { upiId: parsed.upiId };
     return c.json(body);
   });
 
   /** Claims already made stay: the payer has paid, and the payee still has to say whether it arrived. */
   r.delete('/me/upi', (c) => {
-    wallets.setUpiId(c.get('user').id, null);
+    const user = c.get('user');
+    transaction(db, () => {
+      wallets.setUpiId(user.id, null);
+      settleAccount(repo, wallets, user.id);
+    });
     const body: UpiProfile = { upiId: null };
     return c.json(body);
   });
@@ -169,7 +178,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
     const settlement = transaction(db, () => {
       const payee = repo.member(claim.toMemberId)!;
-      if (payee.claimedByUserId !== user.id) {
+      if (!repo.holds(payee, user.id)) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can confirm this.`);
       }
       checkSettlement(repo, g, claim);
@@ -188,7 +197,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     const claim = findClaim(c.req.param('id'));
     repo.groupForUser(claim.groupId, user.id);
     const payee = repo.member(claim.toMemberId)!;
-    if (payee.claimedByUserId !== user.id) {
+    if (!repo.holds(payee, user.id)) {
       throw new SattleError('invalid_input', `Only ${payee.displayName} can say whether this arrived.`);
     }
     return c.json(repo.setUpiClaimStatus(claim.id, 'declined'));
@@ -200,7 +209,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     const claim = findClaim(c.req.param('id'));
     repo.groupForUser(claim.groupId, user.id);
     const payer = repo.member(claim.fromMemberId)!;
-    if (payer.claimedByUserId !== user.id) {
+    if (!repo.holds(payer, user.id)) {
       throw new SattleError('invalid_input', `Only ${payer.displayName} can take this back.`);
     }
     repo.deleteUpiClaim(claim.id);

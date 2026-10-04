@@ -5,20 +5,22 @@ import { MockClient } from './MockClient';
 const client = () => new MockClient({ latencyMs: 0 });
 
 describe('MockClient invites', () => {
-  it('makes one link for the group, and the page it opens offers everyone who hasn’t joined', async () => {
+  it('makes one link for the group, and the page it opens offers everyone in it', async () => {
     const c = client();
     expect(await c.getGroupInvite('g-goa')).toBeNull();
     const invite = await c.createInvite('g-goa');
     expect(invite).toEqual({ token: expect.any(String), groupId: 'g-goa', createdAt: expect.any(String), expiresAt: expect.any(String) });
     expect(await c.getGroupInvite('g-goa')).toEqual(invite);
 
-    const ghosts = (await c.getMembers('g-goa')).filter((m) => !m.claimedByUserId).map((m) => m.displayName);
     const view = await c.getInvite(invite.token);
     expect(view).toMatchObject({ groupName: 'Goa trip', invitedBy: 'Yash' });
-    expect(view.members.map((m) => m.name)).toEqual(ghosts);
-    expect(view.members.map((m) => m.name)).toContain('Aman');
-    // The ones who have joined are named too, with nothing to pick them by.
-    expect(view.joined).toEqual(['Yash', 'Om', 'Priya']);
+    // Everyone, in the group's order, with whether someone has joined as them.
+    expect(view.members.map((m) => [m.name, m.joined])).toEqual([
+      ['Yash', true],
+      ['Om', true],
+      ['Aman', false],
+      ['Priya', true],
+    ]);
     // Names and refs only: nothing on the page is a member id.
     for (const m of view.members) expect(m.ref).not.toMatch(/^m-/);
   });

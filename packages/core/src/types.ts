@@ -3,8 +3,9 @@
  *
  * Two distinctions carry most of the weight:
  *
- * - A Member is a row in a group; a User is a person with the app. A member
- *   may never become a user. `claimedByUserId` is the only link between them.
+ * - A Member is a row in a group; a User is an account on one device. A member
+ *   may never be joined by anyone. `claimedByUserId` is the link between them.
+ *   Someone on two devices has two accounts holding one member.
  * - Debt is denominated in fiat minor units (paise). Sats exist only inside a
  *   Quote, pinned at quote time.
  */
@@ -29,6 +30,12 @@ export interface Member {
   groupId: string;
   displayName: string;
   status: MemberStatus;
+  /**
+   * An account that has joined as this member; absent for a ghost. A member can
+   * be held by several accounts, one per device. To the user reading it, their
+   * own member always names them here; anyone else's names the account that
+   * member is paid through.
+   */
   claimedByUserId?: string;
   /** Payout address for a ghost. Stored without changing their status. */
   lightningAddress?: string;
@@ -245,7 +252,7 @@ export interface GuestView {
 
 /**
  * A shareable link that lets people into a group: whoever opens /join/<token>
- * picks which of its ghosts they are and, with an account, becomes that
+ * picks which of its people they are and, with an account, becomes that
  * member, or adds themselves if they aren't one of them. Unlike a pay link
  * this grants the whole group, to read and to write, so it expires. A group has none until someone in it makes one, and
  * at most one at a time; anyone in the group can replace it or turn it off.
@@ -262,6 +269,11 @@ export interface InviteMember {
   /** What the page sends back to join as this person. Opaque, and only good with this invite. */
   ref: string;
   name: string;
+  /**
+   * Someone has joined as them already. They can still be picked: that is the
+   * same person on another device, and both are then that member.
+   */
+  joined: boolean;
 }
 
 /** Who someone joins as: one of the people the invite offers, or a new member under that name. */
@@ -271,13 +283,8 @@ export type JoinAs = { ref: string } | { displayName: string };
 export interface InviteView {
   groupName: string;
   invitedBy: string;
-  /** Everyone in the group who hasn't joined: who the person opening this could be. */
+  /** Everyone in the group: who the person opening this could be. */
   members: InviteMember[];
-  /**
-   * The names of the people who have. The page shows them so the whole group is
-   * on it, but they can't be picked: each belongs to an account already.
-   */
-  joined: string[];
 }
 
 // -- group links -----------------------------------------------------------

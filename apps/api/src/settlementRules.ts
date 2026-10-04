@@ -48,7 +48,7 @@ export function checkSettlement(repo: Repo, g: Group, body: Pair) {
 /** Only the payer starts a payment. Call after checkSettlement. */
 export function checkPayer(repo: Repo, body: Pair, userId: string) {
   const payer = repo.member(body.fromMemberId)!;
-  if (payer.claimedByUserId !== userId) {
+  if (!repo.holds(payer, userId)) {
     throw new SattleError('invalid_input', `Only ${payer.displayName} can pay this.`);
   }
 }
@@ -62,8 +62,8 @@ export function checkPayer(repo: Repo, body: Pair, userId: string) {
 export function checkManualRecorder(repo: Repo, body: Pair, userId: string) {
   const payer = repo.member(body.fromMemberId)!;
   const payee = repo.member(body.toMemberId)!;
-  if (payee.claimedByUserId === userId) return;
-  if (!payee.claimedByUserId && payer.claimedByUserId === userId) return;
+  if (repo.holds(payee, userId)) return;
+  if (!payee.claimedByUserId && repo.holds(payer, userId)) return;
   throw new SattleError(
     'invalid_input',
     payee.claimedByUserId

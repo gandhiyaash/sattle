@@ -89,6 +89,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
+  memberAccounts.ts          One member on several devices, and which of its accounts it is paid through.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
   db.ts                      Migration runner and seeding.
   migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
@@ -223,7 +224,9 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and the people in the group, picks the one they are from those nobody has joined as yet, and joins. The ones who have joined are listed too, marked and not pickable, so the page is the whole group even when every name is taken. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as. Someone already in the group has nobody left to be, so for them the link opens the group (`joinedGroupFor`).
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and the people in the group, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as. Someone already in the group on that device has nobody left to be, so for them the link opens the group (`joinedGroupFor`).
+
+A name someone has joined as is marked on the page and can be picked again. An account lives on one device, and people have more than one: they join in a browser and install the app later, or get a new phone. Each device that picks the name gets its own account holding the same member, so all of them are that person in the group: one row, one balance, and the same say over what it paid and what it is owed. Money still needs one answer to where the member is paid, so the member is paid through one of its accounts: the first that has a wallet, a receive address or a UPI ID. It moves by itself when that changes, so someone who joined in a browser and connects a wallet in the app is paid there (`memberAccounts.ts`). Leaving on one device only takes that device out; the member is a ghost again when the last one leaves.
 
 Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
@@ -231,13 +234,13 @@ Joining is full membership. There are no roles, so the new member can read every
 - A group has at most one. Sharing again hands out the same link, so the one already in the chat keeps working.
 - It lasts a week.
 - Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
-- Each ghost can be taken once. Picking a name someone has already joined as answers `409 conflict`.
-- Adding yourself under the name of a ghost who is still waiting answers `409 conflict` too, so nobody starts a second row beside the one that holds their balance.
-- One person can hold only one member of a group.
+- Adding yourself under a name that is already in the group answers `409 conflict`, so nobody starts a second row beside the one that holds their balance. They pick the name instead.
+- One account can hold only one member of a group.
+- It reaches that group and nothing else. Picking a name gives a device that member, not the other groups or the wallet of the accounts that already hold it.
 
-What it does not do is check who is on the other end. Anyone holding the link can join as any ghost, or add themselves, for as long as it works: it does not run out when the list does. That is the price of one link for everyone. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off.
+What it does not do is check who is on the other end. Anyone holding the link can join as anyone in the group, including a name someone has already joined as, or add themselves, for as long as it works. From then on they act as that person there: they can change what that person paid, mark what that person is owed as settled, and, if that person has set up nowhere to be paid, be paid in their place. That is the price of one link for everyone and of a name that works on every device. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off, which stops anyone new but does not remove a device that has already joined.
 
-`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
+`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person in it, with an opaque `ref` in place of an id and whether someone has joined as them. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 On an Android phone with the app installed, tapping the link opens the app on the join screen. Everywhere else it opens the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
 
@@ -297,7 +300,7 @@ One rule runs through all of it, the same one settling follows: nobody can undo 
 | Disconnect a wallet | Yourself | While a payment to you is under way: that wallet is what confirms it. |
 | Delete an account | Yourself | While a payment to you is under way. |
 
-Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; an invite hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
+Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; an invite hands it back. A member that is on another device too stays joined until the last of them leaves. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
 
 Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links and the invites it made are removed; the names its members had in shared groups stay.
 
@@ -436,7 +439,8 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 
 ## Not in here yet
 
-- Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
+- Recovering an account. A device account can't move to another device or survive cleared app data. A group comes back by opening its link and picking your name again; what was set up on the account, a wallet or a UPI ID, has to be set up again. Nostr sign-in is the likely way to fix that.
+- Seeing or removing the devices that hold a name.
 - Opening an invite link straight into the installed app on an iPhone. That needs Associated Domains; it opens the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.

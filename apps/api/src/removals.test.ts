@@ -52,8 +52,9 @@ async function setup() {
   const [mRiya, mKabir, mAman] = group.memberIds;
   const invite = async (as = riya.token) =>
     (await call<Invite>('POST', `/groups/${group.id}/invites`, undefined, as)).body.token;
-  /** Who the join page offers, by name. */
-  const offered = async (token: string) => (await call<InviteView>('GET', `/join/${token}`)).body.members;
+  /** Who the join page offers that nobody has joined as, by name. */
+  const offered = async (token: string) =>
+    (await call<InviteView>('GET', `/join/${token}`)).body.members.filter((m) => !m.joined);
   const joinAs = async (name: string, token: string, as: string) =>
     call('POST', '/groups/join', { token, ref: (await offered(token)).find((m) => m.name === name)!.ref }, as);
   await joinAs('Kabir', await invite(), kabir.token);

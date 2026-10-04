@@ -11,6 +11,7 @@
 
 import { SattleError, canChangeExpense, type Expense, type Group, type Member, type User } from '@sattle/core';
 
+import { releaseOwned } from './memberAccounts';
 import type { Repo } from './repo';
 import { debtsOf, isInProgress } from './settlementRules';
 import type { WalletStore } from './walletStore';
@@ -20,7 +21,7 @@ const conflict = (message: string) => new SattleError('conflict', message);
 /** The payer if they've joined; anyone in the group if the payer is a ghost. See canChangeExpense. */
 export function checkExpenseOwner(repo: Repo, expense: Expense, userId: string) {
   const payer = repo.member(expense.paidByMemberId);
-  if (!canChangeExpense(payer, userId)) {
+  if (!canChangeExpense(payer && repo.seenBy(payer, userId), userId)) {
     throw new SattleError('invalid_input', `Only ${payer!.displayName} can change this, because they paid it.`);
   }
 }
@@ -48,13 +49,18 @@ export function checkMemberCanGo(repo: Repo, g: Group, member: Member) {
  * The user's member becomes a ghost again, keeping its name, history and
  * balance; an invite can hand it back. The last person with an account can't
  * leave, because nobody could reach the group afterwards.
+ *
+ * When the member is on another device too, only this account lets go of it:
+ * the member stays joined, held by the others.
  */
-export function leaveGroup(repo: Repo, g: Group, userId: string) {
-  if (repo.claimedCount(g.id) === 1) {
+export function leaveGroup(repo: Repo, wallets: WalletStore, g: Group, userId: string) {
+  if (repo.accountsIn(g.id) === 1) {
     throw conflict('You’re the only one here with an account. Delete the group instead.');
   }
+  const member = repo.memberForUser(g.id, userId)!;
+  if (member.claimedByUserId !== userId) return repo.removeHolder(member.id, userId);
   checkNothingIncoming(repo, userId, g.id);
-  repo.unclaimMember(repo.memberForUser(g.id, userId)!.id);
+  releaseOwned(repo, wallets, member);
 }
 
 /** A group goes only once nothing is owed in it, so deleting it can't erase a debt. */
@@ -71,18 +77,20 @@ export function checkGroupCanGo(repo: Repo, g: Group) {
  * Removes the account. In each group it leaves, as leaveGroup does, unless it
  * is the only account there: nobody else could ever open that group, so the
  * group goes with it, debts and all. Then the wallet connection, its links,
- * and the account itself.
+ * its hold on members that are on other devices too, and the account itself.
  */
 export function deleteAccount(repo: Repo, wallets: WalletStore, user: User) {
   checkNothingIncoming(repo, user.id);
   for (const g of repo.groupsForUser(user.id)) {
-    if (repo.claimedCount(g.id) > 1) continue;
+    if (repo.accountsIn(g.id) > 1) continue;
     if (repo.settlements(g.id).some(isInProgress)) {
       throw conflict('A payment in one of your groups is still in progress. Wait for it to finish.');
     }
     repo.deleteGroup(g.id);
   }
-  repo.unclaimAllOf(user.id);
+  for (const member of repo.membersHeldBy(user.id)) {
+    if (member.claimedByUserId === user.id) releaseOwned(repo, wallets, member);
+  }
   wallets.remove(user.id);
   repo.deleteUser(user.id);
 }

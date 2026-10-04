@@ -7,13 +7,14 @@
  * says so above the button.
  *
  * Nobody on the list types who they are. The group already has a row for each
- * person, so the page lists them all and the person picks one that nobody has
- * joined as yet. The ones who have joined are there too, marked, so the list
- * is the whole group and never comes up empty. Someone the group hasn't listed
- * taps + and gives their name, and joins as a new member.
+ * person, so the page lists them all and the person picks one. A name someone
+ * has joined as is marked and can still be picked: that is the same person on
+ * another device, a browser first and the app later, and both are then that
+ * member. Someone the group hasn't listed taps + and gives their name, and
+ * joins as a new member.
  *
- * Someone already in the group has nobody left to be. For them the link just
- * opens the group.
+ * Someone already in the group on this device has nobody left to be. For them
+ * the link just opens the group.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -190,11 +191,10 @@ function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
 const NEW = '+';
 
 /**
- * Who invited you to what, the people in the group, and Join. The ones nobody
- * has joined as can be picked; the rest are shown as joined. Someone who isn't
- * any of them taps + and gives their own name. `join` does the joining and
- * leaves the screen; if it throws, the message is shown and the list is read
- * again, since the name may just have been taken.
+ * Who invited you to what, the people in the group, and Join. Any of them can
+ * be picked, whether or not someone has joined as them. Someone who isn't any
+ * of them taps + and gives their own name. `join` does the joining and leaves
+ * the screen; if it throws, the message is shown and the list is read again.
  */
 function WhoAreYou({
   token,
@@ -236,11 +236,8 @@ function WhoAreYou({
     );
   }
 
-  // A server from before the page named them sends none.
-  const joined = data.joined ?? [];
-  const listed = data.members.length + joined.length;
-  // With nobody on the list at all, adding yourself is the only thing to do.
-  const adding = picked === NEW || listed === 0;
+  // With nobody on the list, adding yourself is the only thing to do.
+  const adding = picked === NEW || data.members.length === 0;
   const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
@@ -253,7 +250,7 @@ function WhoAreYou({
       await join(member ? { ref: member.ref } : { displayName: name }, name);
     } catch (e) {
       // The choice stays. After a dropped connection the retry is one tap, with the name still
-      // in the field; a name that was just taken leaves the list when it is read again.
+      // in the field. The list is read again in case it changed while they were choosing.
       setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
       setBusy(false);
       refresh();
@@ -284,23 +281,13 @@ function WhoAreYou({
                 >
                   <Avatar name={m.name} dim={!on} />
                   <Text style={s.name}>{m.name}</Text>
+                  {m.joined && <Text style={s.joined}>Joined</Text>}
                   <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
                 </Pressable>
               </View>
             );
           })}
-          {joined.map((name, i) => (
-            // Not a choice: that name is someone's account already.
-            <View key={`joined-${i}`}>
-              {(i > 0 || data.members.length > 0) && <Divider />}
-              <View style={s.row}>
-                <Avatar name={name} dim />
-                <Text style={[s.name, { color: color.inkFaint }]}>{name}</Text>
-                <Text style={s.joined}>Joined</Text>
-              </View>
-            </View>
-          ))}
-          {listed > 0 && <Divider />}
+          {data.members.length > 0 && <Divider />}
           <Pressable
             onPress={() => setPicked(NEW)}
             disabled={busy}
@@ -308,7 +295,7 @@ function WhoAreYou({
             accessibilityState={{ selected: adding }}
             style={({ pressed }) => [
               s.row,
-              listed === 0 && s.rowFirst,
+              data.members.length === 0 && s.rowFirst,
               !adding && s.rowLast,
               (adding || pressed) && s.rowOn,
             ]}
@@ -316,7 +303,7 @@ function WhoAreYou({
             <View style={[s.plus, adding && { backgroundColor: color.surface }]}>
               <Text style={s.plusText}>+</Text>
             </View>
-            <Text style={s.name}>{listed === 0 ? 'Add yourself' : 'I’m not on this list'}</Text>
+            <Text style={s.name}>{data.members.length === 0 ? 'Add yourself' : 'I’m not on this list'}</Text>
             <View style={[s.radio, adding && s.radioOn]}>{adding && <View style={s.radioDot} />}</View>
           </Pressable>
           {adding && (
@@ -339,8 +326,8 @@ function WhoAreYou({
         <Text style={s.hint}>
           {adding
             ? 'You’re added to the group as a new member, with nothing owed either way.'
-            : data.members.length === 0
-              ? 'Everyone on the list has already joined. If one of them is you, open the group on the phone or browser you joined with. Otherwise add yourself.'
+            : member?.joined
+              ? `${member.name} has already joined, on another phone or browser. Pick this if that was you: you’ll be ${member.name} here too, with the same balance.`
               : 'You take over that name as it is, with the balance already on it.'}
         </Text>
       </View>

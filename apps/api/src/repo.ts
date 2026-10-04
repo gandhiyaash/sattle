@@ -104,6 +104,10 @@ const toInvite = (r: Row): Invite => ({
   expiresAt: r.expires_at as string,
 });
 
+/** `m` is a member this user is: the account it is paid through, or another that holds it. Binds the user twice. */
+const HELD_BY = `(m.claimed_by_user_id = ?
+  OR EXISTS (SELECT 1 FROM member_holders h WHERE h.member_id = m.id AND h.user_id = ?))`;
+
 export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
@@ -111,14 +115,20 @@ export function createRepo(db: Db) {
     insertUser: db.prepare('INSERT INTO users (id, display_name, token) VALUES (?, ?, ?)'),
     groupsForUser: db.prepare(
       `SELECT g.* FROM expense_groups g
-       WHERE EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.id AND m.claimed_by_user_id = ?)
+       WHERE EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.id AND ${HELD_BY})
        ORDER BY g.created_at DESC`
     ),
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
     renameGroup: db.prepare('UPDATE expense_groups SET name = ? WHERE id = ?'),
     insertGroup: db.prepare('INSERT INTO expense_groups (id, name, currency, created_at) VALUES (?, ?, ?, ?)'),
-    isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
-    memberForUser: db.prepare('SELECT * FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
+    isMember: db.prepare(`SELECT 1 FROM members m WHERE m.group_id = ? AND ${HELD_BY}`),
+    memberForUser: db.prepare(`SELECT m.* FROM members m WHERE m.group_id = ? AND ${HELD_BY}`),
+    membersHeldBy: db.prepare(`SELECT m.* FROM members m WHERE ${HELD_BY}`),
+    isHolder: db.prepare('SELECT 1 FROM member_holders WHERE member_id = ? AND user_id = ?'),
+    holdersOf: db.prepare('SELECT user_id FROM member_holders WHERE member_id = ? ORDER BY created_at, rowid'),
+    addHolder: db.prepare('INSERT INTO member_holders (member_id, user_id, created_at) VALUES (?, ?, ?)'),
+    removeHolder: db.prepare('DELETE FROM member_holders WHERE member_id = ? AND user_id = ?'),
+    setOwner: db.prepare('UPDATE members SET claimed_by_user_id = ?, status = ? WHERE id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
     memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
     // group_id is bound twice: once for the row, once for the position subquery.
@@ -135,8 +145,17 @@ export function createRepo(db: Db) {
        WHERE id = ? AND claimed_by_user_id IS NULL`
     ),
     unclaimMember: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE id = ?`),
-    unclaimAllOf: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE claimed_by_user_id = ?`),
-    claimedCount: db.prepare('SELECT COUNT(*) AS n FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL'),
+    accountsIn: db.prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT claimed_by_user_id AS user_id FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL
+         UNION
+         SELECT h.user_id FROM member_holders h JOIN members m ON m.id = h.member_id WHERE m.group_id = ?
+       )`
+    ),
+    unfinishedToMember: db.prepare(
+      `SELECT * FROM settlements
+       WHERE to_member_id = ? AND status NOT IN (${TERMINAL_STATUSES.map((st) => `'${st}'`).join(', ')})`
+    ),
     deleteMember: db.prepare('DELETE FROM members WHERE id = ?'),
     // Rows that point at a member and so keep it from being deleted. The member id is bound
     // four times: a numbered ?1 is refused by node:sqlite on some of the Node versions we support.
@@ -209,11 +228,6 @@ export function createRepo(db: Db) {
       'DELETE FROM upi_claims WHERE group_id = ? AND from_member_id = ? AND to_member_id = ?'
     ),
     deleteUpiClaimsOfMember: db.prepare('DELETE FROM upi_claims WHERE from_member_id = ? OR to_member_id = ?'),
-    deleteUpiClaimsOfUser: db.prepare(
-      `DELETE FROM upi_claims
-       WHERE from_member_id IN (SELECT id FROM members WHERE claimed_by_user_id = ?)
-          OR to_member_id IN (SELECT id FROM members WHERE claimed_by_user_id = ?)`
-    ),
     // A link that has been paid is spent: opening it shows "Paid" for good and mints nothing.
     payLinkFor: db.prepare(
       `SELECT l.* FROM pay_links l
@@ -239,6 +253,7 @@ export function createRepo(db: Db) {
     'DELETE FROM expenses WHERE group_id = ?',
     'DELETE FROM expense_changes WHERE group_id = ?',
     'DELETE FROM ledger_entries WHERE group_id = ?',
+    'DELETE FROM member_holders WHERE member_id IN (SELECT id FROM members WHERE group_id = ?)',
     'DELETE FROM members WHERE group_id = ?',
     'DELETE FROM expense_groups WHERE id = ?',
   ].map((sql) => db.prepare(sql));
@@ -249,6 +264,7 @@ export function createRepo(db: Db) {
     'DELETE FROM pay_links WHERE created_by_user_id = ?',
     'DELETE FROM invites WHERE created_by_user_id = ?',
     'DELETE FROM idempotency_keys WHERE user_id = ?',
+    'DELETE FROM member_holders WHERE user_id = ?',
     'DELETE FROM users WHERE id = ?',
   ].map((sql) => db.prepare(sql));
 
@@ -267,15 +283,16 @@ export function createRepo(db: Db) {
     },
     /**
      * Removes the account and what only it could use: its pay links, the
-     * invites it sent, its saved replies. Its members must already be handed
-     * back (unclaimAllOf) and its wallet connection removed (walletStore).
+     * invites it sent, its saved replies, its hold on members others hold too.
+     * The members paid through it must already be handed on or back
+     * (groupRules) and its wallet connection removed (walletStore).
      */
     deleteUser(id: string) {
       for (const stmt of dropUser) stmt.run(id);
     },
 
     groupsForUser(userId: string): Group[] {
-      return (q.groupsForUser.all(userId) as Row[]).map((r) => repo.hydrateGroup(r));
+      return (q.groupsForUser.all(userId, userId) as Row[]).map((r) => repo.hydrateGroup(r));
     },
 
     hydrateGroup(r: Row): Group {
@@ -294,7 +311,7 @@ export function createRepo(db: Db) {
      */
     groupForUser(groupId: string, userId: string): Group {
       const r = q.groupById.get(groupId) as Row | undefined;
-      if (!r || !q.isMember.get(groupId, userId)) {
+      if (!r || !q.isMember.get(groupId, userId, userId)) {
         throw new SattleError('not_found', 'That group doesn’t exist.');
       }
       return repo.hydrateGroup(r);
@@ -331,28 +348,50 @@ export function createRepo(db: Db) {
       q.setAddress.run(address, id);
       return repo.member(id)!;
     },
-    /** The member this user is in the group, if they're in it. */
+    /** The member this user is in the group, if they're in it: through the account it is paid through or another. */
     memberForUser: (groupId: string, userId: string) => {
-      const r = q.memberForUser.get(groupId, userId) as Row | undefined;
+      const r = q.memberForUser.get(groupId, userId, userId) as Row | undefined;
       return r && toMember(r);
+    },
+    /** Every member the user is, in every group. */
+    membersHeldBy: (userId: string) => (q.membersHeldBy.all(userId, userId) as Row[]).map(toMember),
+    /** Whether this account is one of the member's. */
+    holds: (member: Member, userId: string) =>
+      member.claimedByUserId === userId || Boolean(q.isHolder.get(member.id, userId)),
+    /**
+     * The member as this user is shown it. One they hold reads as theirs,
+     * whichever of its accounts they are, so "which of these is me" has one answer.
+     */
+    seenBy(member: Member, userId: string): Member {
+      return repo.holds(member, userId) ? { ...member, claimedByUserId: userId } : member;
     },
     /** Hands a ghost to a user. False if someone already has it. */
     claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
       return q.claimMember.run(userId, status, id).changes === 1;
     },
-    /** The reverse: the member is a ghost again, with its name, history and balance. An invite can hand it back. */
+    /** The member's other accounts, besides the one it is paid through. Oldest first. */
+    holders: (memberId: string) => (q.holdersOf.all(memberId) as { user_id: string }[]).map((r) => r.user_id),
+    /** Another account for a member someone has already joined as: another of their devices. */
+    addHolder(memberId: string, userId: string) {
+      q.addHolder.run(memberId, userId, nowIso());
+    },
+    removeHolder(memberId: string, userId: string) {
+      q.removeHolder.run(memberId, userId);
+    },
+    /** Makes this the account the member is paid through. */
+    setOwner(memberId: string, userId: string, status: Exclude<Member['status'], 'ghost'>) {
+      q.setOwner.run(userId, status, memberId);
+    },
+    /** The reverse of joining: the member is a ghost again, with its name, history and balance. An invite can hand it back. */
     unclaimMember(id: string) {
       // A UPI claim is between two people with accounts: one made it, the other confirms it.
       q.deleteUpiClaimsOfMember.run(id, id);
       q.unclaimMember.run(id);
     },
-    /** Every member the user holds, in every group. */
-    unclaimAllOf(userId: string) {
-      q.deleteUpiClaimsOfUser.run(userId, userId);
-      q.unclaimAllOf.run(userId);
-    },
-    /** How many people with an account are in the group. */
-    claimedCount: (groupId: string) => (q.claimedCount.get(groupId) as { n: number }).n,
+    /** How many accounts can open the group. Two devices of one person count as two. */
+    accountsIn: (groupId: string) => (q.accountsIn.get(groupId, groupId) as { n: number }).n,
+    /** Payments to this member that haven't finished. */
+    unfinishedToMember: (memberId: string) => (q.unfinishedToMember.all(memberId) as Row[]).map(toSettlement),
     /** In an expense, a payment or a pay link. Such a member can't be deleted without rewriting the ledger. */
     memberHasHistory(groupId: string, memberId: string): boolean {
       if ((q.memberRefs.get(memberId, memberId, memberId, memberId) as { n: number }).n > 0) return true;

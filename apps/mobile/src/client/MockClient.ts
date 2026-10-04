@@ -579,21 +579,21 @@ export class MockClient implements SattleClient {
   getInvite(token: string) {
     return this.call((): InviteView => {
       const invite = this.liveInvite(token);
-      const members = this.members.filter((m) => m.groupId === invite.groupId);
       return {
         groupName: this.findGroup(invite.groupId).name,
         invitedBy: invite.invitedBy,
-        members: members
-          .filter((m) => !m.claimedByUserId)
-          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
-        joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
+        members: this.members
+          .filter((m) => m.groupId === invite.groupId)
+          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName, joined: Boolean(m.claimedByUserId) })),
       };
     });
   }
 
   /**
-   * The mock has one user, who is already in every group, so this always
-   * ends in "already in this group". The join itself needs the real API.
+   * The mock has one user, who is already in every group, so until they leave
+   * one this ends in "already in this group". A name someone else has joined
+   * as can be picked, as on the server. There the two accounts then share the
+   * member; the mock's other accounts never act, so here it is just theirs.
    */
   acceptInvite(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call(() => {
@@ -612,9 +612,9 @@ export class MockClient implements SattleClient {
 
       if ('displayName' in as) {
         const name = as.displayName.trim();
-        const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === name.toLowerCase());
-        if (waiting) {
-          throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
+        const taken = members.find((m) => m.displayName.trim().toLowerCase() === name.toLowerCase());
+        if (taken) {
+          throw new SattleError('conflict', `${taken.displayName} is already in this group. Pick that name to join as them.`);
         }
         const added: Member = { id: this.id('m'), groupId: g.id, displayName: name, status, claimedByUserId: me.id };
         this.members.push(added);
@@ -624,10 +624,11 @@ export class MockClient implements SattleClient {
 
       const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
       if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
-      if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
+      if (!member.claimedByUserId) {
+        member.status = status;
+        delete member.lightningAddress; // as the API: a groupmate typed it, not them
+      }
       member.claimedByUserId = me.id;
-      member.status = status;
-      delete member.lightningAddress; // as the API: a groupmate typed it, not them
       return g;
     }, idempotencyKey);
   }
