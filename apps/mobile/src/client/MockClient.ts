@@ -33,6 +33,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinAs,
   type LedgerBackup,
   type Member,
   type PayLink,
@@ -474,43 +475,66 @@ export class MockClient implements SattleClient {
 
   // -- invites --------------------------------------------------------------
 
-  /** Same rules as the server: a dead link is not_found, a used or old one link_expired. */
+  private isLive = (invite: Invite) => Date.parse(invite.expiresAt) > Date.now();
+
+  /** Same rules as the server: a dead link is not_found, an old one link_expired. */
   private liveInvite(token: string) {
     const invite = this.invites.find((i) => i.token === token);
     if (!invite) throw new SattleError('not_found', 'This invite is no longer valid.');
-    if (Date.parse(invite.expiresAt) <= Date.now()) {
-      throw new SattleError('link_expired', 'This invite has expired. Ask for a new one.');
-    }
-    const member = this.members.find((m) => m.id === invite.memberId)!;
-    if (member.claimedByUserId) throw new SattleError('link_expired', 'This invite has already been used.');
-    return { invite, member };
+    if (!this.isLive(invite)) throw new SattleError('link_expired', 'This invite has expired. Ask for a new one.');
+    return invite;
   }
 
-  createInvite(groupId: string, memberId: string, idempotencyKey?: string) {
+  /** Stands in for the server's hash: opaque to the page, and tied to this invite and this member. */
+  private memberRef(token: string, memberId: string) {
+    let h = 0;
+    for (const ch of `${token}:${memberId}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return `m${h.toString(36)}`;
+  }
+
+  getGroupInvite(groupId: string) {
+    return this.call((): Invite | null => {
+      this.findGroup(groupId);
+      const found = this.invites.find((i) => i.groupId === groupId);
+      if (!found || !this.isLive(found)) return null;
+      const { invitedBy: _, ...invite } = found;
+      return invite;
+    });
+  }
+
+  createInvite(groupId: string, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(groupId);
-      const member = this.members.find((m) => m.id === memberId);
-      if (!member || !g.memberIds.includes(member.id)) throw new SattleError('not_found', 'That member isn’t in this group.');
-      if (member.claimedByUserId) throw new SattleError('conflict', `${member.displayName} has already joined.`);
       const me = this.members.find((m) => m.groupId === g.id && m.claimedByUserId === fixtures.currentUser.id);
       const invite: Invite = {
         token: Math.random().toString(36).slice(2, 12),
         groupId,
-        memberId,
         createdAt: this.now(),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       };
-      // Only the newest link for a ghost works.
-      this.invites = this.invites.filter((i) => i.memberId !== memberId);
-      this.invites.push({ ...invite, invitedBy: me?.displayName ?? 'Someone' });
+      // One at a time: the new one takes the old one's place.
+      this.invites = [...this.invites.filter((i) => i.groupId !== groupId), { ...invite, invitedBy: me?.displayName ?? 'Someone' }];
       return invite;
+    }, idempotencyKey);
+  }
+
+  removeInvite(groupId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      this.findGroup(groupId);
+      this.invites = this.invites.filter((i) => i.groupId !== groupId);
     }, idempotencyKey);
   }
 
   getInvite(token: string) {
     return this.call((): InviteView => {
-      const { invite, member } = this.liveInvite(token);
-      return { groupName: this.findGroup(invite.groupId).name, memberName: member.displayName, invitedBy: invite.invitedBy };
+      const invite = this.liveInvite(token);
+      return {
+        groupName: this.findGroup(invite.groupId).name,
+        invitedBy: invite.invitedBy,
+        members: this.members
+          .filter((m) => m.groupId === invite.groupId && !m.claimedByUserId)
+          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
+      };
     });
   }
 
@@ -518,17 +542,40 @@ export class MockClient implements SattleClient {
    * The mock has one user, who is already in every group, so this always
    * ends in "already in this group". The join itself needs the real API.
    */
-  acceptInvite(token: string, idempotencyKey?: string) {
+  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call(() => {
-      const { invite, member } = this.liveInvite(token);
+      // The server checks the body before it looks at the invite: a name is 1 to 40 characters.
+      if ('displayName' in as && (!as.displayName.trim() || as.displayName.trim().length > 40)) {
+        throw new SattleError('invalid_input', 'Give a name of up to 40 characters.');
+      }
+      const invite = this.liveInvite(token);
       const me = fixtures.currentUser;
-      if (this.members.some((m) => m.groupId === invite.groupId && m.claimedByUserId === me.id)) {
+      const g = this.findGroup(invite.groupId);
+      const members = this.members.filter((m) => m.groupId === g.id);
+      if (members.some((m) => m.claimedByUserId === me.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
       }
+      const status = this.wallet.connected ? 'nwc_linked' : 'joined';
+
+      if ('displayName' in as) {
+        const name = as.displayName.trim();
+        const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === name.toLowerCase());
+        if (waiting) {
+          throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
+        }
+        const added: Member = { id: this.id('m'), groupId: g.id, displayName: name, status, claimedByUserId: me.id };
+        this.members.push(added);
+        g.memberIds.push(added.id);
+        return g;
+      }
+
+      const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
+      if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
+      if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
       member.claimedByUserId = me.id;
-      member.status = this.wallet.connected ? 'nwc_linked' : 'joined';
+      member.status = status;
       delete member.lightningAddress; // as the API: a groupmate typed it, not them
-      return this.findGroup(invite.groupId);
+      return g;
     }, idempotencyKey);
   }
 
@@ -729,7 +776,6 @@ export class MockClient implements SattleClient {
         throw new SattleError('conflict', `${member.displayName} is part of this group’s expenses or payments, so they can’t be removed.`);
       }
       this.members = this.members.filter((m) => m !== member);
-      this.invites = this.invites.filter((i) => i.memberId !== memberId);
       g.memberIds = g.memberIds.filter((id) => id !== memberId);
     }, idempotencyKey);
   }

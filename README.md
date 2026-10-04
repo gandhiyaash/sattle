@@ -124,7 +124,7 @@ apps/mobile/                 @sattle/mobile: Expo
       SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
-      JoinScreen.tsx         The /join/<token> page: who invited you to what, and Join.
+      JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
       GroupGuestScreen.tsx   The /g/<token> page: the whole group, read-only, with Settle on each debt.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
@@ -188,7 +188,7 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 `resolveSettlementOptions()` decides first. When the recipient cannot receive, it returns `blocked` with three remedies in place of rails:
 
 1. **Add their Lightning address.** The route most people miss. Any wallet gives Aman an address, and paying it needs nothing from him — no install, no signup, no device awake. `setMemberPayoutAddress` stores it and leaves his status as `ghost`, because he is payable, not joined.
-2. **Invite them.** Shares a link that lets Aman take over his own row; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
+2. **Invite them.** Shares the group's invite, where Aman picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
 3. **Mark as settled.** Cash, UPI, forgiven. Present on every screen, never removable.
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
@@ -217,17 +217,21 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns one ghost into a member. Anyone already in the group taps **Invite** on a ghost's row and sends the link, `/join/<token>`. Whoever opens it sees who invited them to what, makes an account if they don't have one, and joins. They take over that row as it is: same name, same history, same balance.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is one link for the whole group, `/join/<token>`: anyone already in the group taps **Invite them to join** under the member list and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as.
 
 Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
 - It is 128 random bits, and only a member of the group can make one.
-- It works once. After someone joins with it, it answers `410 link_expired`.
+- A group has at most one. Sharing again hands out the same link, so the one already in the chat keeps working.
 - It lasts a week.
-- Making a new one for the same ghost kills the last, so a link sent to the wrong chat can be cancelled by inviting again.
+- Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
+- Each ghost can be taken once. Picking a name someone has already joined as answers `409 conflict`.
+- Adding yourself under the name of a ghost who is still waiting answers `409 conflict` too, so nobody starts a second row beside the one that holds their balance.
 - One person can hold only one member of a group.
 
-`GET /join/:token` is public, like the pay page, and returns three names and nothing else: the group, the ghost, and the inviter. Accepting is `POST /groups/join` and needs an account.
+What it does not do is check who is on the other end. Anyone holding the link can join as any ghost, or add themselves, for as long as it works: it does not run out when the list does. That is the price of one link for everyone. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off.
+
+`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person who hasn't joined, with an opaque `ref` in place of an id. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 A link opens the web app. The installed app has no link handling yet, so there the link is pasted under **Join with a link** on the groups list.
 
