@@ -18,6 +18,8 @@ import {
   type Expense,
   type ExpenseInput,
   type Group,
+  type GroupGuestView,
+  type GroupLink,
   type GuestView,
   type Invite,
   type InviteView,
@@ -176,6 +178,46 @@ export class ApiClient implements SattleClient {
     return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
   }
 
+  getGroupLink(groupId: string) {
+    return this.request<GroupLink | null>('GET', `/groups/${groupId}/link`);
+  }
+  createGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<GroupLink>('POST', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  async removeGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  getGroupGuestView(token: string) {
+    return this.request<GroupGuestView>('GET', `/g/${encodeURIComponent(token)}`);
+  }
+  payFromGroupLink(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<{ token: string }>(
+      'POST',
+      `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/pay-link`,
+      undefined,
+      idempotencyKey
+    );
+  }
+
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Expense>('PUT', `/groups/${input.groupId}/expenses/${expenseId}`, input, idempotencyKey);
+  }
+  async deleteExpense(groupId: string, expenseId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/expenses/${expenseId}`, undefined, idempotencyKey);
+  }
+  renameGroup(groupId: string, name: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('PUT', `/groups/${groupId}`, { name }, idempotencyKey);
+  }
+  async deleteGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}`, undefined, idempotencyKey);
+  }
+  async removeMember(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/members/${memberId}`, undefined, idempotencyKey);
+  }
+  async leaveGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('POST', `/groups/${groupId}/leave`, undefined, idempotencyKey);
+  }
+
   connectWallet(nwcUri: string) {
     return this.request<WalletConnection>('PUT', '/me/wallet', { nwcUri });
   }
@@ -190,6 +232,21 @@ export class ApiClient implements SattleClient {
   }
   clearReceiveAddress() {
     return this.request<ReceiveAddress>('DELETE', '/me/receive-address');
+  }
+  disconnectWallet() {
+    return this.request<WalletConnection>('DELETE', '/me/wallet');
+  }
+
+  /**
+   * A retry after a lost response finds the token already dead. That 401
+   * means the first attempt worked, so it counts as done.
+   */
+  async deleteAccount() {
+    try {
+      await this.request('DELETE', '/me');
+    } catch (e) {
+      if (!(e instanceof SattleError && e.code === 'unauthorized')) throw e;
+    }
   }
 
   /**

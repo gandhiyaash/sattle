@@ -14,6 +14,7 @@ import { NWC_REQUIRED_METHODS, SattleError, parseLightningAddress, type ReceiveA
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { parse } from '../http';
+import { checkNothingIncoming } from '../groupRules';
 import { LnurlError } from '../lnurl';
 import { NwcError, parseNwcUri } from '../nwc';
 import { nowIso } from '../repo';
@@ -24,7 +25,7 @@ export const ConnectWalletBody = z.object({
 
 export const ReceiveAddressBody = z.object({ address: z.string().max(320) });
 
-export function walletRoutes({ db, wallets, nwc, lnurl }: Ctx) {
+export function walletRoutes({ db, repo, wallets, nwc, lnurl }: Ctx) {
   const r = new Hono<AppEnv>();
 
   /**
@@ -70,6 +71,20 @@ export function walletRoutes({ db, wallets, nwc, lnurl }: Ctx) {
 
   /** WalletConnection; `{ connected: false, methods: [], excessMethods: [] }` when none. */
   r.get('/me/wallet', (c) => c.json(wallets.connection(c.get('user').id)));
+
+  /**
+   * Forgets the connection string. The user's members go back to `joined`.
+   * 409 while a payment to them is under way: this wallet is what confirms
+   * it. Returns the WalletConnection, now not connected.
+   */
+  r.delete('/me/wallet', (c) => {
+    const user = c.get('user');
+    const gone = transaction(db, () => {
+      checkNothingIncoming(repo, user.id);
+      return wallets.remove(user.id);
+    });
+    return c.json(gone);
+  });
 
   /** ReceiveAddress: the user's own Lightning address for receiving, or null. */
   r.get('/me/receive-address', (c) => {
