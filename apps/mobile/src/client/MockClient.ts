@@ -574,6 +574,7 @@ export class MockClient implements SattleClient {
       if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
       member.claimedByUserId = me.id;
       member.status = status;
+      delete member.lightningAddress; // as the API: a groupmate typed it, not them
       return g;
     }, idempotencyKey);
   }

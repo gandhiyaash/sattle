@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
-import { openDb, seedIfEmpty } from './db';
+import { migrate, openDb, seedIfEmpty } from './db';
 import { SimulatedPayments } from './payments';
 
 function setup(demoUserId?: string) {
@@ -48,6 +48,20 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql']);
+  });
+
+  it('010 clears the addresses joined members inherited as ghosts, and keeps ghosts’ own', () => {
+    const { db } = setup();
+    db.prepare('DELETE FROM schema_migrations WHERE name = ?').run('010_address_owner.sql');
+    db.prepare(`UPDATE members SET lightning_address = 'typed@getalby.com'`).run();
+    migrate(db);
+
+    const rows = db.prepare('SELECT claimed_by_user_id, lightning_address FROM members').all() as {
+      claimed_by_user_id: string | null;
+      lightning_address: string | null;
+    }[];
+    expect(rows.some((r) => r.claimed_by_user_id) && rows.some((r) => !r.claimed_by_user_id)).toBe(true);
+    for (const r of rows) expect(r.lightning_address).toBe(r.claimed_by_user_id ? null : 'typed@getalby.com');
   });
 });

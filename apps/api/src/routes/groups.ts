@@ -215,7 +215,9 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
     const user = c.get('user');
     repo.groupForUser(member.groupId, user.id);
     // Anyone in the group can give a ghost an address; someone who has joined
-    // sets their own, or a groupmate could redirect what they're paid.
+    // sets their own, or a groupmate could redirect what they're paid. Joining
+    // clears the address a groupmate typed, so a joined member's address is
+    // always one they chose. A payment proven to it is a payment to them.
     if (member.claimedByUserId && member.claimedByUserId !== user.id) {
       throw new SattleError('invalid_input', `Only ${member.displayName} can change where they get paid.`);
     }
