@@ -18,12 +18,17 @@ import {
   type Expense,
   type ExpenseInput,
   type Group,
+  type GroupGuestView,
+  type GroupLink,
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinAs,
   type LedgerBackup,
   type Member,
   type PayLink,
+  type PaymentMode,
+  type ReceiveAddress,
   type Settlement,
   type User,
   type WalletConnection,
@@ -55,13 +60,15 @@ export async function createAccount(baseUrl: string, displayName: string): Promi
 }
 
 export class ApiClient implements SattleClient {
+  private paymentMode?: Promise<PaymentMode>;
+
   constructor(
     private readonly baseUrl: string,
     private readonly getToken: () => string | null = () => null
   ) {}
 
   private async request<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
     idempotencyKey?: string
@@ -96,6 +103,18 @@ export class ApiClient implements SattleClient {
   getCurrentUser() {
     return this.request<User>('GET', '/me');
   }
+  getPaymentMode() {
+    // Asked once: it only changes when the server restarts. A server too old
+    // to say is treated as real, so nobody is offered a payment it can't make.
+    this.paymentMode ??= this.request<{ payments?: PaymentMode }>('GET', '/health').then(
+      (h) => h.payments ?? 'real',
+      (e) => {
+        this.paymentMode = undefined;
+        throw e;
+      }
+    );
+    return this.paymentMode;
+  }
   getGroups() {
     return this.request<Group[]>('GET', '/groups');
   }
@@ -125,6 +144,9 @@ export class ApiClient implements SattleClient {
   }
   getSettlement(settlementId: string) {
     return this.request<Settlement>('GET', `/settlements/${settlementId}`);
+  }
+  submitProof(settlementId: string, preimage: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Settlement>('POST', `/settlements/${settlementId}/proof`, { preimage }, idempotencyKey);
   }
   getLedgerBackup(groupId: string) {
     return this.request<LedgerBackup>('GET', `/groups/${groupId}/ledger`);
@@ -158,15 +180,64 @@ export class ApiClient implements SattleClient {
   getGuestView(token: string) {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);
   }
+  submitGuestProof(token: string, preimage: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/proof`, { preimage }, idempotencyKey);
+  }
 
-  createInvite(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Invite>('POST', `/groups/${groupId}/invites`, { memberId }, idempotencyKey);
+  getGroupInvite(groupId: string) {
+    return this.request<Invite | null>('GET', `/groups/${groupId}/invites`);
+  }
+  createInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Invite>('POST', `/groups/${groupId}/invites`, undefined, idempotencyKey);
+  }
+  async removeInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/invites`, undefined, idempotencyKey);
   }
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  acceptInvite(token: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
+  acceptInvite(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups/join', { token, ...as }, idempotencyKey);
+  }
+
+  getGroupLink(groupId: string) {
+    return this.request<GroupLink | null>('GET', `/groups/${groupId}/link`);
+  }
+  createGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<GroupLink>('POST', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  async removeGroupLink(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/link`, undefined, idempotencyKey);
+  }
+  getGroupGuestView(token: string) {
+    return this.request<GroupGuestView>('GET', `/g/${encodeURIComponent(token)}`);
+  }
+  payFromGroupLink(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<{ token: string }>(
+      'POST',
+      `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/pay-link`,
+      undefined,
+      idempotencyKey
+    );
+  }
+
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Expense>('PUT', `/groups/${input.groupId}/expenses/${expenseId}`, input, idempotencyKey);
+  }
+  async deleteExpense(groupId: string, expenseId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/expenses/${expenseId}`, undefined, idempotencyKey);
+  }
+  renameGroup(groupId: string, name: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('PUT', `/groups/${groupId}`, { name }, idempotencyKey);
+  }
+  async deleteGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}`, undefined, idempotencyKey);
+  }
+  async removeMember(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/members/${memberId}`, undefined, idempotencyKey);
+  }
+  async leaveGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('POST', `/groups/${groupId}/leave`, undefined, idempotencyKey);
   }
 
   connectWallet(nwcUri: string) {
@@ -174,6 +245,30 @@ export class ApiClient implements SattleClient {
   }
   getWalletConnection() {
     return this.request<WalletConnection>('GET', '/me/wallet');
+  }
+  getReceiveAddress() {
+    return this.request<ReceiveAddress>('GET', '/me/receive-address');
+  }
+  setReceiveAddress(address: string) {
+    return this.request<ReceiveAddress>('PUT', '/me/receive-address', { address });
+  }
+  clearReceiveAddress() {
+    return this.request<ReceiveAddress>('DELETE', '/me/receive-address');
+  }
+  disconnectWallet() {
+    return this.request<WalletConnection>('DELETE', '/me/wallet');
+  }
+
+  /**
+   * A retry after a lost response finds the token already dead. That 401
+   * means the first attempt worked, so it counts as done.
+   */
+  async deleteAccount() {
+    try {
+      await this.request('DELETE', '/me');
+    } catch (e) {
+      if (!(e instanceof SattleError && e.code === 'unauthorized')) throw e;
+    }
   }
 
   /**

@@ -19,19 +19,26 @@ import type {
   Expense,
   ExpenseInput,
   Group,
+  GroupGuestView,
+  GroupLink,
   GuestView,
   Invite,
   InviteView,
+  JoinAs,
   LedgerBackup,
   Member,
   PayLink,
+  ReceiveAddress,
   Settlement,
   User,
   WalletConnection,
+  PaymentMode,
 } from '@sattle/core';
 
 export interface SattleClient {
   getCurrentUser(): Promise<User>;
+  /** Real money or a simulation. Decides who can be offered Pay; see canReceive. */
+  getPaymentMode(): Promise<PaymentMode>;
 
   getGroups(): Promise<Group[]>;
   getGroup(groupId: string): Promise<Group>;
@@ -59,6 +66,13 @@ export interface SattleClient {
     input: Omit<CreateSettlementInput, 'rail'> & { note?: string },
     idempotencyKey?: string
   ): Promise<Settlement>;
+  /**
+   * Proof of payment: the preimage the payer's wallet handed back. Confirms
+   * the payment if it's this invoice's, even one already called expired
+   * (it may have been paid late). Sending it twice is fine. Throws
+   * `invalid_input` for anything else.
+   */
+  submitProof(settlementId: string, preimage: string, idempotencyKey?: string): Promise<Settlement>;
   /** Returns an unsubscribe function. */
   onSettlementUpdate(settlementId: string, cb: (s: Settlement) => void): () => void;
 
@@ -79,27 +93,124 @@ export interface SattleClient {
   openPayLink(token: string): Promise<GuestView>;
   /** Public, read-only. */
   getGuestView(token: string): Promise<GuestView>;
+  /**
+   * Public. Proof of payment for any invoice this link opened; the view
+   * shows the payment it proved. Throws `invalid_input` if it isn't one.
+   */
+  submitGuestProof(token: string, preimage: string, idempotencyKey?: string): Promise<GuestView>;
   /** Public. Returns an unsubscribe function. */
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
 
   // -- invites --------------------------------------------------------------
+  //
+  // One link for the whole group: whoever opens it picks which of the people
+  // who haven't joined they are, and becomes that member. Someone who isn't
+  // one of them adds themselves.
+
+  /** The group's invite, or null when it has none that still works. */
+  getGroupInvite(groupId: string): Promise<Invite | null>;
+  /**
+   * Makes the group's invite; anyone in the group can. If there was one, it
+   * stops working. Share `${APP_URL}${invitePath(token)}`. Whoever joins with
+   * it becomes a full member, so it lasts a week.
+   */
+  createInvite(groupId: string, idempotencyKey?: string): Promise<Invite>;
+  /** Turns the group's invite off. */
+  removeInvite(groupId: string, idempotencyKey?: string): Promise<void>;
+  /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
+  getInvite(token: string): Promise<InviteView>;
+  /**
+   * The signed-in user joins the invite's group and gets it back. With a
+   * `ref`, one of `getInvite`'s, they become that member; throws `conflict` if
+   * someone else has joined as that person since. With a `displayName`, they
+   * are added as a new member; throws `conflict` if that name is a member
+   * still waiting to be picked.
+   */
+  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string): Promise<Group>;
+
+  // -- group links ----------------------------------------------------------
+  //
+  // One link for the whole group: whoever holds it sees the spends and who
+  // owes whom, and can pay a debt. It can't change anything.
+
+  /** The group's link, or null when it has none. */
+  getGroupLink(groupId: string): Promise<GroupLink | null>;
+  /**
+   * Makes the group's link; anyone in the group can. If there was one, it
+   * stops working. Share `${APP_URL}${groupLinkPath(token)}`.
+   */
+  createGroupLink(groupId: string, idempotencyKey?: string): Promise<GroupLink>;
+  /** Turns the group's link off. */
+  removeGroupLink(groupId: string, idempotencyKey?: string): Promise<void>;
+  /** Public. What the group page shows. Throws `not_found` for a link that was replaced or turned off. */
+  getGroupGuestView(token: string): Promise<GroupGuestView>;
+  /**
+   * Public. Someone on the group page chose the debt `ref` to pay. Returns the
+   * token of a pay link for it; open that like any pay link. Throws
+   * `link_expired` if the debt is gone, `member_cannot_receive` if the person
+   * owed has nowhere to receive.
+   */
+  payFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<{ token: string }>;
+
+  // -- changing and removing ------------------------------------------------
+  //
+  // Nobody can undo what someone else is owed: an expense is its payer's to
+  // change, a group goes only once it's settled, and a member who is part of
+  // the ledger stays in it. What you can always do is take yourself out.
 
   /**
-   * For a ghost in a group you're in. Share `${APP_URL}${invitePath(token)}`.
-   * Whoever accepts becomes a full member, so each link works once, lasts a
-   * week, and making another for the same ghost kills the last.
+   * Replaces what an expense says. Only the person who paid may, once they've
+   * joined (`invalid_input` for anyone else); what a ghost paid, anyone in the
+   * group may change. See canChangeExpense.
    */
-  createInvite(groupId: string, memberId: string, idempotencyKey?: string): Promise<Invite>;
-  /** Public. Throws `not_found` for a dead link, `link_expired` once it's used or too old. */
-  getInvite(token: string): Promise<InviteView>;
-  /** The signed-in user becomes the invite's member. Returns the group they're now in. */
-  acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
+  /** Same rule as updateExpense. */
+  deleteExpense(groupId: string, expenseId: string, idempotencyKey?: string): Promise<void>;
+
+  renameGroup(groupId: string, name: string, idempotencyKey?: string): Promise<Group>;
+  /** For everyone in it. Throws `conflict` while anything is owed or a payment is under way. */
+  deleteGroup(groupId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Removes a ghost that no expense or payment names. Throws `conflict` for
+   * one that is part of the ledger, `invalid_input` for someone who has joined.
+   */
+  removeMember(groupId: string, memberId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Your member becomes a ghost again, with its name and balance, and you
+   * lose the group; an invite brings you back. Throws `conflict` if you're
+   * the only one with an account, or a payment to you is under way.
+   */
+  leaveGroup(groupId: string, idempotencyKey?: string): Promise<void>;
 
   // -- wallet connection ----------------------------------------------------
 
   /** Throws `invalid_wallet` unless the connection grants NWC_REQUIRED_METHODS. */
   connectWallet(nwcUri: string): Promise<WalletConnection>;
   getWalletConnection(): Promise<WalletConnection>;
+  /** The server forgets the connection string. Throws `conflict` while a payment to you is under way. */
+  disconnectWallet(): Promise<WalletConnection>;
+
+  /**
+   * The user's own Lightning address for receiving, for wallets that can't do
+   * NWC. Covers every group they're in; their NWC connection, if any, is used
+   * first.
+   */
+  getReceiveAddress(): Promise<ReceiveAddress>;
+  /**
+   * The server asks the address for its payment details before saving, so a
+   * typo is caught here. Throws `invalid_address`, or `network` if it didn't answer.
+   */
+  setReceiveAddress(address: string): Promise<ReceiveAddress>;
+  clearReceiveAddress(): Promise<ReceiveAddress>;
+
+  // -- account --------------------------------------------------------------
+
+  /**
+   * Ends the signed-in account for good: you leave every group (one only you
+   * could open is deleted), and the wallet connection and the links you sent
+   * go. Throws `conflict` while a payment to you is under way.
+   */
+  deleteAccount(): Promise<void>;
 }
 
 export function newIdempotencyKey(): string {

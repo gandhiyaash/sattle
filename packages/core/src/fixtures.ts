@@ -9,7 +9,7 @@
  */
 
 import { resolveParts } from './ledger';
-import type { Expense, ExpenseInput, Group, Member, PayLink, Settlement, User } from './types';
+import type { Expense, ExpenseInput, Group, GroupLink, Member, PayLink, Settlement, User } from './types';
 
 export const currentUser: User = { id: 'u-yash', displayName: 'Yash' };
 
@@ -104,6 +104,9 @@ export const payLinks: PayLink[] = [
     createdAt: at(0),
   },
 ];
+
+/** Flat 4B is shared by link, so the group page can be opened at /g/demo-group. */
+export const groupLinks: GroupLink[] = [{ token: 'demo-group', groupId: 'g-flat', createdAt: at(0) }];
 
 /** Which settlement each pay link last opened. */
 export const payLinkSettlements: Record<string, string> = { demo: 'demo' };

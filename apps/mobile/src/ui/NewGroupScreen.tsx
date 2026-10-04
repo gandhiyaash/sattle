@@ -11,7 +11,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import { Button, Card, ErrorState, Screen, SectionLabel } from './primitives';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface NewGroupScreenProps {
   onBack: () => void;
@@ -19,6 +19,8 @@ export interface NewGroupScreenProps {
 }
 
 export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
 
@@ -90,7 +92,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   fieldLabel: { ...type.label, color: color.inkMuted, marginBottom: space.sm },
   input: {
     height: 46,
@@ -104,4 +106,4 @@ const s = StyleSheet.create({
   },
   you: { ...type.body, color: color.inkMuted, paddingHorizontal: space.md, paddingVertical: space.xs },
   note: { ...type.caption, color: color.inkFaint, marginTop: space.sm },
-});
+}));

@@ -15,3 +15,21 @@ export function productionProblems(env: Record<string, string | undefined>): str
   }
   return problems;
 }
+
+/**
+ * Settings a production server can run with but probably shouldn't. PAYMENTS
+ * defaults to the simulator, where Pay goes through and balances move but no
+ * money does. A server says on purpose that it simulates, for a public demo,
+ * with ALLOW_SIMULATED_PAYMENTS=true.
+ *
+ * A warning rather than a refusal for now, so deploying this can't take the
+ * live API down before its .env has PAYMENTS=nwc. Once it does, this can move
+ * into productionProblems.
+ */
+export function productionWarnings(env: Record<string, string | undefined>): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  if (env.PAYMENTS === 'nwc' || env.ALLOW_SIMULATED_PAYMENTS === 'true') return [];
+  return [
+    'PAYMENTS is not nwc, so settling up moves balances without moving money. Set PAYMENTS=nwc, or ALLOW_SIMULATED_PAYMENTS=true for a demo server.',
+  ];
+}

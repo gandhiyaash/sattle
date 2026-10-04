@@ -1,7 +1,8 @@
 /**
- * Wallet connections, kept apart from repo.ts: the only module that reads
- * nwc_uri. Everything it returns to a route is a WalletConnection, which
- * has no field for the string.
+ * How a user receives: their NWC connection and their own Lightning
+ * address. Kept apart from repo.ts as the only module that reads nwc_uri.
+ * Everything it returns to a route is a WalletConnection, which has no
+ * field for the string.
  */
 
 import { NWC_REQUIRED_METHODS, type WalletConnection } from '@sattle/core';
@@ -32,6 +33,10 @@ export function createWalletStore(db: Db) {
          methods = excluded.methods, alias = excluded.alias, connected_at = excluded.connected_at`
     ),
     linkMembers: db.prepare(`UPDATE members SET status = 'nwc_linked' WHERE claimed_by_user_id = ?`),
+    receiveAddress: db.prepare('SELECT receive_address FROM users WHERE id = ?'),
+    setReceiveAddress: db.prepare('UPDATE users SET receive_address = ? WHERE id = ?'),
+    remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
+    unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
   };
 
   const toConnection = (r: Row): WalletConnection => {
@@ -59,6 +64,22 @@ export function createWalletStore(db: Db) {
       q.upsert.run(userId, c.nwcUri, c.walletPubkey, JSON.stringify(c.methods), c.alias ?? null, c.connectedAt);
       q.linkMembers.run(userId);
       return toConnection(q.byUser.get(userId) as unknown as Row);
+    },
+
+    /** Forgets the connection string, and puts the user's members back to `joined`. */
+    remove(userId: string): WalletConnection {
+      q.remove.run(userId);
+      q.unlinkMembers.run(userId);
+      return { connected: false, methods: [], excessMethods: [] };
+    },
+
+    /** The user's own Lightning address for receiving, if they've set one. Not a secret. */
+    receiveAddress(userId: string): string | undefined {
+      return (q.receiveAddress.get(userId) as { receive_address: string | null } | undefined)?.receive_address ?? undefined;
+    },
+
+    setReceiveAddress(userId: string, address: string | null) {
+      q.setReceiveAddress.run(address, userId);
     },
 
     /** The secret, for the payment backend only. Never put it in a response. */

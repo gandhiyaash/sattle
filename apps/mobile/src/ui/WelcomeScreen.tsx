@@ -13,16 +13,11 @@ import { createAccount } from '../client/ApiClient';
 import { writeToken } from '../account/tokenStore';
 import { API_URL } from '../react/SattleProvider';
 import { Button, Card, ErrorState, Screen } from './primitives';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
-export function WelcomeScreen({
-  onReady,
-  intro,
-}: {
-  onReady: (token: string) => void;
-  /** Shown above the name, for someone who arrived from an invite. */
-  intro?: React.ReactNode;
-}) {
+export function WelcomeScreen({ onReady }: { onReady: (token: string) => void }) {
+  const color = useColors();
+  const s = useStyles();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +37,7 @@ export function WelcomeScreen({
   };
 
   return (
-    <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
-      {intro}
+    <Screen title="Sattle" brand subtitle="Split bills in sats. Only one of you needs the app.">
       <Card style={{ gap: space.sm }}>
         <Text style={s.label}>What should your friends call you?</Text>
         <TextInput
@@ -70,7 +64,7 @@ export function WelcomeScreen({
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted },
   input: {
     height: 46,
@@ -83,4 +77,4 @@ const s = StyleSheet.create({
     backgroundColor: color.paper,
   },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18 },
-});
+}));

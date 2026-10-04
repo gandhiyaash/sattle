@@ -15,28 +15,47 @@
  *   one rather than leaving a dead QR on screen.
  * - Nothing on this page reveals the rest of the group. The token grants
  *   one debt, not the ledger — and GuestView carries no ids to leak.
+ * - Some payees receive at a Lightning address whose provider can't tell us
+ *   it was paid. The payer's wallet can: it gets the payment proof (the
+ *   preimage) when it pays. So a browser wallet (WebLN) pays and hands the
+ *   proof straight back, and anyone else can paste it, on a live invoice or
+ *   one we've called expired, since it may have been paid late.
  */
 
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, formatFiat, formatRate, type GuestSettlement, type GuestView } from '@sattle/core';
 import { useClient } from '../react/SattleProvider';
 import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine, formatSats } from './primitives';
 import { QrCode } from './QrCode';
-import { color, radius, shadow, space, type } from './theme';
+import { makeStyles, radius, shadow, space, type, useColors } from './theme';
 
 export interface GuestPayScreenProps {
   /** From /s/<token>. The only thing the page knows on arrival. */
   token: string;
+  /** Reached by tapping Settle on the group page, so the reader has seen the group. */
+  fromGroup?: boolean;
 }
+
+const FromGroup = createContext(false);
 
 type Load =
   | { kind: 'loading' }
   | { kind: 'ready'; view: GuestView }
   | { kind: 'failed'; error: SattleError };
 
-export function GuestPayScreen({ token }: GuestPayScreenProps) {
+export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps) {
+  return (
+    <FromGroup.Provider value={fromGroup}>
+      <GuestPay token={token} />
+    </FromGroup.Provider>
+  );
+}
+
+function GuestPay({ token }: { token: string }) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   // Bumped to open the link again: after a failure, or once an invoice lapses.
@@ -77,6 +96,12 @@ export function GuestPayScreen({ token }: GuestPayScreenProps) {
 
   const { view } = load;
   const settlement = view.settlement;
+  /** Sends a proof; the answer shows the payment it proved. Throws for the caller to show. */
+  const sendProof = async (preimage: string) => {
+    const next = await client.submitGuestProof(token, preimage);
+    setLoad({ kind: 'ready', view: next });
+  };
+  const proof = <ProofEntry onSubmit={sendProof} />;
   const header = (
     <>
       <Text style={s.brand}>Sattle</Text>
@@ -120,7 +145,7 @@ export function GuestPayScreen({ token }: GuestPayScreenProps) {
       );
 
     case 'expired':
-      return <Expired header={header} reason={view.reason} onRenew={retry} />;
+      return <Expired header={header} reason={view.reason} why={settlement.failureReason} onRenew={retry} proof={proof} />;
 
     case 'in_flight':
       return (
@@ -143,6 +168,8 @@ export function GuestPayScreen({ token }: GuestPayScreenProps) {
           reason={view.reason}
           settlement={settlement}
           onRenew={retry}
+          proof={proof}
+          onPaidInBrowser={(preimage) => sendProof(preimage)}
         />
       );
   }
@@ -157,15 +184,20 @@ function Invoice({
   reason,
   settlement,
   onRenew,
+  proof,
+  onPaidInBrowser,
 }: {
   header: React.ReactNode;
   reason: string;
   settlement: GuestSettlement;
   onRenew: () => void;
+  proof: React.ReactNode;
+  onPaidInBrowser: (preimage: string) => Promise<void>;
 }) {
+  const s = useStyles();
   const left = useSecondsLeft(settlement.quote?.expiresAt);
   // The server only marks it `expired` later; don't leave a dead QR up meanwhile.
-  if (left === 0) return <Expired header={header} reason={reason} onRenew={onRenew} />;
+  if (left === 0) return <Expired header={header} reason={reason} onRenew={onRenew} proof={proof} />;
 
   const { destination, quote } = settlement;
   return (
@@ -185,6 +217,7 @@ function Invoice({
           <Text style={s.hint}>
             Works with Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.
           </Text>
+          <BrowserWalletPay invoice={destination} onPaid={onPaidInBrowser} />
 
           <View style={s.qrBlock}>
             <View style={s.qrFrame}>
@@ -198,6 +231,7 @@ function Invoice({
         </>
       )}
 
+      {destination && proof}
       <Footer />
     </Page>
   );
@@ -206,28 +240,144 @@ function Invoice({
 function Expired({
   header,
   reason,
+  why,
   onRenew,
+  proof,
 }: {
   header: React.ReactNode;
   reason: string;
+  /** The server's reason, when it couldn't tell whether this was paid. */
+  why?: string;
   onRenew: () => void;
+  proof: React.ReactNode;
 }) {
+  const s = useStyles();
   return (
     <Page>
       {header}
       <Text style={s.reason}>{reason}</Text>
-      <Notice
-        title="This invoice expired"
-        body="Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate."
-      />
-      <Button label="Get a new invoice" variant="primary" onPress={onRenew} />
+      {why ? (
+        <Notice title="We can’t tell if this was paid" body={why} />
+      ) : (
+        <Notice
+          title="This invoice expired"
+          body="Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate."
+        />
+      )}
+      {/* Paid already? Their proof settles it; a new invoice would mean paying twice. */}
+      {proof}
+      <Button label="Get a new invoice" variant={why ? 'secondary' : 'primary'} onPress={onRenew} />
       <Footer />
     </Page>
   );
 }
 
+/** What a WebLN browser wallet (Alby and others) exposes. Only the calls used here. */
+interface WebLN {
+  enable(): Promise<void>;
+  sendPayment(invoice: string): Promise<{ preimage: string }>;
+}
+
+function browserWallet(): WebLN | undefined {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+  return (window as unknown as { webln?: WebLN }).webln;
+}
+
+/**
+ * Only when the browser has a Lightning wallet. It pays and hands back the
+ * proof, which confirms the payment even when the payee's wallet can't.
+ */
+function BrowserWalletPay({ invoice, onPaid }: { invoice: string; onPaid: (preimage: string) => Promise<void> }) {
+  const s = useStyles();
+  const [webln] = useState(browserWallet);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!webln) return null;
+
+  const pay = async () => {
+    setBusy(true);
+    setError(null);
+    let preimage: string;
+    try {
+      await webln.enable();
+      preimage = (await webln.sendPayment(invoice)).preimage;
+    } catch (e) {
+      setError(e instanceof Error && e.message ? `Your browser wallet said: ${e.message}` : 'Your browser wallet didn’t pay.');
+      setBusy(false);
+      return;
+    }
+    try {
+      await onPaid(preimage);
+    } catch {
+      // It paid; only telling us failed. The page still updates if the
+      // payee's wallet confirms it, and the proof can be pasted below.
+      setError('Paid, but we couldn’t record it. Copy the payment proof from your wallet and paste it below.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={{ gap: space.xs }}>
+      <Button label="Pay with your browser wallet" busy={busy} onPress={pay} />
+      {error && <Text style={s.proofError}>{error}</Text>}
+    </View>
+  );
+}
+
+/** "Already paid?": paste the payment proof from your wallet. Collapsed until asked for. */
+function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void> }) {
+  const color = useColors();
+  const s = useStyles();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return <Button label="Already paid? Send your payment proof" variant="quiet" onPress={() => setOpen(true)} />;
+  }
+
+  const submit = async () => {
+    if (!value.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(value.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That didn’t work. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={s.proofBox}>
+      <Text style={s.noticeTitle}>Your payment proof</Text>
+      <Text style={s.proofHelp}>
+        Your wallet shows it in the payment’s details, sometimes called the preimage: 64 letters and numbers.
+        Only the wallet that paid has it, so it shows this was paid.
+      </Text>
+      <TextInput
+        style={s.proofInput}
+        value={value}
+        onChangeText={setValue}
+        onSubmitEditing={submit}
+        placeholder="Paste it here"
+        placeholderTextColor={color.inkFaint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline
+      />
+      {error && <Text style={s.proofError}>{error}</Text>}
+      <Button label="Send proof" variant="primary" busy={busy} disabled={!value.trim()} onPress={submit} />
+    </View>
+  );
+}
+
 /** A receipt: what was owed, what was sent, and the rate that joined them. */
 function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestSettlement }) {
+  const s = useStyles();
   const { quote, preimage } = settlement;
   return (
     <Page>
@@ -259,6 +409,7 @@ function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestS
 
 /** The link itself couldn't be opened. Each code gets words a guest can act on. */
 function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void }) {
+  const s = useStyles();
   switch (error.code) {
     case 'not_found':
       return (
@@ -301,6 +452,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
 // ---------------------------------------------------------------------------
 
 function Page({ children }: { children: React.ReactNode }) {
+  const s = useStyles();
   return (
     <View style={s.page}>
       <View style={s.sheet}>{children}</View>
@@ -309,6 +461,7 @@ function Page({ children }: { children: React.ReactNode }) {
 }
 
 function AmountBlock({ settlement }: { settlement: GuestSettlement }) {
+  const s = useStyles();
   const { quote } = settlement;
   return (
     <View style={s.amountBlock}>
@@ -319,6 +472,7 @@ function AmountBlock({ settlement }: { settlement: GuestSettlement }) {
 }
 
 function Notice({ title, body }: { title: string; body: string }) {
+  const s = useStyles();
   return (
     <View style={s.notice}>
       <Text style={s.noticeTitle}>{title}</Text>
@@ -328,7 +482,16 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 function Footer() {
-  return <Text style={s.footer}>No account needed. This link only shows this one payment — not the group.</Text>;
+  const s = useStyles();
+  // From the group page that last part would be wrong: they came here from the group.
+  const fromGroup = useContext(FromGroup);
+  return (
+    <Text style={s.footer}>
+      {fromGroup
+        ? 'No account needed. Pay from any Lightning wallet.'
+        : 'No account needed. This link only shows this one payment — not the group.'}
+    </Text>
+  );
 }
 
 /** Whole seconds until `iso`, ticking once a second; null when there's no deadline. */
@@ -350,7 +513,7 @@ function useSecondsLeft(iso: string | undefined) {
 
 const formatClock = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   page: {
     flex: 1,
     backgroundColor: color.paper,
@@ -431,5 +594,23 @@ const s = StyleSheet.create({
     marginTop: space.xs,
   },
   receiptLabel: { ...type.caption, color: color.inkFaint },
+  proofBox: {
+    backgroundColor: color.surfaceSunken,
+    borderRadius: radius.md,
+    padding: space.md,
+    gap: space.sm,
+  },
+  proofHelp: { ...type.caption, color: color.inkMuted, lineHeight: 18 },
+  proofInput: {
+    minHeight: 64,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+    borderRadius: radius.md,
+    padding: space.sm,
+    ...type.amountSm,
+    color: color.ink,
+    backgroundColor: color.paper,
+  },
+  proofError: { ...type.caption, color: color.danger },
   receiptValue: { ...type.amountSm, color: color.inkMuted },
-});
+}));

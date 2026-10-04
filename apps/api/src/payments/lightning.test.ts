@@ -8,7 +8,7 @@ import { createApp } from '../app';
 import { openDb, seedIfEmpty, type Db } from '../db';
 import { NwcError, type MakeInvoiceParams, type NwcApi, type NwcInvoice } from '../nwc';
 import type { RateService } from '../rates';
-import { NwcPayments } from './nwc';
+import { LightningPayments } from './lightning';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
 const PREIMAGE = randomBytes(32).toString('hex');
@@ -18,8 +18,10 @@ const NOW = Date.parse('2026-10-02T10:00:00Z');
 let db: Db;
 let minted: MakeInvoiceParams[];
 let mintError: Error | undefined;
+/** Set to make the wallet hand back an invoice it already gave us. */
+let repeatHash: string | undefined;
 let opened: number;
-let backend: NwcPayments | undefined;
+let backend: LightningPayments | undefined;
 /** What lookup_invoice answers. Swap it mid-test to move the invoice along. */
 let lookup: () => Partial<NwcInvoice> | Error;
 let lookups: number;
@@ -33,7 +35,10 @@ function fakeNwc(): NwcApi {
     makeInvoice: async (p) => {
       if (mintError) throw mintError;
       minted.push(p);
-      return { invoice: 'lnbc1real', paymentHash: HASH, amountMsat: p.amountMsat, createdAt: NOW / 1000, state: 'pending' };
+      // The first invoice is the one PREIMAGE pays; later ones are new
+      // invoices, so new hashes, as a real wallet would mint.
+      const paymentHash = repeatHash ?? (minted.length === 1 ? HASH : randomBytes(32).toString('hex'));
+      return { invoice: 'lnbc1real', paymentHash, amountMsat: p.amountMsat, createdAt: NOW / 1000, state: 'pending' };
     },
     lookupInvoice: async ({ paymentHash }: { paymentHash: string }) => {
       lookups++;
@@ -53,7 +58,7 @@ function as(userId: string) {
     nwc: fakeNwc,
     // One backend per test, like the one the server builds at boot.
     payments: (repo, wallets) =>
-      (backend ??= new NwcPayments({ db, repo, wallets, rates, nwc: fakeNwc, now: () => NOW, pollMs: 2 })),
+      (backend ??= new LightningPayments({ db, repo, wallets, rates, nwc: fakeNwc, now: () => NOW, pollMs: 2 })),
   });
 }
 
@@ -97,6 +102,7 @@ beforeEach(() => {
   db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = 'demo'`).run();
   minted = [];
   mintError = undefined;
+  repeatHash = undefined;
   opened = 0;
   backend?.close();
   backend = undefined;
@@ -104,7 +110,7 @@ beforeEach(() => {
   lookups = 0;
 });
 
-describe('NwcPayments', () => {
+describe('LightningPayments', () => {
   beforeEach(async () => {
     expect((await call('u-yash', 'PUT', '/me/wallet', { nwcUri: URI })).status).toBe(200);
   });
@@ -156,10 +162,20 @@ describe('NwcPayments', () => {
   });
 });
 
-describe('NwcPayments without a connected wallet', () => {
-  it('fails, naming who has to connect one', async () => {
-    const s = await settled((await omPaysYash()).body.id);
-    expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash hasn’t connected a wallet to receive yet. Nothing moved.' });
+describe('/health', () => {
+  it('tells the app payments are real', async () => {
+    expect((await call('u-om', 'GET', '/health')).body).toEqual({ ok: true, payments: 'real' });
+  });
+});
+
+describe('LightningPayments without a connected wallet', () => {
+  it('refuses up front, before any settlement exists', async () => {
+    const count = () => db.prepare('SELECT COUNT(*) AS n FROM settlements').get();
+    const before = count();
+    const res = await omPaysYash();
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'member_cannot_receive' });
+    expect(count()).toEqual(before);
   });
 });
 
@@ -187,7 +203,22 @@ describe('confirmation loop', () => {
   it('marks it expired when the wallet says so, which frees the debt for a new invoice', async () => {
     lookup = () => ({ state: 'expired' });
     expect((await closed((await omPaysYash()).body.id)).status).toBe('expired');
-    expect((await omPaysYash()).status).toBe(201);
+    const again = await omPaysYash();
+    expect(again.status).toBe(201);
+    expect((await settled(again.body.id)).status).toBe('awaiting_payment');
+  });
+
+  it('refuses an invoice whose payment hash another settlement already holds', async () => {
+    lookup = () => ({ state: 'expired' });
+    const first = (await omPaysYash()).body.id;
+    expect((await closed(first)).status).toBe('expired');
+
+    // One payment would confirm both, so the second never shows an invoice.
+    repeatHash = HASH;
+    const second = await settled((await omPaysYash()).body.id);
+    expect(second).toMatchObject({ status: 'failed', failureReason: 'Yash’s wallet gave us an invoice it had already given us. Nothing moved.' });
+    expect(second.destination).toBeUndefined();
+    expect((await get(first)).status).toBe('expired');
   });
 
   it('waits out the grace period before believing an invoice expired', async () => {

@@ -1,5 +1,5 @@
 /**
- * O3's pay links driving NwcPayments with a fake wallet: I1 and I2 in
+ * O3's pay links driving LightningPayments with a fake wallet: I1 and I2 in
  * everything but the real wallet.
  */
 import { createHash, randomBytes } from 'node:crypto';
@@ -11,14 +11,14 @@ import type { GuestView, PayLink } from '@sattle/core';
 import { createApp } from './app';
 import { openDb, seedIfEmpty, type Db } from './db';
 import type { NwcApi, NwcInvoice } from './nwc';
-import { NwcPayments } from './payments/nwc';
+import { LightningPayments } from './payments/lightning';
 import type { RateService } from './rates';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
 const rates: RateService = { rate: async (currency) => ({ currency, rateFiatPerBtc: 8_000_000, source: 'live' }) };
 
 let db: Db;
-let backend: NwcPayments | undefined;
+let backend: LightningPayments | undefined;
 let minted: number;
 let state: () => Partial<NwcInvoice>;
 let now: number;
@@ -42,7 +42,7 @@ const as = (userId?: string) =>
     db,
     demoUserId: userId,
     nwc: fakeNwc,
-    payments: (repo, wallets) => (backend ??= new NwcPayments({ db, repo, wallets, rates, nwc: fakeNwc, pollMs: 2, now: () => now })),
+    payments: (repo, wallets) => (backend ??= new LightningPayments({ db, repo, wallets, rates, nwc: fakeNwc, pollMs: 2, now: () => now })),
   });
 
 async function call<T>(userId: string | undefined, method: string, path: string, body?: unknown) {
@@ -110,12 +110,9 @@ describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => 
     expect(db.prepare('SELECT status FROM settlements WHERE id = ?').get(first.settlement!.id)).toEqual({ status: 'expired' });
   });
 
-  it('payee without a wallet: the guest gets a failed payment (known gap — should be member_cannot_receive up front)', async () => {
-    const link = (await call<PayLink>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 })).body;
-    const opened = await call<GuestView>(undefined, 'POST', `/s/${link.token}/open`);
-    const v = await guestUntil(link.token, (g) => g.settlement?.status === 'failed');
-    // Today: 200 on open, then failed with a reason. Change both lines when the gap is fixed.
-    expect(opened.status).toBe(200);
-    expect(v.settlement?.failureReason).toContain('hasn’t connected a wallet');
+  it('payee without a wallet: refuses to make the link, rather than letting the guest find out', async () => {
+    const made = await call<{ code: string; message: string }>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 });
+    expect(made.status).toBe(409);
+    expect(made.body).toMatchObject({ code: 'member_cannot_receive', message: expect.stringContaining('Connect a wallet') });
   });
 });

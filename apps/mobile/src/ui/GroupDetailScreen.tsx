@@ -5,7 +5,7 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README. Anyone not joined can be invited from their row.
+ *    of a line in a README. One invite, under the list, is for all of them.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  */
@@ -17,15 +17,16 @@ import {
   canReceive,
   computeBalances,
   formatFiat,
-  invitePath,
+  groupLinkPath,
   payLinkPath,
   simplifyDebts,
   type Debt,
   type Expense,
   type Member,
+  type PaymentMode,
 } from '@sattle/core';
-import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
-import { APP_URL } from '../react/useSettleFlow';
+import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
+import { APP_URL, inviteLink } from '../react/useSettleFlow';
 import {
   Amount,
   Avatar,
@@ -39,12 +40,16 @@ import {
   SectionLabel,
 } from './primitives';
 import { share } from './share';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface GroupDetailScreenProps {
   groupId: string;
   onBack: () => void;
   onAddExpense: (members: Member[], currency: string) => void;
+  /** Opens an expense to change or delete it. `userId` is who is signed in. */
+  onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
+  /** Opens the screen for renaming, leaving and deleting the group. */
+  onManage: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string) => void;
 }
 
@@ -54,6 +59,7 @@ interface GroupView {
   members: Member[];
   expenses: Expense[];
   debts: Debt[];
+  userId: string;
   myMemberId: string | null;
   myNet: number;
 }
@@ -62,9 +68,14 @@ export function GroupDetailScreen({
   groupId,
   onBack,
   onAddExpense,
+  onEditExpense,
+  onManage,
   onSettle,
 }: GroupDetailScreenProps) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
+  const mode = usePaymentMode();
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
     const [user, group, members, expenses, settlements] = await Promise.all([
@@ -85,6 +96,7 @@ export function GroupDetailScreen({
       members,
       expenses: [...expenses].reverse(),
       debts,
+      userId: user.id,
       myMemberId: mine?.id ?? null,
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
     };
@@ -119,6 +131,10 @@ export function GroupDetailScreen({
   const nameOf = (id: string) =>
     data.members.find((m) => m.id === id)?.displayName ?? 'Someone';
 
+  const me = data.members.find((m) => m.id === data.myMemberId);
+  // Under real payments, money lands in the payee's own wallet or address. Without one, a link can't be paid.
+  const iCanReceive = me ? canReceive(me, mode) : false;
+
   const myDebts = data.debts.filter(
     (d) => d.fromMemberId === data.myMemberId || d.toMemberId === data.myMemberId
   );
@@ -128,12 +144,23 @@ export function GroupDetailScreen({
       title={data.name}
       subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
       onBack={onBack}
+      right={<Button label="Manage" variant="quiet" onPress={onManage} />}
     >
       <Card>
-        <Text style={s.label}>
-          {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
-        </Text>
-        <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+        {data.expenses.length === 0 ? (
+          // Zero because nothing has happened yet, not because it was paid off.
+          <>
+            <Text style={s.label}>No expenses yet</Text>
+            <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.label}>
+              {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
+            </Text>
+            <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+          </>
+        )}
       </Card>
 
       {myDebts.length > 0 && (
@@ -145,7 +172,7 @@ export function GroupDetailScreen({
               const other = owedByMe ? debt.toMemberId : debt.fromMemberId;
               const otherMember = data.members.find((m) => m.id === other);
               const blocked = !owedByMe && false; // they pay you; nothing to block
-              const cannotReceive = owedByMe && otherMember && !canReceive(otherMember);
+              const cannotReceive = owedByMe && otherMember && !canReceive(otherMember, mode);
 
               return (
                 <Card key={debt.id} style={{ padding: space.md }}>
@@ -169,21 +196,24 @@ export function GroupDetailScreen({
                       />
                     )}
                   </View>
-                  {!owedByMe && (
-                    <SendPayLink
-                      debt={debt}
-                      payerName={nameOf(other)}
-                      groupName={data.name}
-                      currency={data.currency}
-                    />
-                  )}
+                  {!owedByMe &&
+                    (iCanReceive ? (
+                      <SendPayLink
+                        debt={debt}
+                        payerName={nameOf(other)}
+                        groupName={data.name}
+                        currency={data.currency}
+                      />
+                    ) : (
+                      <Text style={s.blockedNote}>
+                        Set up receiving from Wallet to send {nameOf(other)} a pay link.
+                      </Text>
+                    ))}
                   {!owedByMe && (
                     <MarkSettled debt={debt} payerName={nameOf(other)} onSettled={refresh} />
                   )}
-                  {cannotReceive && (
-                    <Text style={s.blockedNote}>
-                      {nameOf(other)} hasn't joined — you can still pay them an address.
-                    </Text>
+                  {cannotReceive && otherMember && (
+                    <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode)}</Text>
                   )}
                 </Card>
               );
@@ -192,18 +222,21 @@ export function GroupDetailScreen({
         </View>
       )}
 
+      <ShareGroupLink groupId={groupId} groupName={data.name} />
+
       <View>
         <SectionLabel>Members</SectionLabel>
         <Card style={{ padding: 0 }}>
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} groupName={data.name} />
+              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} />
             </View>
           ))}
           <Divider />
           <AddMember groupId={groupId} onAdded={refresh} />
         </Card>
+        <InviteToJoin groupId={groupId} groupName={data.name} />
       </View>
 
       <View>
@@ -215,15 +248,18 @@ export function GroupDetailScreen({
             {data.expenses.map((expense, i) => (
               <View key={expense.id}>
                 {i > 0 && <Divider />}
-                <View style={s.expenseRow}>
+                <Pressable
+                  onPress={() => onEditExpense(expense, data.members, data.currency, data.userId)}
+                  style={({ pressed }) => [s.expenseRow, pressed && { backgroundColor: color.surfaceSunken }]}
+                >
                   <View style={{ flex: 1 }}>
                     <Text style={s.expenseName}>{expense.description}</Text>
                     <Text style={s.expenseMeta}>
-                      {nameOf(expense.paidByMemberId)} paid · split {expense.parts.length} ways
+                      {nameOf(expense.paidByMemberId)} paid · {splitSummary(expense, nameOf)}
                     </Text>
                   </View>
                   <Amount minor={expense.amount} currency={data.currency} size="md" />
-                </View>
+                </Pressable>
               </View>
             ))}
           </Card>
@@ -241,6 +277,29 @@ export function GroupDetailScreen({
   );
 }
 
+/** How an expense was divided, e.g. "split by shares, 3 ways". */
+function splitSummary(expense: Expense, nameOf: (id: string) => string): string {
+  const n = expense.parts.length;
+  if (n === 1) return `all for ${nameOf(expense.parts[0].memberId)}`;
+  switch (expense.splitMode) {
+    case 'shares':
+      return `split by shares, ${n} ways`;
+    case 'exact':
+      return `exact amounts, ${n} ways`;
+    default:
+      return `split equally, ${n} ways`;
+  }
+}
+
+/** Under a debt you can't pay here yet: why, and what Options offers. */
+function cannotReceiveNote(member: Member, mode: PaymentMode): string {
+  const name = member.displayName;
+  if (mode === 'simulated') return `${name} hasn't joined — you can still pay them an address.`;
+  return member.claimedByUserId
+    ? `${name} needs to set up receiving before you can pay here.`
+    : `${name} isn't on Sattle yet. Invite them, or mark it settled if you paid another way.`;
+}
+
 const REFRESH_MS = 4000;
 
 type LinkState =
@@ -249,83 +308,89 @@ type LinkState =
   | { kind: 'sent'; url: string; note: string }
   | { kind: 'failed'; message: string };
 
+/** One member, with their state. */
+function MemberRow({ member, isMe, mode }: { member: Member; isMe: boolean; mode: PaymentMode }) {
+  const s = useStyles();
+  return (
+    <View style={s.memberRow}>
+      <Avatar name={member.displayName} dim={member.status === 'ghost'} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.memberName}>
+          {member.displayName}
+          {isMe ? ' (you)' : ''}
+        </Text>
+        <Text style={s.memberMeta}>
+          {member.status === 'joined'
+            ? mode === 'real' && !canReceive(member, mode)
+              ? 'In app · can’t receive yet'
+              : 'In app'
+            : member.status === 'nwc_linked'
+              ? 'External wallet'
+              : member.lightningAddress
+                ? member.lightningAddress
+                : 'Not joined'}
+        </Text>
+      </View>
+      {member.status === 'ghost' && (
+        <Badge
+          text={canReceive(member, mode) ? 'Payable' : 'No app'}
+          tone={canReceive(member, mode) ? 'accent' : 'neutral'}
+        />
+      )}
+    </View>
+  );
+}
+
 /**
- * One member, with their state. Someone who hasn't joined gets an Invite
- * action: it mints a link that lets one person become this member, and hands
- * it to the share sheet. Whoever uses it can see and add to the whole group.
+ * One invite for everyone, for the chat they're all in. Whoever opens it picks
+ * their own name from the list and becomes that member, or adds themselves if
+ * they aren't on it, so nobody needs a link of their own. Joining is full
+ * membership: they can see and add to the whole group, which is why it says
+ * so before it's sent. Replacing it and turning it off are under Manage.
  */
-function MemberRow({ member, isMe, groupName }: { member: Member; isMe: boolean; groupName: string }) {
+function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const s = useStyles();
   const client = useClient();
-  const keys = useActionKeys();
-  const [invite, setInvite] = useState<LinkState>({ kind: 'idle' });
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
 
   const send = async () => {
-    setInvite({ kind: 'busy' });
-    let url: string;
+    setState({ kind: 'busy' });
+    let link: Awaited<ReturnType<typeof inviteLink>>;
     try {
-      const input = { groupId: member.groupId, memberId: member.id };
-      const made = await keys.run('invite', input, (k) => client.createInvite(input.groupId, input.memberId, k));
-      url = `${APP_URL}${invitePath(made.token)}`;
+      link = await inviteLink(client, groupId);
     } catch (e) {
-      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
       return;
     }
-    const message = `${member.displayName}, join "${groupName}" on Sattle to see what we’ve split and settle up: ${url}`;
-    setInvite({ kind: 'sent', url, note: await share(message, 'Sent. It works once, for a week.') });
+    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this and pick your name, or add it: ${link.url}`;
+    setState({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
   };
 
   return (
-    <View>
-      <View style={s.memberRow}>
-        <Avatar name={member.displayName} dim={member.status === 'ghost'} />
-        <View style={{ flex: 1 }}>
-          <Text style={s.memberName}>
-            {member.displayName}
-            {isMe ? ' (you)' : ''}
-          </Text>
-          <Text style={s.memberMeta}>
-            {member.status === 'joined'
-              ? 'In app'
-              : member.status === 'nwc_linked'
-                ? 'External wallet'
-                : member.lightningAddress
-                  ? member.lightningAddress
-                  : 'Not joined'}
-          </Text>
-        </View>
-        {member.status === 'ghost' && (
-          <Badge
-            text={member.lightningAddress ? 'Payable' : 'No app'}
-            tone={member.lightningAddress ? 'accent' : 'neutral'}
-          />
-        )}
-        {!member.claimedByUserId && (
-          <Pressable onPress={send} disabled={invite.kind === 'busy'} hitSlop={12}>
-            <Text style={[s.memberAction, invite.kind === 'busy' && { opacity: 0.4 }]}>
-              {invite.kind === 'sent' ? 'Invite again' : 'Invite'}
-            </Text>
-          </Pressable>
-        )}
-      </View>
-      {invite.kind === 'sent' && (
-        <View style={s.inviteResult}>
-          <Text style={s.linkNote}>{invite.note}</Text>
+    <View style={s.inviteBlock}>
+      <Button
+        label={state.kind === 'sent' ? 'Share the invite again' : 'Invite people to join'}
+        hint="One link for everyone. They pick their name, or add themselves, then can see this group and add to it."
+        busy={state.kind === 'busy'}
+        onPress={send}
+      />
+      {state.kind === 'sent' && (
+        <>
+          <Text style={s.linkNote}>{state.note}</Text>
           <Text style={s.linkUrl} selectable numberOfLines={1}>
-            {invite.url}
+            {state.url}
           </Text>
-        </View>
+        </>
       )}
-      {invite.kind === 'failed' && (
-        <View style={s.inviteResult}>
-          <Text style={s.linkError}>{invite.message}</Text>
-        </View>
-      )}
+      {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
     </View>
   );
 }
 
 /** Adds a ghost by name. Like everyone else here, they don't need the app. */
 function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void }) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
   const [name, setName] = useState('');
@@ -368,6 +433,63 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
 }
 
 /**
+ * One link for the whole group, for the chat everyone is already in. Whoever
+ * opens it sees the spends and who owes whom, and pays what they owe; they
+ * can't change anything. There is no link until this is tapped, which is why
+ * it says what the link shows first. Replacing it and turning it off are
+ * under Manage.
+ */
+function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const s = useStyles();
+  const client = useClient();
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
+
+  const send = async () => {
+    setState({ kind: 'busy' });
+    let url: string;
+    try {
+      // Looking first is what makes a retry safe: a link made by an attempt whose reply was
+      // lost is found here. So making one takes a fresh request key every time, and can never
+      // be answered with a saved reply naming a link that has since been turned off.
+      const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
+      url = `${APP_URL}${groupLinkPath(link.token)}`;
+    } catch (e) {
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      return;
+    }
+    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it from any Lightning wallet, no app needed: ${url}`;
+    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until someone in the group turns it off.') });
+  };
+
+  return (
+    <View>
+      <SectionLabel>Group link</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <Text style={s.linkIntro}>
+          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe from
+          any Lightning wallet. They can’t change anything.
+        </Text>
+        <Button
+          label={state.kind === 'sent' ? 'Share it again' : 'Share the group link'}
+          busy={state.kind === 'busy'}
+          onPress={send}
+        />
+        {state.kind === 'sent' && (
+          <>
+            <Text style={s.linkNote}>{state.note}</Text>
+            <Text style={s.linkUrl} selectable numberOfLines={1}>
+              {state.url}
+            </Text>
+          </>
+        )}
+        {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
+        <Text style={s.linkNote}>Replace it or turn it off under Manage.</Text>
+      </Card>
+    </View>
+  );
+}
+
+/**
  * Only on debts owed to you: mints a pay link and hands it to the share
  * sheet. The URL stays on screen afterwards, so it can be copied by hand.
  */
@@ -382,6 +504,7 @@ function SendPayLink({
   groupName: string;
   currency: string;
 }) {
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
   const [state, setState] = useState<LinkState>({ kind: 'idle' });
@@ -432,6 +555,7 @@ function SendPayLink({
  * ask. Two taps, since nothing undoes it.
  */
 function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: string; onSettled: () => void }) {
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
   const [state, setState] = useState<'idle' | 'confirming' | 'busy' | { failed: string }>('idle');
@@ -471,6 +595,7 @@ function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: st
  * shared to a chat by default.
  */
 function LedgerBackupCard({ groupId, version }: { groupId: string; version: number }) {
+  const s = useStyles();
   const client = useClient();
   const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId, version]);
   const [note, setNote] = useState<string | null>(null);
@@ -525,7 +650,7 @@ function LedgerBackupCard({ groupId, version }: { groupId: string; version: numb
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   backupBody: { ...type.body, color: color.inkMuted },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
@@ -538,6 +663,7 @@ const s = StyleSheet.create({
   },
   linkBlock: { marginTop: space.sm, marginLeft: 48, gap: space.xs },
   linkNote: { ...type.caption, color: color.inkMuted },
+  linkIntro: { ...type.body, color: color.inkMuted },
   linkUrl: { ...type.amountSm, color: color.inkFaint },
   linkError: { ...type.caption, color: color.danger },
   memberRow: {
@@ -547,9 +673,7 @@ const s = StyleSheet.create({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
-  memberAction: { ...type.label, color: color.accent },
-  // Lines up under the name: row padding, avatar, gap.
-  inviteResult: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md, gap: space.xs },
+  inviteBlock: { marginTop: space.sm, gap: space.xs },
   addMember: { padding: space.md, gap: space.xs },
   addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addInput: {
@@ -565,6 +689,7 @@ const s = StyleSheet.create({
   },
   memberMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   noExpenses: { ...type.caption, color: color.inkFaint, marginBottom: space.sm },
+  nothingYet: { ...type.body, color: color.inkFaint },
   expenseRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -573,4 +698,4 @@ const s = StyleSheet.create({
   },
   expenseName: { ...type.body, fontWeight: '500', color: color.ink },
   expenseMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
-});
+}));

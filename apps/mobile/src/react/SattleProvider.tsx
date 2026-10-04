@@ -21,7 +21,7 @@ import { Platform } from 'react-native';
 import { ApiClient } from '../client/ApiClient';
 import { MockClient } from '../client/MockClient';
 import { ActionKeys, type SattleClient } from '../client/SattleClient';
-import type { Settlement } from '@sattle/core';
+import type { PaymentMode, Settlement } from '@sattle/core';
 import { MockWallet, UnavailableWallet, type WalletProvider } from '../wallet/WalletProvider';
 
 interface SattleContextValue {
@@ -85,6 +85,27 @@ function useCtx() {
 
 export const useClient = () => useCtx().client;
 export const useWallet = () => useCtx().wallet;
+
+/**
+ * Whether the server moves real money. Until it answers, assume it does: the
+ * stricter rules only hide options for a moment, the looser ones would offer
+ * payments that fail.
+ */
+export function usePaymentMode(): PaymentMode {
+  const client = useClient();
+  const [mode, setMode] = useState<PaymentMode>(() => (isMock() ? 'simulated' : 'real'));
+  useEffect(() => {
+    let live = true;
+    client
+      .getPaymentMode()
+      .then((m) => live && setMode(m))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [client]);
+  return mode;
+}
 
 /** Idempotency keys for the user actions on one screen. See ActionKeys. */
 export function useActionKeys() {

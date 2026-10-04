@@ -13,11 +13,13 @@
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Debt, Member } from '@sattle/core';
+import type { Debt, Expense, Member } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
+import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
+import { GroupSettingsScreen } from './GroupSettingsScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
@@ -25,14 +27,17 @@ import { NewGroupScreen } from './NewGroupScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
   | { name: 'newGroup' }
   | { name: 'group'; groupId: string }
   | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
+  | { name: 'editExpense'; groupId: string; members: Member[]; currency: string; expense: Expense; userId: string }
+  | { name: 'groupSettings'; groupId: string }
   | { name: 'wallet' }
+  | { name: 'account' }
   | { name: 'join'; token?: string }
   | { name: 'guest'; token: string };
 
@@ -42,18 +47,40 @@ export interface DemoAppProps {
   invite?: string | null;
   /** The join screen is finished with that link, whether or not anyone joined. */
   onInviteDone?: () => void;
+  /** A group the person joined on their way in. It starts there. */
+  group?: string | null;
+  /** The account was deleted on the server. Whoever holds its token should forget it. */
+  onAccountDeleted?: () => void;
 }
 
-export function DemoApp({ client, invite, onInviteDone }: DemoAppProps) {
+export function DemoApp({ client, invite, onInviteDone, group, onAccountDeleted }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
-      <Navigator invite={invite ?? null} onInviteDone={onInviteDone} />
+      <Navigator
+        invite={invite ?? null}
+        onInviteDone={onInviteDone}
+        group={group ?? null}
+        onAccountDeleted={onAccountDeleted}
+      />
     </SattleProvider>
   );
 }
 
-function Navigator({ invite, onInviteDone }: { invite: string | null; onInviteDone?: () => void }) {
-  const [route, setRoute] = useState<Route>(invite ? { name: 'join', token: invite } : { name: 'groups' });
+function Navigator({
+  invite,
+  onInviteDone,
+  group,
+  onAccountDeleted,
+}: {
+  invite: string | null;
+  onInviteDone?: () => void;
+  group: string | null;
+  onAccountDeleted?: () => void;
+}) {
+  const sheet = useSheet();
+  const [route, setRoute] = useState<Route>(
+    invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
+  );
   const [settling, setSettling] = useState<{
     debt: Debt;
     members: Member[];
@@ -112,7 +139,42 @@ function Navigator({ invite, onInviteDone }: { invite: string | null; onInviteDo
             onAddExpense={(members, currency) =>
               setRoute({ name: 'addExpense', groupId: route.groupId, members, currency })
             }
+            onEditExpense={(expense, members, currency, userId) =>
+              setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
+            }
+            onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
             onSettle={(debt, members, groupName) => setSettling({ debt, members, groupName })}
+          />
+        );
+
+      case 'editExpense':
+        return (
+          <AddExpenseScreen
+            groupId={route.groupId}
+            members={route.members}
+            currency={route.currency}
+            expense={route.expense}
+            userId={route.userId}
+            onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
+            onAdded={() => {
+              refresh();
+              setRoute({ name: 'group', groupId: route.groupId });
+            }}
+          />
+        );
+
+      case 'groupSettings':
+        return (
+          <GroupSettingsScreen
+            groupId={route.groupId}
+            onBack={() => {
+              refresh();
+              setRoute({ name: 'group', groupId: route.groupId });
+            }}
+            onGone={() => {
+              refresh();
+              setRoute({ name: 'groups' });
+            }}
           />
         );
 
@@ -132,6 +194,9 @@ function Navigator({ invite, onInviteDone }: { invite: string | null; onInviteDo
 
       case 'wallet':
         return <WalletScreen onBack={() => setRoute({ name: 'groups' })} />;
+
+      case 'account':
+        return <AccountScreen onBack={() => setRoute({ name: 'groups' })} onDeleted={() => onAccountDeleted?.()} />;
 
       case 'guest':
         return (
@@ -176,7 +241,7 @@ function Navigator({ invite, onInviteDone }: { invite: string | null; onInviteDo
 }
 
 /**
- * Groups and Wallet. In demo mode, also a Guest link tab, so a judge can jump
+ * Groups, Wallet and Account. In demo mode, also a Guest link tab, so a judge can jump
  * straight to the guest page without a second device. It opens the seeded
  * `demo` link and Flat 4B fixtures, which only the mock has.
  */
@@ -187,9 +252,11 @@ function DemoBar({
   route: Route;
   onNavigate: (r: Route) => void;
 }) {
+  const sheet = useSheet();
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
+    { label: 'Account', route: { name: 'account' } },
     ...(isMock() ? [{ label: 'Guest link', route: { name: 'guest', token: 'demo' } } as const] : []),
   ];
 
@@ -222,6 +289,7 @@ function DemoBar({
  * used up. Set EXPO_PUBLIC_MOCK_ALWAYS_FAIL=true to see a fresh link fail.
  */
 function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
+  const sheet = useSheet();
   const client = useClient();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -278,8 +346,8 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   );
 }
 
-const sheet = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#1A171466' },
+const useSheet = makeStyles((color) => ({
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
   container: {
     position: 'absolute',
     left: 0,
@@ -319,4 +387,4 @@ const sheet = StyleSheet.create({
   },
   chipText: { ...type.caption, color: color.inkMuted },
   note: { ...type.caption, color: color.inkMuted, width: '100%', textAlign: 'center' },
-});
+}));

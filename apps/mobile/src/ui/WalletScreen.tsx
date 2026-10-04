@@ -11,29 +11,20 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { WalletConnection } from '@sattle/core';
 import { useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
-import {
-  Badge,
-  Button,
-  Card,
-  Divider,
-  EmptyState,
-  ErrorState,
-  Loading,
-  Screen,
-  SectionLabel,
-} from './primitives';
-import { color, radius, space, type } from './theme';
+import { Badge, Button, Card, ConfirmButton, Divider, EmptyState, ErrorState, Loading, Screen, SectionLabel } from './primitives';
+import { type Appearance, makeStyles, radius, setAppearance, space, type, useAppearance, useColors } from './theme';
 
 export interface WalletScreenProps {
   onBack: () => void;
 }
 
 export function WalletScreen({ onBack }: WalletScreenProps) {
+  const s = useStyles();
   const wallet = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
   const [address, setAddress] = useState<string | null>(null);
@@ -54,9 +45,11 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       <Screen title="Wallet" onBack={onBack}>
         <EmptyState
           title="Use the wallet you already have"
-          body="Sattle doesn’t hold money. Connect your own Lightning wallet below and what people owe you lands there. To pay someone, scan their invoice with that wallet."
+          body="Sattle doesn’t hold money. Connect your own Lightning wallet below, or add your Lightning address, and what people owe you lands there. To pay someone, scan their invoice with that wallet."
         />
         <ConnectWallet />
+        <ReceiveAtAddress />
+        <AppearancePicker />
         <TrustModel />
       </Screen>
     );
@@ -95,6 +88,9 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
 
       <ConnectWallet />
 
+      <ReceiveAtAddress />
+      <AppearancePicker />
+
       <TrustModel />
     </Screen>
   );
@@ -121,6 +117,8 @@ const methodName = (m: string) => METHOD_NAMES[m] ?? m.replaceAll('_', ' ');
  * connection grants is shown as a warning, because the server stores it.
  */
 function ConnectWallet() {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const current = useAsync(() => client.getWalletConnection(), []);
   const [connection, setConnection] = useState<WalletConnection | null>(null);
@@ -210,6 +208,110 @@ function ConnectWallet() {
         {conn?.connected && !replacing && (
           <Button label="Replace connection" onPress={() => setReplacing(true)} />
         )}
+        {conn?.connected && !replacing && (
+          <ConfirmButton
+            label="Disconnect wallet"
+            confirmLabel="Yes, disconnect"
+            hint="Sattle forgets the connection. Money people owe you can’t land there until you connect again."
+            onConfirm={async () => setConnection(await client.disconnectWallet())}
+          />
+        )}
+      </Card>
+    </View>
+  );
+}
+
+/**
+ * Receiving at a Lightning address, for the wallets most people already have
+ * that can't do NWC (Wallet of Satoshi, Phoenix, Blink and so on). One
+ * address for every group. The server checks it answers before saving it.
+ */
+function ReceiveAtAddress() {
+  const color = useColors();
+  const s = useStyles();
+  const client = useClient();
+  const current = useAsync(() => client.getReceiveAddress(), []);
+  const [saved, setSaved] = useState<string | null | undefined>(undefined);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const address = saved !== undefined ? saved : current.data?.address;
+
+  const run = async (fn: () => Promise<{ address: string | null }>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setSaved((await fn()).address);
+      setInput('');
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t save that address.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () => input.trim() && run(() => client.setReceiveAddress(input.trim()));
+
+  return (
+    <View>
+      <SectionLabel>Or a Lightning address</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {current.loading && address === undefined && <Loading lines={2} />}
+        {current.error && address === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
+
+        {address && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Text style={s.label}>You receive at</Text>
+            <Text style={s.address}>{address}</Text>
+            <Text style={s.rowBody}>
+              In every group. If you also connect a wallet above, that’s used first.
+            </Text>
+          </View>
+        )}
+
+        {address === null && !editing && (
+          <Text style={s.rowBody}>
+            Wallet of Satoshi, Phoenix, Blink and most other wallets give you a Lightning address. It looks like an
+            email. Add yours and money people owe you is sent there.
+          </Text>
+        )}
+
+        {(address === null || editing) && (
+          <View style={{ gap: space.sm }}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={save}
+              placeholder="you@walletofsatoshi.com"
+              placeholderTextColor={color.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+            <Button label="Save" variant="primary" busy={busy} disabled={!input.trim()} onPress={save} />
+            {editing && <Button label="Cancel" variant="quiet" onPress={() => setEditing(false)} />}
+          </View>
+        )}
+
+        {address !== undefined && (
+          <Text style={s.rowBody}>
+            Some wallets tell Sattle when you’ve been paid. With the rest, the person paying sends the payment proof
+            their wallet gives them, or you mark it settled.
+          </Text>
+        )}
+
+        {error && <Text style={s.error}>{error}</Text>}
+
+        {address && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Button label="Change address" onPress={() => setEditing(true)} />
+            <Button label="Stop receiving here" variant="quiet" busy={busy} onPress={() => run(() => client.clearReceiveAddress())} />
+          </View>
+        )}
       </Card>
     </View>
   );
@@ -222,33 +324,47 @@ function ConnectWallet() {
  * Every sentence states what the code does today, including the parts that
  * aren't flattering. Change the code and this has to change with it:
  *
- *   Your money          payments/nwc.ts mints on the payee's wallet; nothing spends
+ *   Your money          payments/lightning.ts gets the invoice from the payee's wallet
+ *                       or their own address (lnurl.ts); nothing spends
  *   Wallet connection   walletStore.ts keeps nwc_uri as plain text; nwc.ts only calls
- *                       get_info, make_invoice, lookup_invoice; there is no delete route
+ *                       get_info, make_invoice, lookup_invoice; DELETE /me/wallet
+ *                       removes the row
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
  *   Your account        routes/accounts.ts: a name in, a random token out, nothing
  *                       else; account/tokenStore keeps it on the device
- *   Is it paid          payments/nwc.ts confirms on the wallet's `settled`, and keeps
- *                       the preimage only if preimageMatches; the manual route lets
+ *   Lightning address   walletStore.ts receive_address, set only by its owner
+ *                       (routes/wallet.ts); lnurl.ts and safeFetch.ts only fetch
+ *   Is it paid          payments/lightning.ts confirms on the wallet's `settled`, and
+ *                       keeps the preimage only if preimageMatches; an address
+ *                       payment needs a matching preimage (lnurl.ts verify,
+ *                       proof.ts); the manual route lets
  *                       the payee settle a debt by hand (the payer, if the payee is
  *                       a ghost): settlementRules.ts checkManualRecorder
  *   Group data          migrations/001_init.sql: plain columns, no encryption
  *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
+ *   Group links         routes/groupLinks.ts: no row in group_links until POST
+ *                       /groups/:id/link, guestView, and nothing under /g/ that writes
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
  */
 export function TrustModel() {
+  const s = useStyles();
   return (
     <View>
       <SectionLabel>What you're trusting</SectionLabel>
       <Card style={{ gap: space.md }}>
         <Row
           title="Your money"
-          body="Sattle never holds it. To collect a debt, the server asks the wallet of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
+          body="Sattle never holds it. To collect a debt, the server asks the wallet or Lightning address of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
         />
         <Divider />
         <Row
           title="Your wallet connection"
-          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. There is no disconnect button yet: to cut Sattle off, delete the connection in your wallet."
+          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. Disconnect makes the server forget the string. To be sure nobody can use it again, also delete the connection in your wallet."
+        />
+        <Divider />
+        <Row
+          title="Your Lightning address"
+          body="If you add one, Sattle's server keeps it and asks it for invoices, the way any wallet paying you would. An address can only receive, so there is nothing to steal, but whoever runs it (your wallet's company) sees what you're paid. Only you can set yours."
         />
         <Divider />
         <Row
@@ -263,7 +379,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Is it really paid?"
-          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
+          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
         />
         <Divider />
         <Row
@@ -274,6 +390,11 @@ export function TrustModel() {
         <Row
           title="Pay links"
           body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
+        />
+        <Divider />
+        <Row
+          title="Group links"
+          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
         />
         <Divider />
         <Row
@@ -296,7 +417,41 @@ export function TrustModel() {
   );
 }
 
+const APPEARANCE_OPTIONS: Array<{ value: Appearance; label: string }> = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** Light, dark, or whatever the phone is set to. Remembered on this device. */
+function AppearancePicker() {
+  const s = useStyles();
+  const current = useAppearance();
+  return (
+    <View>
+      <SectionLabel>Appearance</SectionLabel>
+      <View style={s.segments} accessibilityRole="radiogroup">
+        {APPEARANCE_OPTIONS.map((o) => {
+          const selected = o.value === current;
+          return (
+            <Pressable
+              key={o.value}
+              onPress={() => setAppearance(o.value)}
+              style={[s.segment, selected && s.segmentSelected]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[s.segmentLabel, selected && s.segmentLabelSelected]}>{o.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function Row({ title, body }: { title: string; body: string }) {
+  const s = useStyles();
   return (
     <View style={{ gap: 3 }}>
       <Text style={s.rowTitle}>{title}</Text>
@@ -305,7 +460,7 @@ function Row({ title, body }: { title: string; body: string }) {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   balance: { ...type.amountLg, color: color.ink },
   unit: { ...type.body, color: color.inkFaint },
@@ -330,4 +485,19 @@ const s = StyleSheet.create({
     backgroundColor: color.paper,
   },
   error: { ...type.caption, color: color.danger },
-});
+  segments: {
+    flexDirection: 'row',
+    gap: space.xs,
+    padding: space.xs,
+    borderRadius: radius.md,
+    backgroundColor: color.surfaceSunken,
+  },
+  segment: { flex: 1, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  segmentSelected: {
+    backgroundColor: color.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+  },
+  segmentLabel: { ...type.label, color: color.inkMuted },
+  segmentLabelSelected: { color: color.ink },
+}));

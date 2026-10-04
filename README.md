@@ -58,7 +58,9 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `SEED` | `false` | `true` loads the demo fixtures into an empty database. Leave unset in production |
 | `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
 | `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
-| `PAYMENTS` | `sim` | `nwc` mints real invoices on payees' connected wallets; anything else simulates |
+| `PAYMENTS` | `sim` | `nwc` gets real invoices from payees' connected wallets or their own Lightning addresses; anything else simulates. A production server warns at startup without `nwc` |
+| `ALLOW_SIMULATED_PAYMENTS` | | `true` says a production server simulates on purpose, for a public demo, and silences that warning |
+| `LIGHTNING_NETWORK` | `bc` | network address invoices must be on: `bc` mainnet, `tbs` signet, `tb` testnet, `bcrt` regtest |
 | `LEDGER_RELAYS` | empty | comma-separated relays the group ledger is published to. Empty: entries are signed and kept, not sent. See [The ledger on Nostr](#the-ledger-on-nostr) |
 | `RATE_FALLBACK_INR_PER_BTC` | `9000000` | rate used if CoinGecko has never answered |
 | `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
@@ -73,6 +75,8 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
   invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
+  groupLinks.ts              The /g/<token> path.
+  expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
@@ -80,9 +84,10 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet, ledger.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
+  groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
   db.ts                      Migration runner and seeding.
   migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
@@ -120,7 +125,10 @@ apps/mobile/                 @sattle/mobile: Expo
       SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
-      JoinScreen.tsx         The /join/<token> page: who invited you to what, and Join.
+      JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
+      GroupGuestScreen.tsx   The /g/<token> page: the whole group, read-only, with Settle on each debt.
+      GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
+      AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -181,7 +189,7 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 `resolveSettlementOptions()` decides first. When the recipient cannot receive, it returns `blocked` with three remedies in place of rails:
 
 1. **Add their Lightning address.** The route most people miss. Any wallet gives Aman an address, and paying it needs nothing from him — no install, no signup, no device awake. `setMemberPayoutAddress` stores it and leaves his status as `ghost`, because he is payable, not joined.
-2. **Invite them.** Shares a link that lets Aman take over his own row; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
+2. **Invite them.** Shares the group's invite, where Aman picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
 3. **Mark as settled.** Cash, UPI, forgiven. Present on every screen, never removable.
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
@@ -197,28 +205,71 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
 
-- `nwc` (`payments/nwc.ts`): real payments. For each settlement it pins a quote at the live rate, asks the payee's own wallet for an invoice over Nostr Wallet Connect, and polls that wallet (`lookup_invoice`) until it reports the invoice paid. The preimage is checked against the payment hash before it's stored. Open invoices are picked up again after a restart. The server never holds funds.
+- `nwc` (`payments/lightning.ts`): real payments. For each settlement it pins a quote at the live rate and gets an invoice that pays the payee directly:
+  - from their own wallet over Nostr Wallet Connect, polling it (`lookup_invoice`) until it reports the invoice paid, or
+  - for a member with no NWC wallet, from the Lightning address they set themselves (LNURL-pay, `lnurl.ts`). The invoice is checked first: exact amount, our network, the address's metadata. When the address has a verify link (LUD-21) it's polled, and only a preimage that matches the payment hash counts as paid. Without one, the invoice is closed when it expires, saying we couldn't tell. Either way the payer can confirm it with their proof of payment, the preimage their wallet hands back (`POST /settlements/:id/proof`, or `/s/:token/proof` from a pay link), even after we've called it expired: it's checked against the payment hash stored when the invoice was minted. Every request to an address goes through `safeFetch.ts`, which refuses private addresses, redirects and slow or oversized answers.
+
+  The preimage is checked against the payment hash before it's stored. Open invoices are picked up again after a restart. The server never holds funds. `npm run lnurl:smoke -w @sattle/api -- you@wallet.com` checks a real address.
 - anything else: `SimulatedPayments`, which walks the same states as the mock with a fake preimage.
 
-One gap with real payments on: a ghost's Lightning address can't be paid yet, because the payee's wallet is how a payment is confirmed and a ghost hasn't connected one. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
+One gap with real payments on: a ghost's Lightning address can't be paid yet. A groupmate typed it, so a payment to it proves nothing about the ghost; joining clears it, and the member sets their own. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
 
 Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns one ghost into a member. Anyone already in the group taps **Invite** on a ghost's row and sends the link, `/join/<token>`. Whoever opens it sees who invited them to what, makes an account if they don't have one, and joins. They take over that row as it is: same name, same history, same balance.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is one link for the whole group, `/join/<token>`: anyone already in the group taps **Invite them to join** under the member list and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as.
 
-Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own, and nothing in the app takes that back. The link is therefore treated as a key:
+Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
 - It is 128 random bits, and only a member of the group can make one.
-- It works once. After someone joins with it, it answers `410 link_expired`.
+- A group has at most one. Sharing again hands out the same link, so the one already in the chat keeps working.
 - It lasts a week.
-- Making a new one for the same ghost kills the last, so a link sent to the wrong chat can be cancelled by inviting again.
+- Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
+- Each ghost can be taken once. Picking a name someone has already joined as answers `409 conflict`.
+- Adding yourself under the name of a ghost who is still waiting answers `409 conflict` too, so nobody starts a second row beside the one that holds their balance.
 - One person can hold only one member of a group.
 
-`GET /join/:token` is public, like the pay page, and returns three names and nothing else: the group, the ghost, and the inviter. Accepting is `POST /groups/join` and needs an account.
+What it does not do is check who is on the other end. Anyone holding the link can join as any ghost, or add themselves, for as long as it works: it does not run out when the list does. That is the price of one link for everyone. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off.
+
+`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person who hasn't joined, with an opaque `ref` in place of an id. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 A link opens the web app. The installed app has no link handling yet, so there the link is pasted under **Join with a link** on the groups list.
+
+### Group links
+
+A pay link covers one debt. A group link covers the group: someone in it taps **Share the group link** and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Settle** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
+
+A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
+
+- There is no link until someone in the group makes one, and there is only ever one. Making another replaces it, and the old one stops working.
+- Anyone in the group can replace it or turn it off, under **Manage**. It doesn't expire by itself.
+- It only reads. Nothing under `/g/` changes the group; the one thing it can start is a payment, and that goes to the person owed like any other.
+- `GET /g/:token` returns names and amounts and no ids. Each debt carries an opaque `ref`, a hash tied to that link, which is what the page sends back to pay it.
+
+Settle appears on a debt when the person owed can receive, by the same rule the app uses (`canReceive`). A debt to someone with nowhere to receive is listed with "settle with them directly". The page can't tell who is looking, so every payable debt has the button: paying someone else's is allowed, and the money goes to the person owed either way.
+
+Opening the wallet is the phone's job, not ours. The button is a `lightning:` link: Android shows a chooser of the installed wallets, iOS opens one, and on a computer the QR code is scanned.
+
+### Changing and removing
+
+One rule runs through all of it, the same one settling follows: nobody can undo what someone else is owed. `groupRules.ts` holds it, and the app only offers what the server would accept.
+
+| What | Who | When it's refused |
+| --- | --- | --- |
+| Change or delete an expense | The person who paid it. What a ghost paid, anyone in the group. | For anyone else: a groupmate could otherwise shrink what they owe. |
+| Rename a group | Anyone in it | |
+| Remove a member | Anyone in the group, for a ghost that no expense, payment or pay link names | For anyone in the ledger, and for someone who has joined: only they can leave. |
+| Leave a group | Yourself | If you're the only one with an account (delete the group instead), or while a payment to you is under way. |
+| Delete a group | Anyone in it | While anything is owed in it or a payment is under way, so deleting it can't erase a debt. |
+| Disconnect a wallet | Yourself | While a payment to you is under way: that wallet is what confirms it. |
+| Delete an account | Yourself | While a payment to you is under way. |
+
+Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; an invite hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
+
+Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links and the invites it made are removed; the names its members had in shared groups stay.
+
+An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
 
 ### Deploying
 
@@ -234,7 +285,7 @@ Both halves run on one Oracle VM behind nginx:
 
 Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
 
-The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. The server refuses to start with either set when `NODE_ENV=production`, which the systemd unit sets, and names the one to remove. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `PAYMENTS=nwc` so settling up moves real money. The server refuses to start when `NODE_ENV=production`, which the systemd unit sets, if `SEED` or `DEMO_USER_ID` is set, and names the one to remove. Without `PAYMENTS=nwc` it starts but logs a warning, since settling up would move balances and no money. A public demo server that should simulate payments sets `ALLOW_SIMULATED_PAYMENTS=true` to say so. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
 ### Backups
 
@@ -330,11 +381,12 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 
 ## The ledger on Nostr
 
-The server keeps the ledger in SQLite, so if the server goes away, so would a group's history. To stop that, every expense and every confirmed settlement is also published to Nostr relays as one event (`nostrLedger.ts`):
+The server keeps the ledger in SQLite, so if the server goes away, so would a group's history. To stop that, every expense, every change to one, and every confirmed settlement is also published to Nostr relays as one event (`nostrLedger.ts`):
 
 - **Signed** by the server's Nostr key (made on first start, kept in the database), so a relay can't forge or alter an entry.
 - **Encrypted** with NIP-44 under a random key per group. Relays and anyone else see ciphertext. Only members are given the key.
 - **Chained.** Each entry carries a sequence number and the id of the entry before it, so a missing or reordered entry shows up when the ledger is read back.
+- **Append-only.** A published entry can't be altered. An expense that is edited gets a second entry with how it reads now, and one that is deleted gets an entry saying so; whoever reads the ledger back takes the last word on each.
 
 Entries go through an outbox table, `ledger_entries`. Every few seconds the server signs an entry for anything new, then publishes whatever hasn't gone out. A relay outage or a restart only delays publishing. With `LEDGER_RELAYS` empty, entries are still signed and kept, and they go out once relays are set, history included.
 
@@ -354,7 +406,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
-- Removing a member or leaving a group. Joining can't be undone.
+- Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).

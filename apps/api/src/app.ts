@@ -8,6 +8,7 @@
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
  *   routes/invites.ts      /groups/:id/invites, the public /join/:token, and joining
+ *   routes/groupLinks.ts   /groups/:id/link and the public /g/:token
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
@@ -27,8 +28,10 @@ import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
 import { accountRoutes } from './routes/accounts';
+import type { LnurlClient } from './lnurl';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
+import { groupLinkRoutes } from './routes/groupLinks';
 import { inviteRoutes } from './routes/invites';
 import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
@@ -39,6 +42,8 @@ import { createWalletStore, type WalletStore } from './walletStore';
 export interface AppDeps {
   db: Db;
   payments: (repo: Repo, wallets: WalletStore) => PaymentBackend;
+  /** Checks a receive address answers before it's saved; without it, any well-formed address is kept. */
+  lnurl?: Pick<LnurlClient, 'payParams'>;
   /** Defaults to a real NwcClient over the URI's relays. */
   nwc?: (uri: string) => NwcApi;
   /** Mirrors the ledger to Nostr. Defaults to one that signs entries but publishes nowhere. */
@@ -55,7 +60,7 @@ export function createApp(deps: AppDeps) {
   const wallets = createWalletStore(deps.db);
   const nwc = deps.nwc ?? ((uri: string) => new NwcClient(uri));
   const ledger = deps.ledger ?? new NostrLedger({ db: deps.db, relays: [] });
-  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, payments: deps.payments(repo, wallets) };
+  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, lnurl: deps.lnurl, payments: deps.payments(repo, wallets) };
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {
@@ -81,12 +86,14 @@ export function createApp(deps: AppDeps) {
   );
   app.use('*', auth(repo, deps.demoUserId));
 
-  app.get('/health', (c) => c.json({ ok: true }));
+  // Public, so the app knows who it can offer to pay before anyone signs in.
+  app.get('/health', (c) => c.json({ ok: true, payments: ctx.payments.mode ?? 'simulated' }));
   app.route('/', accountRoutes(ctx));
   app.route('/', groupRoutes(ctx));
   app.route('/', settlementRoutes(ctx));
   app.route('/', payLinkRoutes(ctx));
   app.route('/', inviteRoutes(ctx));
+  app.route('/', groupLinkRoutes(ctx));
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
   app.route('/', ledgerRoutes(ctx));

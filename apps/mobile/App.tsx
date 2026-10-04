@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 
 import { SattleError } from '@sattle/core';
 
@@ -8,13 +9,17 @@ import type { SattleClient } from './src/client/SattleClient';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
+import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
-import { InviteSummary } from './src/ui/JoinScreen';
+import { JoinAsNewScreen } from './src/ui/JoinScreen';
 import { Loading, Screen } from './src/ui/primitives';
+import { useColorMode } from './src/ui/theme';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** The path payLinkPath() builds: /s/<token>. */
 const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
+/** The path groupLinkPath() builds: /g/<token>. */
+const GROUP_PATH = /^\/g\/([^/]+)\/?$/;
 /** The path invitePath() builds: /join/<token>. */
 const JOIN_PATH = /^\/join\/([^/]+)\/?$/;
 
@@ -32,11 +37,25 @@ function tokenFromPath(path: RegExp): string | null {
 
 /** A pay link: that's where a guest with no app lands. Everything else gets the app. */
 const guestToken = () => tokenFromPath(GUEST_PATH);
-/** An invite: the app opens on the join screen, after making an account if there isn't one. */
+/** A group link: the whole group, to read and to pay from, for someone with no app. */
+const groupToken = () => tokenFromPath(GROUP_PATH);
+/** An invite: the app opens on the join screen, which makes an account if there isn't one. */
 const inviteToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
+  const mode = useColorMode();
+  return (
+    <>
+      {/* Dark icons on the light theme, light ones on the dark. */}
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <Root />
+    </>
+  );
+}
+
+function Root() {
   const [token] = useState(guestToken);
+  const [group] = useState(groupToken);
   const [invite, setInvite] = useState(inviteToken);
   // Off the address bar too, so a reload opens the app instead of a used link.
   const inviteDone = () => {
@@ -50,6 +69,14 @@ export default function App() {
     return (
       <SattleProvider>
         <GuestPayScreen token={token} />
+      </SattleProvider>
+    );
+  }
+  if (group) {
+    // The same: one group, read-only, and nothing of the app around it.
+    return (
+      <SattleProvider>
+        <GroupGuestScreen token={group} />
       </SattleProvider>
     );
   }
@@ -67,6 +94,8 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client:
  */
 function AccountGate({ invite, onInviteDone }: { invite: string | null; onInviteDone: () => void }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
+  // The group someone joined on the way in, with no account before that. The app opens on it.
+  const [joined, setJoined] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -92,25 +121,41 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
   switch (account.kind) {
     case 'loading':
       return (
-        <Screen title="Sattle">
+        <Screen title="Sattle" brand>
           <Loading lines={2} />
         </Screen>
       );
     case 'none':
+      if (invite) {
+        // Reading an invite needs no account. Picking who they are makes one, under that name.
+        return (
+          <SattleProvider>
+            <JoinAsNewScreen
+              token={invite}
+              onJoined={(token, groupId) => {
+                setJoined(groupId);
+                onInviteDone();
+                setAccount({ kind: 'ready', client: buildClient(token) });
+              }}
+              onSkip={onInviteDone}
+            />
+          </SattleProvider>
+        );
+      }
+      return <WelcomeScreen onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })} />;
+    case 'ready':
       return (
-        <WelcomeScreen
-          // Reading an invite needs no account, so it can say who's asking before the name does.
-          intro={
-            invite ? (
-              <SattleProvider>
-                <InviteSummary token={invite} />
-              </SattleProvider>
-            ) : undefined
-          }
-          onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
+        <DemoApp
+          client={account.client}
+          invite={invite}
+          group={joined}
+          onInviteDone={onInviteDone}
+          // The server no longer knows the token, so the device shouldn't keep it.
+          onAccountDeleted={async () => {
+            await clearToken();
+            setAccount({ kind: 'none' });
+          }}
         />
       );
-    case 'ready':
-      return <DemoApp client={account.client} invite={invite} onInviteDone={onInviteDone} />;
   }
 }

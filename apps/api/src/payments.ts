@@ -9,13 +9,26 @@
 
 import { randomBytes } from 'node:crypto';
 
-import { buildQuote, type Settlement } from '@sattle/core';
+import { buildQuote, canReceive, type Member, type PaymentMode, type Settlement } from '@sattle/core';
 
 import type { Repo } from './repo';
 
 export interface PaymentBackend {
+  /** Real money or a simulation. Decides who can be paid. Unset means simulated. */
+  readonly mode?: PaymentMode;
+  /**
+   * Whether a payment to this member can go through. Unset: the rule in
+   * @sattle/core for this mode. Real payments answer it themselves, since
+   * a member's own receiving address is on their account, not the member.
+   */
+  canReceive?(member: Member): boolean;
   /** Called once, right after the settlement row is inserted. Must not throw. */
   start(settlement: Settlement): void;
+}
+
+/** Whether `payments` can pay this member now. Every route asks this before it starts a payment. */
+export function receivable(payments: PaymentBackend, member: Member): boolean {
+  return payments.canReceive ? payments.canReceive(member) : canReceive(member, payments.mode);
 }
 
 export interface SimulatedOptions {
@@ -26,6 +39,8 @@ export interface SimulatedOptions {
 }
 
 export class SimulatedPayments implements PaymentBackend {
+  readonly mode = 'simulated';
+
   constructor(
     private readonly repo: Repo,
     private readonly opts: SimulatedOptions

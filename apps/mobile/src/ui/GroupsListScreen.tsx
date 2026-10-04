@@ -23,7 +23,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
-import { color, space, type } from './theme';
+import { makeStyles, space, type, useColors } from './theme';
 
 export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
@@ -37,6 +37,8 @@ interface GroupRow {
   group: Group;
   net: number;
   memberCount: number;
+  /** With none, a zero net means nothing has happened yet, not that it's settled. */
+  expenseCount: number;
 }
 
 export function GroupsListScreen({
@@ -45,6 +47,8 @@ export function GroupsListScreen({
   onNewGroup,
   onJoin,
 }: GroupsListScreenProps) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
 
   const { data, loading, error, reload } = useAsync<GroupRow[]>(async () => {
@@ -66,23 +70,35 @@ export function GroupsListScreen({
           group,
           net: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
           memberCount: members.length,
+          expenseCount: expenses.length,
         };
       })
     );
   }, []);
 
   const total = data?.reduce((sum, r) => sum + r.net, 0) ?? 0;
+  const anyExpenses = data?.some((r) => r.expenseCount > 0) ?? false;
 
   return (
     <Screen
       title="Sattle"
+      brand
       right={<Button label="Wallet" variant="quiet" onPress={onOpenWallet} />}
     >
       <Card>
-        <Text style={s.overallLabel}>
-          {total > 0 ? 'You are owed' : total < 0 ? 'You owe' : 'All settled'}
-        </Text>
-        <Amount minor={total} size="lg" net />
+        {total === 0 && !anyExpenses ? (
+          <>
+            <Text style={s.overallLabel}>No expenses yet</Text>
+            <Text style={s.nothingYet}>Add one to a group and what you owe or are owed shows here.</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.overallLabel}>
+              {total > 0 ? 'You are owed' : total < 0 ? 'You owe' : 'All settled'}
+            </Text>
+            <Amount minor={total} size="lg" net />
+          </>
+        )}
       </Card>
 
       <View>
@@ -121,7 +137,11 @@ export function GroupsListScreen({
                   <Text style={s.groupName}>{row.group.name}</Text>
                   <Text style={s.groupMeta}>{row.memberCount} members</Text>
                 </View>
-                <Amount minor={row.net} size="md" net />
+                {row.expenseCount === 0 ? (
+                  <Text style={s.groupMeta}>No expenses</Text>
+                ) : (
+                  <Amount minor={row.net} size="md" net />
+                )}
               </Pressable>
             ))}
           </Card>
@@ -138,8 +158,9 @@ export function GroupsListScreen({
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   overallLabel: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
+  nothingYet: { ...type.body, color: color.inkFaint },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -149,4 +170,4 @@ const s = StyleSheet.create({
   rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.line },
   groupName: { ...type.body, fontWeight: '500', color: color.ink },
   groupMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
-});
+}));

@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, canReceive } from '@sattle/core';
+import { SattleError } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
+import { receivable } from '../payments';
 import { idempotency } from '../middleware';
+import { applyProof, ProofBody, readPreimage } from '../proof';
 import { checkManualRecorder, checkPayer, checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
 
 const SettlementBody = z.object({
@@ -47,7 +49,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
     const settlement = transaction(db, () => {
       const payee = checkSettlement(repo, g, body);
       checkPayer(repo, body, user.id);
-      if (!canReceive(payee)) {
+      if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
       if (inProgressFor(repo, g, body)) {
@@ -74,6 +76,20 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
       });
     });
     return c.json(settlement, 201);
+  });
+
+  /**
+   * Proof of payment for an invoice: confirms it, even one we'd called
+   * expired. Anyone in the group may send it; only someone who paid has it.
+   *   not 64 hex characters, or for another invoice  → 400 invalid_input
+   *   already confirmed                              → 200, unchanged
+   */
+  r.post('/settlements/:id/proof', once, async (c) => {
+    const s = repo.settlement(c.req.param('id'));
+    if (!s) throw new SattleError('not_found', 'That payment doesn’t exist.');
+    repo.groupForUser(s.groupId, c.get('user').id);
+    const { preimage } = parse(ProofBody, await c.req.json());
+    return c.json(applyProof(repo, s, readPreimage(preimage)));
   });
 
   return r;

@@ -32,6 +32,12 @@ export interface Member {
   claimedByUserId?: string;
   /** Payout address for a ghost. Stored without changing their status. */
   lightningAddress?: string;
+  /**
+   * The server's word on whether a payment to them can go through now. Under
+   * real payments only it can tell: their own receiving address is on their
+   * account, not here. Absent from the mock and older servers.
+   */
+  receivable?: boolean;
 }
 
 export interface Group {
@@ -227,24 +233,80 @@ export interface GuestView {
 // -- invites ---------------------------------------------------------------
 
 /**
- * A shareable link that lets one person take over one ghost: whoever opens
- * /join/<token> with an account becomes that member. Unlike a pay link this
- * grants the whole group, to read and to write, so it works once and expires.
+ * A shareable link that lets people into a group: whoever opens /join/<token>
+ * picks which of its ghosts they are and, with an account, becomes that
+ * member, or adds themselves if they aren't one of them. Unlike a pay link
+ * this grants the whole group, to read and to write, so it expires. A group has none until someone in it makes one, and
+ * at most one at a time; anyone in the group can replace it or turn it off.
  */
 export interface Invite {
   token: string;
   groupId: string;
-  memberId: string;
   createdAt: string;
   expiresAt: string;
 }
 
-/** Only what the join page may show before someone accepts. Names, no ids. */
+/** Someone the join page offers to join as. */
+export interface InviteMember {
+  /** What the page sends back to join as this person. Opaque, and only good with this invite. */
+  ref: string;
+  name: string;
+}
+
+/** Who someone joins as: one of the people the invite offers, or a new member under that name. */
+export type JoinAs = { ref: string } | { displayName: string };
+
+/** Only what the join page may show before someone joins. Names, no ids. */
 export interface InviteView {
   groupName: string;
-  /** The member they would become. */
-  memberName: string;
   invitedBy: string;
+  /** Everyone in the group who hasn't joined: who the person opening this could be. */
+  members: InviteMember[];
+}
+
+// -- group links -----------------------------------------------------------
+
+/**
+ * A link that shows a whole group to anyone who holds it: every spend, who
+ * owes whom, and a way to pay a debt. It can't change anything. A group has
+ * none until someone in it makes one, and at most one at a time; anyone in
+ * the group can replace it or turn it off.
+ */
+export interface GroupLink {
+  token: string;
+  groupId: string;
+  createdAt: string;
+}
+
+/** A spend as the group page shows it. Names and amounts, no ids. */
+export interface GroupGuestExpense {
+  description: string;
+  /** Minor units. */
+  amount: number;
+  paidBy: string;
+  /** Each person's part of it. */
+  shares: { name: string; amount: number }[];
+  createdAt: string;
+}
+
+/** A debt as the group page shows it. */
+export interface GroupGuestDebt {
+  /** What the page sends back to pay this debt. Opaque, and only good with this group link. */
+  ref: string;
+  from: string;
+  to: string;
+  /** Minor units. */
+  amount: number;
+  /** Whether the person owed has somewhere to receive it (canReceive). */
+  payable: boolean;
+}
+
+/** Only what the group page may show. Names and amounts, no member or group ids. */
+export interface GroupGuestView {
+  groupName: string;
+  currency: Currency;
+  expenses: GroupGuestExpense[];
+  debts: GroupGuestDebt[];
 }
 
 // -- wallet connection -----------------------------------------------------
@@ -277,6 +339,14 @@ export interface WalletConnection {
   excessMethods: string[];
   alias?: string;
   connectedAt?: string;
+}
+
+/**
+ * A person's own Lightning address for receiving, for wallets that can't do
+ * NWC. Used when they have no NWC connection. Null when they haven't set one.
+ */
+export interface ReceiveAddress {
+  address: string | null;
 }
 
 export type SattleErrorCode =
