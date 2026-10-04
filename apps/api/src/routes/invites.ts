@@ -5,8 +5,8 @@
  * new member. Either way they are a member like any other, so they can read
  * and write everything in the group. Nothing here can take that back, which is
  * why a token is unguessable, expires, and can be replaced or turned off by
- * anyone in the group. It is one link for the whole group, like the group
- * link: there is none until someone makes one, and only ever one.
+ * anyone in the group. It is the group's one link: there is none until
+ * someone makes one, and only ever one.
  *
  * /join/ responses carry names only, never member or group ids.
  */

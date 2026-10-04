@@ -8,7 +8,6 @@
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
  *   routes/invites.ts      /groups/:id/invites, the public /join/:token, /invites/:token/group, and joining
- *   routes/groupLinks.ts   /groups/:id/link and the public /g/:token
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
@@ -32,7 +31,6 @@ import { accountRoutes } from './routes/accounts';
 import type { LnurlClient } from './lnurl';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
-import { groupLinkRoutes } from './routes/groupLinks';
 import { inviteRoutes } from './routes/invites';
 import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
@@ -95,7 +93,6 @@ export function createApp(deps: AppDeps) {
   app.route('/', settlementRoutes(ctx));
   app.route('/', payLinkRoutes(ctx));
   app.route('/', inviteRoutes(ctx));
-  app.route('/', groupLinkRoutes(ctx));
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
   app.route('/', ledgerRoutes(ctx));

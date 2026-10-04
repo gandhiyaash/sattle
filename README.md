@@ -75,7 +75,6 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
   invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
-  groupLinks.ts              The /g/<token> path.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
@@ -85,7 +84,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger, upi.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet, ledger, upi.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -130,7 +129,6 @@ apps/mobile/                 @sattle/mobile: Expo
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
-      GroupGuestScreen.tsx   The /g/<token> page: the whole group, read-only, with Settle on each debt.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
@@ -264,23 +262,6 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 - UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
 
 `PUT`/`DELETE /me/upi` set and remove the ID. `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
-
-### Group links
-
-The app no longer hands these out: a group shares one link, its invite, so nobody has to choose between two. A group link made before that keeps working until someone turns it off under **Manage**, which lists it only for a group that has one. The routes below are unchanged.
-
-A pay link covers one debt. A group link covers the group: `/g/<token>`, posted in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Settle** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
-
-A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
-
-- There is no link until someone in the group makes one, and there is only ever one. Making another replaces it, and the old one stops working.
-- Anyone in the group can turn it off, under **Manage**. It doesn't expire by itself.
-- It only reads. Nothing under `/g/` changes the group; the one thing it can start is a payment, and that goes to the person owed like any other.
-- `GET /g/:token` returns names and amounts and no ids. Each debt carries an opaque `ref`, a hash tied to that link, which is what the page sends back to pay it.
-
-Settle appears on a debt when the person owed can receive, by the same rule the app uses (`canReceive`). A debt to someone with nowhere to receive is listed with "settle with them directly". The page can't tell who is looking, so every payable debt has the button: paying someone else's is allowed, and the money goes to the person owed either way.
-
-Opening the wallet is the phone's job, not ours. The button is a `lightning:` link: Android shows a chooser of the installed wallets, iOS opens one, and on a computer the QR code is scanned.
 
 ### Changing and removing
 

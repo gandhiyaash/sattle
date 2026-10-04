@@ -30,8 +30,6 @@ import {
   type Expense,
   type ExpenseInput,
   type Group,
-  type GroupGuestView,
-  type GroupLink,
   type GuestView,
   type Invite,
   type InviteView,
@@ -74,7 +72,6 @@ export class MockClient implements SattleClient {
   /** token → the settlement that link last opened */
   private payLinkSettlements: Record<string, string>;
   private invites: Array<Invite & { invitedBy: string }> = [];
-  private groupLinks: GroupLink[];
   private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
   private receiveAddress: string | null = null;
   /** user id → their UPI ID. Om has one, so the demo has someone to pay by UPI. */
@@ -102,7 +99,6 @@ export class MockClient implements SattleClient {
     this.settlements = structuredClone(fixtures.settlements);
     this.payLinks = structuredClone(fixtures.payLinks);
     this.payLinkSettlements = { ...fixtures.payLinkSettlements };
-    this.groupLinks = structuredClone(fixtures.groupLinks);
   }
 
   // -- plumbing -------------------------------------------------------------
@@ -640,111 +636,6 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
-  // -- group links ----------------------------------------------------------
-
-  private findGroupLink(token: string) {
-    const link = this.groupLinks.find((l) => l.token === token);
-    if (!link) throw new SattleError('not_found', 'This link is no longer valid.');
-    return link;
-  }
-
-  private debtsOf(groupId: string) {
-    const g = this.findGroup(groupId);
-    const mine = (x: { groupId: string }) => x.groupId === groupId;
-    return simplifyDebts(groupId, computeBalances(g.memberIds, this.expenses.filter(mine), this.settlements.filter(mine)));
-  }
-
-  /** Stands in for the server's hash: opaque to the page, and tied to this link and this pair. */
-  private debtRef(token: string, d: { fromMemberId: string; toMemberId: string }) {
-    let h = 0;
-    for (const ch of `${token}:${d.fromMemberId}:${d.toMemberId}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return `d${h.toString(36)}`;
-  }
-
-  getGroupLink(groupId: string) {
-    return this.call(() => {
-      this.findGroup(groupId);
-      return this.groupLinks.find((l) => l.groupId === groupId) ?? null;
-    });
-  }
-
-  createGroupLink(groupId: string, idempotencyKey?: string) {
-    return this.call(() => {
-      this.findGroup(groupId);
-      const link: GroupLink = { token: Math.random().toString(36).slice(2, 12), groupId, createdAt: this.now() };
-      // One at a time: the new one takes the old one's place.
-      this.groupLinks = [...this.groupLinks.filter((l) => l.groupId !== groupId), link];
-      return link;
-    }, idempotencyKey);
-  }
-
-  removeGroupLink(groupId: string, idempotencyKey?: string) {
-    return this.call(() => {
-      this.findGroup(groupId);
-      this.groupLinks = this.groupLinks.filter((l) => l.groupId !== groupId);
-    }, idempotencyKey);
-  }
-
-  getGroupGuestView(token: string) {
-    return this.call((): GroupGuestView => {
-      const link = this.findGroupLink(token);
-      const g = this.findGroup(link.groupId);
-      const member = (id: string) => this.members.find((m) => m.id === id)!;
-      return {
-        groupName: g.name,
-        currency: g.currency,
-        expenses: this.expenses
-          .filter((e) => e.groupId === g.id)
-          .map((e) => ({
-            description: e.description,
-            amount: e.amount,
-            paidBy: member(e.paidByMemberId).displayName,
-            shares: e.parts.map((p) => ({ name: member(p.memberId).displayName, amount: p.amount })),
-            createdAt: e.createdAt,
-          })),
-        debts: this.debtsOf(g.id).map((d) => ({
-          ref: this.debtRef(token, d),
-          from: member(d.fromMemberId).displayName,
-          to: member(d.toMemberId).displayName,
-          amount: d.amount,
-          payable: canReceive(member(d.toMemberId)),
-        })),
-      };
-    });
-  }
-
-  payFromGroupLink(token: string, ref: string, idempotencyKey?: string) {
-    return this.call(() => {
-      const link = this.findGroupLink(token);
-      const debt = this.debtsOf(link.groupId).find((d) => this.debtRef(token, d) === ref);
-      if (!debt) throw new SattleError('link_expired', 'This has already been settled.');
-      const payee = this.members.find((m) => m.id === debt.toMemberId)!;
-      if (!canReceive(payee)) {
-        throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
-      }
-      // A link that has been paid is spent: the same two people can owe the same amount again.
-      const spent = (l: PayLink) => {
-        const sid = this.payLinkSettlements[l.token];
-        return Boolean(sid) && LEDGER_STATUSES.includes(this.findSettlement(sid).status);
-      };
-      const same = (l: PayLink) =>
-        l.groupId === debt.groupId && l.fromMemberId === debt.fromMemberId && l.toMemberId === debt.toMemberId && l.amount === debt.amount;
-      let payLink = this.payLinks.find((l) => same(l) && !spent(l));
-      if (!payLink) {
-        payLink = {
-          token: Math.random().toString(36).slice(2, 12),
-          groupId: debt.groupId,
-          fromMemberId: debt.fromMemberId,
-          toMemberId: debt.toMemberId,
-          amount: debt.amount,
-          createdAt: this.now(),
-        };
-        this.payLinks.push(payLink);
-      }
-      return { token: payLink.token };
-    }, idempotencyKey);
-  }
-
   // -- changing and removing ------------------------------------------------
   // The same rules as the server's groupRules.ts.
 
@@ -818,7 +709,6 @@ export class MockClient implements SattleClient {
       this.settlements = this.settlements.filter((x) => !mine(x));
       this.payLinks = this.payLinks.filter((x) => !mine(x));
       this.invites = this.invites.filter((x) => !mine(x));
-      this.groupLinks = this.groupLinks.filter((x) => !mine(x));
     }, idempotencyKey);
   }
 
@@ -919,6 +809,12 @@ export class MockClient implements SattleClient {
   }
 
   // -- UPI ------------------------------------------------------------------
+
+  private debtsOf(groupId: string) {
+    const g = this.findGroup(groupId);
+    const mine = (x: { groupId: string }) => x.groupId === groupId;
+    return simplifyDebts(groupId, computeBalances(g.memberIds, this.expenses.filter(mine), this.settlements.filter(mine)));
+  }
   //
   // The same rules as the server's routes/upi.ts. The mock has one user, so a
   // claim they make waits forever: nobody else is here to confirm it.
