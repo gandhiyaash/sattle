@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
+import { productionProblems } from './env';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
 import { NwcPayments } from './payments/nwc';
@@ -13,6 +14,15 @@ const num = (v: string | undefined, fallback: number) => {
 };
 
 const env = process.env;
+// Before the database is even opened, so a demo setting can't seed it first.
+const problems = productionProblems(env);
+if (problems.length > 0) {
+  console.error(
+    ['Refusing to start in production with demo settings:', ...problems.map((p) => `  - ${p}`),
+     'Remove them from apps/api/.env and restart.'].join('\n')
+  );
+  process.exit(1);
+}
 const port = num(env.PORT, 3000);
 const db = openDb(env.DATABASE_PATH ?? 'data/sattle.db');
 // Demo fixtures are opt-in, so a production database starts empty.
