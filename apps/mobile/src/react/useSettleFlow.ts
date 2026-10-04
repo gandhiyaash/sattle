@@ -24,6 +24,7 @@ import {
   type Settlement,
   type SettlementOptions,
 } from '@sattle/core';
+import type { SattleClient } from '../client/SattleClient';
 import { useActionKeys, useClient, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';
@@ -40,12 +41,31 @@ export interface SettleFlow {
   cancelAddressEntry: () => void;
   savePayoutAddress: (raw: string) => Promise<void>;
   clearError: () => void;
-  /** Makes an invite for the recipient. Throws if it can't; nothing else in the flow changes. */
-  createInvite: (groupName: string) => Promise<{ url: string; message: string }>;
+  /** The group's invite, worded for the recipient. Throws if it can't; nothing else in the flow changes. */
+  createInvite: (groupName: string) => Promise<{ url: string; message: string; sentNote: string }>;
 }
 
 /** Base for every link the app hands out: invites and pay links. */
 export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081';
+
+/**
+ * The group's invite link, made now if it has none that still works, and the
+ * line to show once it has been sent.
+ *
+ * Looking first is what makes a retry safe: an invite made by an attempt whose
+ * reply was lost is found here. So making one takes a fresh request key every
+ * time, and can never be answered with a saved reply naming an invite that has
+ * since been turned off. It is also why sharing again hands out the same link
+ * instead of killing the one already in the chat.
+ */
+export async function inviteLink(client: SattleClient, groupId: string) {
+  const invite = (await client.getGroupInvite(groupId)) ?? (await client.createInvite(groupId));
+  const days = Math.max(1, Math.ceil((Date.parse(invite.expiresAt) - Date.now()) / 86_400_000));
+  return {
+    url: `${APP_URL}${invitePath(invite.token)}`,
+    sentNote: `Sent. It works ${days === 1 ? 'until tomorrow' : `for ${days} more days`}, for everyone who hasn’t joined.`,
+  };
+}
 
 export function useSettleFlow(debt: Debt, members: Member[], _groupName: string): SettleFlow {
   const client = useClient();
@@ -150,12 +170,11 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
 
     createInvite: async (groupName) => {
       if (!recipient) throw new Error('There’s nobody to invite.');
-      const input = { groupId: debt.groupId, memberId: recipient.id };
-      const invite = await keys.run('invite', input, (k) => client.createInvite(input.groupId, input.memberId, k));
-      const url = `${APP_URL}${invitePath(invite.token)}`;
+      const { url, sentNote } = await inviteLink(client, debt.groupId);
       return {
         url,
         message: `${recipient.displayName}, join "${groupName}" on Sattle so I can pay you back: ${url}`,
+        sentNote,
       };
     },
   };

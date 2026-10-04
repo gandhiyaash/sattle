@@ -161,14 +161,20 @@ export class ApiClient implements SattleClient {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);
   }
 
-  createInvite(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Invite>('POST', `/groups/${groupId}/invites`, { memberId }, idempotencyKey);
+  getGroupInvite(groupId: string) {
+    return this.request<Invite | null>('GET', `/groups/${groupId}/invites`);
+  }
+  createInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Invite>('POST', `/groups/${groupId}/invites`, undefined, idempotencyKey);
+  }
+  async removeInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/invites`, undefined, idempotencyKey);
   }
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  acceptInvite(token: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
+  acceptInvite(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups/join', { token, ref }, idempotencyKey);
   }
 
   getGroupLink(groupId: string) {

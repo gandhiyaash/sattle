@@ -5,7 +5,7 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README. Anyone not joined can be invited from their row.
+ *    of a line in a README. One invite, under the list, is for all of them.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  */
@@ -18,7 +18,6 @@ import {
   computeBalances,
   formatFiat,
   groupLinkPath,
-  invitePath,
   payLinkPath,
   simplifyDebts,
   type Debt,
@@ -26,7 +25,7 @@ import {
   type Member,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
-import { APP_URL } from '../react/useSettleFlow';
+import { APP_URL, inviteLink } from '../react/useSettleFlow';
 import {
   Amount,
   Avatar,
@@ -210,12 +209,13 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} groupName={data.name} />
+              <MemberRow member={member} isMe={member.id === data.myMemberId} />
             </View>
           ))}
           <Divider />
           <AddMember groupId={groupId} onAdded={refresh} />
         </Card>
+        {data.members.some((m) => !m.claimedByUserId) && <InviteToJoin groupId={groupId} groupName={data.name} />}
       </View>
 
       <View>
@@ -264,77 +264,77 @@ type LinkState =
   | { kind: 'sent'; url: string; note: string }
   | { kind: 'failed'; message: string };
 
+/** One member, with their state. */
+function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
+  return (
+    <View style={s.memberRow}>
+      <Avatar name={member.displayName} dim={member.status === 'ghost'} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.memberName}>
+          {member.displayName}
+          {isMe ? ' (you)' : ''}
+        </Text>
+        <Text style={s.memberMeta}>
+          {member.status === 'joined'
+            ? 'In app'
+            : member.status === 'nwc_linked'
+              ? 'External wallet'
+              : member.lightningAddress
+                ? member.lightningAddress
+                : 'Not joined'}
+        </Text>
+      </View>
+      {member.status === 'ghost' && (
+        <Badge
+          text={member.lightningAddress ? 'Payable' : 'No app'}
+          tone={member.lightningAddress ? 'accent' : 'neutral'}
+        />
+      )}
+    </View>
+  );
+}
+
 /**
- * One member, with their state. Someone who hasn't joined gets an Invite
- * action: it mints a link that lets one person become this member, and hands
- * it to the share sheet. Whoever uses it can see and add to the whole group.
+ * One invite for everyone who hasn't joined, for the chat they're all in.
+ * Whoever opens it picks their own name from the list and becomes that member,
+ * so nobody needs a link of their own. Joining is full membership: they can
+ * see and add to the whole group, which is why it says so before it's sent.
+ * Replacing it and turning it off are under Manage.
  */
-function MemberRow({ member, isMe, groupName }: { member: Member; isMe: boolean; groupName: string }) {
+function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: string }) {
   const client = useClient();
-  const keys = useActionKeys();
-  const [invite, setInvite] = useState<LinkState>({ kind: 'idle' });
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
 
   const send = async () => {
-    setInvite({ kind: 'busy' });
-    let url: string;
+    setState({ kind: 'busy' });
+    let link: Awaited<ReturnType<typeof inviteLink>>;
     try {
-      const input = { groupId: member.groupId, memberId: member.id };
-      const made = await keys.run('invite', input, (k) => client.createInvite(input.groupId, input.memberId, k));
-      url = `${APP_URL}${invitePath(made.token)}`;
+      link = await inviteLink(client, groupId);
     } catch (e) {
-      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
       return;
     }
-    const message = `${member.displayName}, join "${groupName}" on Sattle to see what we’ve split and settle up: ${url}`;
-    setInvite({ kind: 'sent', url, note: await share(message, 'Sent. It works once, for a week.') });
+    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this and pick your name: ${link.url}`;
+    setState({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
   };
 
   return (
-    <View>
-      <View style={s.memberRow}>
-        <Avatar name={member.displayName} dim={member.status === 'ghost'} />
-        <View style={{ flex: 1 }}>
-          <Text style={s.memberName}>
-            {member.displayName}
-            {isMe ? ' (you)' : ''}
-          </Text>
-          <Text style={s.memberMeta}>
-            {member.status === 'joined'
-              ? 'In app'
-              : member.status === 'nwc_linked'
-                ? 'External wallet'
-                : member.lightningAddress
-                  ? member.lightningAddress
-                  : 'Not joined'}
-          </Text>
-        </View>
-        {member.status === 'ghost' && (
-          <Badge
-            text={member.lightningAddress ? 'Payable' : 'No app'}
-            tone={member.lightningAddress ? 'accent' : 'neutral'}
-          />
-        )}
-        {!member.claimedByUserId && (
-          <Pressable onPress={send} disabled={invite.kind === 'busy'} hitSlop={12}>
-            <Text style={[s.memberAction, invite.kind === 'busy' && { opacity: 0.4 }]}>
-              {invite.kind === 'sent' ? 'Invite again' : 'Invite'}
-            </Text>
-          </Pressable>
-        )}
-      </View>
-      {invite.kind === 'sent' && (
-        <View style={s.inviteResult}>
-          <Text style={s.linkNote}>{invite.note}</Text>
+    <View style={s.inviteBlock}>
+      <Button
+        label={state.kind === 'sent' ? 'Share the invite again' : 'Invite them to join'}
+        hint="One link for everyone who hasn’t joined. They pick their name, then can see this group and add to it."
+        busy={state.kind === 'busy'}
+        onPress={send}
+      />
+      {state.kind === 'sent' && (
+        <>
+          <Text style={s.linkNote}>{state.note}</Text>
           <Text style={s.linkUrl} selectable numberOfLines={1}>
-            {invite.url}
+            {state.url}
           </Text>
-        </View>
+        </>
       )}
-      {invite.kind === 'failed' && (
-        <View style={s.inviteResult}>
-          <Text style={s.linkError}>{invite.message}</Text>
-        </View>
-      )}
+      {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
     </View>
   );
 }
@@ -619,9 +619,7 @@ const s = StyleSheet.create({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
-  memberAction: { ...type.label, color: color.accent },
-  // Lines up under the name: row padding, avatar, gap.
-  inviteResult: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md, gap: space.xs },
+  inviteBlock: { marginTop: space.sm, gap: space.xs },
   addMember: { padding: space.md, gap: space.xs },
   addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addInput: {

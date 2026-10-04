@@ -85,17 +85,28 @@ export interface SattleClient {
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
 
   // -- invites --------------------------------------------------------------
+  //
+  // One link for the whole group: whoever opens it picks which of the people
+  // who haven't joined they are, and becomes that member.
 
+  /** The group's invite, or null when it has none that still works. */
+  getGroupInvite(groupId: string): Promise<Invite | null>;
   /**
-   * For a ghost in a group you're in. Share `${APP_URL}${invitePath(token)}`.
-   * Whoever accepts becomes a full member, so each link works once, lasts a
-   * week, and making another for the same ghost kills the last.
+   * Makes the group's invite; anyone in the group can. If there was one, it
+   * stops working. Share `${APP_URL}${invitePath(token)}`. Whoever joins with
+   * it becomes a full member, so it lasts a week.
    */
-  createInvite(groupId: string, memberId: string, idempotencyKey?: string): Promise<Invite>;
-  /** Public. Throws `not_found` for a dead link, `link_expired` once it's used or too old. */
+  createInvite(groupId: string, idempotencyKey?: string): Promise<Invite>;
+  /** Turns the group's invite off. */
+  removeInvite(groupId: string, idempotencyKey?: string): Promise<void>;
+  /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
   getInvite(token: string): Promise<InviteView>;
-  /** The signed-in user becomes the invite's member. Returns the group they're now in. */
-  acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
+  /**
+   * The signed-in user becomes the member `ref` names, one of `getInvite`'s.
+   * Returns the group they're now in. Throws `conflict` if someone else has
+   * joined as that person since.
+   */
+  acceptInvite(token: string, ref: string, idempotencyKey?: string): Promise<Group>;
 
   // -- group links ----------------------------------------------------------
   //

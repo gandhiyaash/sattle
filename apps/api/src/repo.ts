@@ -88,7 +88,6 @@ const toGroupLink = (r: Row): GroupLink => ({
 const toInvite = (r: Row): Invite => ({
   token: r.token as string,
   groupId: r.group_id as string,
-  memberId: r.member_id as string,
   createdAt: r.created_at as string,
   expiresAt: r.expires_at as string,
 });
@@ -165,11 +164,12 @@ export function createRepo(db: Db) {
       'SELECT * FROM settlements WHERE pay_link_token = ? ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ),
     inviteByToken: db.prepare('SELECT * FROM invites WHERE token = ?'),
+    inviteByGroup: db.prepare('SELECT * FROM invites WHERE group_id = ?'),
     insertInvite: db.prepare(
-      `INSERT INTO invites (token, group_id, member_id, created_by_user_id, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO invites (token, group_id, created_by_user_id, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`
     ),
-    deleteInvitesFor: db.prepare('DELETE FROM invites WHERE member_id = ?'),
+    deleteInvite: db.prepare('DELETE FROM invites WHERE group_id = ?'),
     groupLinkByToken: db.prepare('SELECT * FROM group_links WHERE token = ?'),
     groupLinkByGroup: db.prepare('SELECT * FROM group_links WHERE group_id = ?'),
     insertGroupLink: db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)'),
@@ -316,9 +316,8 @@ export function createRepo(db: Db) {
         .expenses(groupId)
         .some((e) => e.paidByMemberId === memberId || e.parts.some((p) => p.memberId === memberId));
     },
-    /** Only for a member with no history. Invites sent for them go too. */
+    /** Only for a member with no history. */
     deleteMember(id: string) {
-      q.deleteInvitesFor.run(id);
       q.deleteMember.run(id);
     },
 
@@ -436,11 +435,19 @@ export function createRepo(db: Db) {
       const r = q.inviteByToken.get(token) as Row | undefined;
       return r && { ...toInvite(r), createdByUserId: r.created_by_user_id as string };
     },
-    /** Replaces any earlier invite for the same member, so only the newest link works. */
-    insertInvite(invite: Invite, createdByUserId: string) {
-      q.deleteInvitesFor.run(invite.memberId);
-      q.insertInvite.run(invite.token, invite.groupId, invite.memberId, createdByUserId, invite.createdAt, invite.expiresAt);
+    /** The group's invite, whether or not it has expired. */
+    inviteFor: (groupId: string) => {
+      const r = q.inviteByGroup.get(groupId) as Row | undefined;
+      return r && toInvite(r);
+    },
+    /** One invite at a time: the new one takes the old one's place, and the old link stops working. */
+    replaceInvite(invite: Invite, createdByUserId: string) {
+      q.deleteInvite.run(invite.groupId);
+      q.insertInvite.run(invite.token, invite.groupId, createdByUserId, invite.createdAt, invite.expiresAt);
       return invite;
+    },
+    deleteInvite(groupId: string) {
+      q.deleteInvite.run(groupId);
     },
   };
 

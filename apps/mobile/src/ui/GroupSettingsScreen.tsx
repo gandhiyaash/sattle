@@ -11,7 +11,16 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { computeBalances, groupLinkPath, isInProgress, simplifyDebts, type GroupLink, type Member } from '@sattle/core';
+import {
+  computeBalances,
+  groupLinkPath,
+  invitePath,
+  isInProgress,
+  simplifyDebts,
+  type GroupLink,
+  type Invite,
+  type Member,
+} from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
@@ -47,6 +56,8 @@ interface Settings {
   paying: boolean;
   /** The group's link, if someone has made one. */
   link: GroupLink | null;
+  /** The group's invite, if it has one that still works. */
+  invite: Invite | null;
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
@@ -54,13 +65,14 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
   const keys = useActionKeys();
 
   const { data, loading, error, reload } = useAsync<Settings>(async () => {
-    const [user, group, members, expenses, settlements, link] = await Promise.all([
+    const [user, group, members, expenses, settlements, link, invite] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
       client.getGroupLink(groupId),
+      client.getGroupInvite(groupId),
     ]);
     const named = new Set<string>();
     for (const e of expenses) {
@@ -80,6 +92,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
       paying: settlements.some(isInProgress),
       link,
+      invite,
     };
   }, [groupId]);
 
@@ -141,6 +154,44 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       </View>
 
       <View>
+        <SectionLabel>Invite</SectionLabel>
+        <Card style={{ gap: space.md }}>
+          {data.invite ? (
+            <>
+              <Text style={s.body}>
+                Anyone holding this link can join as one of the people who haven’t yet, and from then on see
+                everything in the group and add to it. It stops working a week after it was made.
+              </Text>
+              <Text style={s.url} selectable numberOfLines={1}>
+                {`${APP_URL}${invitePath(data.invite.token)}`}
+              </Text>
+              <ConfirmButton
+                label="Make a new invite"
+                confirmLabel="Yes, replace the invite"
+                hint="The old one stops working for everyone who has it."
+                onConfirm={async () => {
+                  await keys.run('replace-invite', { groupId, old: data.invite!.token }, (k) => client.createInvite(groupId, k));
+                  reload();
+                }}
+              />
+              <ConfirmButton
+                label="Turn off the invite"
+                confirmLabel="Yes, turn it off"
+                onConfirm={async () => {
+                  await keys.run('remove-invite', { groupId, old: data.invite!.token }, (k) => client.removeInvite(groupId, k));
+                  reload();
+                }}
+              />
+            </>
+          ) : (
+            <Text style={s.body}>
+              This group has no invite, so nobody new can join it. Share one from the group screen.
+            </Text>
+          )}
+        </Card>
+      </View>
+
+      <View>
         <SectionLabel>Group link</SectionLabel>
         <Card style={{ gap: space.md }}>
           {data.link ? (
@@ -184,7 +235,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
           <Text style={s.body}>
             {alone
               ? 'You’re the only one here with an account, so nobody could open this group after you. Delete it instead.'
-              : 'You stop seeing this group. Your name and balance stay in it, and anything owed to you can then be marked settled by whoever owes it. A new invite brings you back.'}
+              : 'You stop seeing this group. Your name and balance stay in it, and anything owed to you can then be marked settled by whoever owes it. An invite brings you back.'}
           </Text>
           {!alone && (
             <ConfirmButton

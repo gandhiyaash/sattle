@@ -1,18 +1,23 @@
 /**
  * Joining a group from an invite: arrive on /join/<token> or paste the link,
- * see who invited you to what, and accept.
+ * see who invited you to what, say which of the people in it you are, and join.
  *
- * Accepting makes you the member the invite names, with the balance already
- * on that name, and from then on you can see and add to everything in the
- * group. The screen says so above the button.
+ * Joining makes you that member, with the balance already on that name, and
+ * from then on you can see and add to everything in the group. The screen
+ * says so above the button.
+ *
+ * Nobody types who they are. The group already has a row for each person, so
+ * the page lists the ones nobody has joined as yet and the person picks one.
  */
 
-import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SattleError, parseInviteToken } from '@sattle/core';
-import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
-import { Button, Card, ErrorState, Loading, Screen } from './primitives';
+import { SattleError, parseInviteToken, type InviteMember } from '@sattle/core';
+import { writeToken } from '../account/tokenStore';
+import { createAccount } from '../client/ApiClient';
+import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
+import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { color, radius, space, type } from './theme';
 
 export interface JoinScreenProps {
@@ -22,16 +27,79 @@ export interface JoinScreenProps {
   onJoined: (groupId: string) => void;
 }
 
+/** For someone who already has an account on this device. */
 export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
+  const client = useClient();
+  // A retry after a lost response replays the join instead of finding the name taken.
+  const keys = useActionKeys();
   const [active, setActive] = useState(token ?? null);
 
   return (
     <Screen title="Join a group" onBack={onBack}>
       {active ? (
-        <AcceptInvite token={active} onJoined={onJoined} onOtherLink={() => setActive(null)} />
+        <WhoAreYou
+          token={active}
+          note="Once you join, you can see everything in this group and add to it."
+          join={async (member) => {
+            const input = { token: active, ref: member.ref };
+            const group = await keys.run('join', input, (k) => client.acceptInvite(input.token, input.ref, k));
+            onJoined(group.id);
+          }}
+          otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
+        />
       ) : (
         <PasteInvite onToken={setActive} />
       )}
+    </Screen>
+  );
+}
+
+/**
+ * For someone who opened an invite with no account on this device. Picking
+ * who they are is also how they get one: the account takes that name, so
+ * there is nothing to type.
+ */
+export function JoinAsNewScreen({
+  token,
+  onJoined,
+  onSkip,
+}: {
+  token: string;
+  /**
+   * `accountToken` is the new account's, already saved on this device.
+   * `groupId` is null when the account was made and the join then turned out to be impossible.
+   */
+  onJoined: (accountToken: string, groupId: string | null) => void;
+  /** The invite is no use to them, and they have no account yet. They start the app without it. */
+  onSkip: () => void;
+}) {
+  // Kept if the join fails after the account was made, so a second try doesn't make another.
+  const account = useRef<string | null>(null);
+  const keys = useActionKeys();
+
+  return (
+    <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
+      <WhoAreYou
+        token={token}
+        note="Once you join, you can see everything in this group and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
+        join={async (member) => {
+          if (!account.current) {
+            const made = await createAccount(API_URL, member.name);
+            await writeToken(made.token);
+            account.current = made.token;
+          }
+          const accountToken = account.current;
+          const input = { token, ref: member.ref };
+          const group = await keys.run('join', input, (k) =>
+            buildClient(accountToken).acceptInvite(input.token, input.ref, k)
+          );
+          onJoined(accountToken, group.id);
+        }}
+        otherwise={{
+          label: 'Start without it',
+          onPress: () => (account.current ? onJoined(account.current, null) : onSkip()),
+        }}
+      />
     </Screen>
   );
 }
@@ -72,35 +140,31 @@ function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
   );
 }
 
-function AcceptInvite({
+/**
+ * Who invited you to what, the people you could be, and Join. `join` does the
+ * joining and leaves the screen; if it throws, the message is shown and the
+ * list is read again, since the name may just have been taken.
+ */
+function WhoAreYou({
   token,
-  onJoined,
-  onOtherLink,
+  note,
+  join,
+  otherwise,
 }: {
   token: string;
-  onJoined: (groupId: string) => void;
-  onOtherLink: () => void;
+  /** What joining means, above the button. */
+  note: string;
+  join: (member: InviteMember) => Promise<void>;
+  /** The way on when this invite can't be used: a dead link, or nobody left to join as. */
+  otherwise: { label: string; onPress: () => void };
 }) {
   const client = useClient();
-  // A retry after a lost response replays the join instead of finding the invite used.
-  const keys = useActionKeys();
-  const { data, loading, error, reload } = useAsync(() => client.getInvite(token), [token]);
+  const { data, loading, error, reload, refresh } = useAsync(() => client.getInvite(token), [token]);
+  const [picked, setPicked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
-  const join = async () => {
-    setBusy(true);
-    setFailed(null);
-    try {
-      const group = await keys.run('join', { token }, (k) => client.acceptInvite(token, k));
-      onJoined(group.id);
-    } catch (e) {
-      setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
-      setBusy(false);
-    }
-  };
-
-  if (loading) return <Loading lines={2} />;
+  if (loading) return <Loading lines={3} />;
 
   if (error || !data) {
     // Only a network failure is worth retrying; a dead link stays dead.
@@ -108,50 +172,111 @@ function AcceptInvite({
     return (
       <>
         <ErrorState message={error?.message ?? 'Couldn’t load this invite.'} onRetry={retry} />
-        <Button label="Use a different link" onPress={onOtherLink} />
+        <Button label={otherwise.label} onPress={otherwise.onPress} />
       </>
     );
   }
 
+  // With one person left there is nothing to choose between.
+  const chosen = data.members.find((m) => m.ref === picked) ?? (data.members.length === 1 ? data.members[0] : null);
+
+  const submit = async () => {
+    if (!chosen || busy) return;
+    setBusy(true);
+    setFailed(null);
+    try {
+      await join(chosen);
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
+      setPicked(null);
+      setBusy(false);
+      refresh();
+    }
+  };
+
   return (
     <>
-      <InviteCard invitedBy={data.invitedBy} groupName={data.groupName} memberName={data.memberName} />
-      <Text style={s.note}>Once you join, you can see everything in this group and add to it.</Text>
-      {failed && <ErrorState message={failed} />}
-      <Button label={`Join ${data.groupName}`} variant="primary" busy={busy} onPress={join} />
+      <Card style={{ gap: space.xs }}>
+        <Text style={s.label}>{data.invitedBy} invited you to</Text>
+        <Text style={s.group}>{data.groupName}</Text>
+      </Card>
+
+      {data.members.length === 0 ? (
+        <>
+          {failed && <ErrorState message={failed} />}
+          <ErrorState message="Everyone in this group has already joined. Ask someone in it to add you by name, then open this link again." />
+          <Button label={otherwise.label} onPress={otherwise.onPress} />
+        </>
+      ) : (
+        <>
+          <View>
+            <SectionLabel>Who are you?</SectionLabel>
+            <Card style={{ padding: 0 }}>
+              {data.members.map((member, i) => {
+                const on = member.ref === chosen?.ref;
+                return (
+                  <View key={member.ref}>
+                    {i > 0 && <Divider />}
+                    <Pressable
+                      onPress={() => setPicked(member.ref)}
+                      disabled={busy}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      style={({ pressed }) => [
+                        s.row,
+                        i === 0 && s.rowFirst,
+                        i === data.members.length - 1 && s.rowLast,
+                        (on || pressed) && { backgroundColor: color.accentWash },
+                      ]}
+                    >
+                      <Avatar name={member.name} dim={!on} />
+                      <Text style={s.name}>{member.name}</Text>
+                      <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </Card>
+            <Text style={s.hint}>You take over that name as it is, with the balance already on it.</Text>
+          </View>
+
+          <Text style={s.note}>{note}</Text>
+          {failed && <ErrorState message={failed} />}
+          <Button
+            label={chosen ? `Join as ${chosen.name}` : 'Join'}
+            variant="primary"
+            busy={busy}
+            disabled={!chosen}
+            onPress={submit}
+          />
+        </>
+      )}
     </>
-  );
-}
-
-/**
- * Who invited you to what, on its own. The welcome screen shows it above the
- * name field, where there's no account yet to join with.
- */
-export function InviteSummary({ token }: { token: string }) {
-  const client = useClient();
-  const { data, loading, error } = useAsync(() => client.getInvite(token), [token]);
-
-  if (loading) return <Loading lines={1} />;
-  if (error || !data) return <ErrorState message={error?.message ?? 'Couldn’t load this invite.'} />;
-  return <InviteCard invitedBy={data.invitedBy} groupName={data.groupName} memberName={data.memberName} />;
-}
-
-function InviteCard({ invitedBy, groupName, memberName }: { invitedBy: string; groupName: string; memberName: string }) {
-  return (
-    <Card style={{ gap: space.xs }}>
-      <Text style={s.label}>{invitedBy} invited you to</Text>
-      <Text style={s.group}>{groupName}</Text>
-      <Text style={s.body}>You’ll join as {memberName}, with the balance already on that name.</Text>
-    </Card>
   );
 }
 
 const s = StyleSheet.create({
   label: { ...type.label, color: color.inkMuted },
   group: { ...type.display, color: color.ink },
-  body: { ...type.body, color: color.inkMuted },
+  hint: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18 },
   error: { ...type.caption, color: color.danger },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg },
+  // The card's corners are rounded and it doesn't clip, so the rows at its ends are too.
+  rowFirst: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  rowLast: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  name: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: color.lineStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: { borderColor: color.accent },
+  radioDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: color.accent },
   input: {
     height: 46,
     borderWidth: StyleSheet.hairlineWidth,
