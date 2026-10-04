@@ -24,7 +24,7 @@ import { buildQuote, type Settlement } from '@sattle/core';
 import { transaction, type Db } from '../db';
 import { NwcError, preimageMatches, type NwcApi } from '../nwc';
 import type { PaymentBackend } from '../payments';
-import type { RateService } from '../rates';
+import { quoteRateSource, type RateService } from '../rates';
 import type { Repo } from '../repo';
 import type { WalletStore } from '../walletStore';
 
@@ -129,7 +129,7 @@ export class NwcPayments implements PaymentBackend {
     }
 
     const rate = await rates.rate(s.currency);
-    const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, this.now());
+    const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, quoteRateSource(rate), this.now());
     // Rounded down, so the invoice dies with the quote or just before it.
     const expirySec = Math.floor((Date.parse(quote.expiresAt) - this.now()) / 1000);
 

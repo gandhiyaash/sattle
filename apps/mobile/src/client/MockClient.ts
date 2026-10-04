@@ -344,7 +344,7 @@ export class MockClient implements SattleClient {
 
     this.update(id, {
       status: 'awaiting_payment',
-      quote: buildQuote(s.amount, s.currency, this.opts.rateFiatPerBtc),
+      quote: buildQuote(s.amount, s.currency, this.opts.rateFiatPerBtc, { kind: 'demo' }),
       destination:
         s.rail === 'lightning_address' && to.lightningAddress
           ? to.lightningAddress

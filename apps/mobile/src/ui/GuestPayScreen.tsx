@@ -20,9 +20,9 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 
-import { SattleError, formatFiat, type GuestSettlement, type GuestView } from '@sattle/core';
+import { SattleError, formatFiat, formatRate, type GuestSettlement, type GuestView } from '@sattle/core';
 import { useClient } from '../react/SattleProvider';
-import { Button, ErrorState, SatLine } from './primitives';
+import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine, formatSats } from './primitives';
 import { QrCode } from './QrCode';
 import { color, radius, shadow, space, type } from './theme';
 
@@ -103,7 +103,7 @@ export function GuestPayScreen({ token }: GuestPayScreenProps) {
   switch (settlement.status) {
     case 'confirmed':
     case 'manually_confirmed':
-      return <Paid payeeName={view.payeeName} preimage={settlement.preimage} />;
+      return <Paid payeeName={view.payeeName} settlement={settlement} />;
 
     case 'failed':
       return (
@@ -172,6 +172,7 @@ function Invoice({
     <Page>
       {header}
       <AmountBlock settlement={settlement} />
+      {quote && <QuoteBreakdown quote={quote} />}
       <Text style={s.reason}>{reason}</Text>
 
       {destination && (
@@ -192,12 +193,11 @@ function Invoice({
             <Text style={s.invoice} numberOfLines={2} selectable>
               {destination}
             </Text>
-            {left !== null && <Text style={s.countdown}>Invoice valid for {formatClock(left)}</Text>}
+            {left !== null && <Text style={s.countdown}>Rate and invoice locked for {formatClock(left)}</Text>}
           </View>
         </>
       )}
 
-      {quote && <Text style={s.fee}>Network fee ≈ {quote.feeSat} sats, paid by you on top.</Text>}
       <Footer />
     </Page>
   );
@@ -226,7 +226,9 @@ function Expired({
   );
 }
 
-function Paid({ payeeName, preimage }: { payeeName: string; preimage?: string }) {
+/** A receipt: what was owed, what was sent, and the rate that joined them. */
+function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestSettlement }) {
+  const { quote, preimage } = settlement;
   return (
     <Page>
       <View style={s.tick}>
@@ -234,14 +236,23 @@ function Paid({ payeeName, preimage }: { payeeName: string; preimage?: string })
       </View>
       <Text style={s.title}>Paid</Text>
       <Text style={s.reason}>{payeeName} has been paid. Nothing else to do — you can close this.</Text>
-      {preimage && (
-        <View style={s.receipt}>
-          <Text style={s.receiptLabel}>Payment proof</Text>
-          <Text style={s.receiptValue} numberOfLines={1} selectable>
-            {preimage}
-          </Text>
-        </View>
-      )}
+      <View style={s.receipt}>
+        <BreakdownRow label="Amount" value={formatFiat(settlement.amount, settlement.currency)} numeric />
+        {quote && (
+          <>
+            <BreakdownRow label="Sent" value={formatSats(quote.amountSat)} numeric />
+            <BreakdownRow label="Exchange rate" value={formatRate(quote)} numeric />
+          </>
+        )}
+        {preimage && (
+          <View style={s.proof}>
+            <Text style={s.receiptLabel}>Payment proof</Text>
+            <Text style={s.receiptValue} numberOfLines={1} selectable>
+              {preimage}
+            </Text>
+          </View>
+        )}
+      </View>
     </Page>
   );
 }
@@ -388,7 +399,6 @@ const s = StyleSheet.create({
   noticeTitle: { ...type.heading, color: color.ink },
   noticeBody: { ...type.body, color: color.inkMuted },
 
-  fee: { ...type.caption, color: color.inkFaint },
   footer: {
     ...type.caption,
     color: color.inkFaint,
@@ -410,8 +420,15 @@ const s = StyleSheet.create({
   receipt: {
     backgroundColor: color.surfaceSunken,
     borderRadius: radius.md,
-    padding: space.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  proof: {
     gap: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.line,
+    paddingTop: space.sm,
+    marginTop: space.xs,
   },
   receiptLabel: { ...type.caption, color: color.inkFaint },
   receiptValue: { ...type.amountSm, color: color.inkMuted },

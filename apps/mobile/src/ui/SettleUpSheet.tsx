@@ -19,7 +19,7 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 import { formatFiat, type Debt, type Member } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
-import { Button, Card, ErrorState, SatLine } from './primitives';
+import { Button, Card, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { share } from './share';
 import { color, radius, space, type } from './theme';
 
@@ -81,6 +81,7 @@ export function SettleUpSheet({
           <Text style={s.amount}>{amount}</Text>
           {invoice.quote && <SatLine sats={invoice.quote.amountSat} />}
         </View>
+        {invoice.quote && !lapsed && <QuoteBreakdown quote={invoice.quote} />}
 
         {lapsed ? (
           <>

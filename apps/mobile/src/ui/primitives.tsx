@@ -21,7 +21,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { formatFiat } from '@sattle/core';
+import { describeRateSource, formatFiat, formatRate, type Quote } from '@sattle/core';
 import { color, radius, shadow, space, type } from './theme';
 
 // ---------------------------------------------------------------------------
@@ -190,11 +190,36 @@ export function Amount({
   );
 }
 
+export const formatSats = (sats: number) => `${new Intl.NumberFormat('en-US').format(Math.round(sats))} sats`;
+
+/** The exact sats an invoice is for. Not approximate: the rate is pinned. */
 export function SatLine({ sats }: { sats: number }) {
+  return <Text style={s.satLine}>{formatSats(sats)}</Text>;
+}
+
+/**
+ * How the fiat amount became sats, laid out like a checkout: the rate, where
+ * it came from, and the fee on top. The payer sees this before they pay.
+ */
+export function QuoteBreakdown({ quote, fee = true }: { quote: Quote; fee?: boolean }) {
+  const source = describeRateSource(quote.rateSource);
   return (
-    <Text style={s.satLine}>
-      ≈ {new Intl.NumberFormat('en-US').format(Math.round(sats))} sats
-    </Text>
+    <View style={s.breakdown}>
+      <BreakdownRow label="Exchange rate" value={formatRate(quote)} numeric />
+      {source && <BreakdownRow label="Rate from" value={source} />}
+      {fee && <BreakdownRow label="Network fee" value={`≈ ${formatSats(quote.feeSat)}, paid on top`} />}
+    </View>
+  );
+}
+
+export function BreakdownRow({ label, value, numeric }: { label: string; value: string; numeric?: boolean }) {
+  return (
+    <View style={s.breakdownRow}>
+      <Text style={s.breakdownLabel}>{label}</Text>
+      <Text style={[s.breakdownValue, numeric && s.breakdownNumeric]} selectable>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -330,7 +355,24 @@ const s = StyleSheet.create({
   },
   badgeText: { ...type.caption, fontSize: 11, color: color.inkMuted },
 
-  satLine: { ...type.amountSm, color: color.inkFaint },
+  satLine: { ...type.amountSm, color: color.inkMuted },
+
+  breakdown: {
+    backgroundColor: color.surfaceSunken,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: space.md,
+    paddingVertical: space.xs,
+  },
+  breakdownLabel: { ...type.caption, color: color.inkFaint },
+  breakdownValue: { ...type.caption, color: color.inkMuted, flexShrink: 1, textAlign: 'right' },
+  breakdownNumeric: { ...type.amountSm, fontSize: 12 },
 
   skeleton: {
     height: 56,
