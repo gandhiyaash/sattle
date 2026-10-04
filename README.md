@@ -222,7 +222,7 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is one link for the whole group, `/join/<token>`: anyone already in the group taps **Invite them to join** under the member list and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as.
 
 Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
@@ -267,12 +267,14 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 
 ### Group links
 
-A pay link covers one debt. A group link covers the group: someone in it taps **Share the group link** and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Settle** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
+The app no longer hands these out: a group shares one link, its invite, so nobody has to choose between two. A group link made before that keeps working until someone turns it off under **Manage**, which lists it only for a group that has one. The routes below are unchanged.
+
+A pay link covers one debt. A group link covers the group: `/g/<token>`, posted in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Settle** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
 
 A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
 
 - There is no link until someone in the group makes one, and there is only ever one. Making another replaces it, and the old one stops working.
-- Anyone in the group can replace it or turn it off, under **Manage**. It doesn't expire by itself.
+- Anyone in the group can turn it off, under **Manage**. It doesn't expire by itself.
 - It only reads. Nothing under `/g/` changes the group; the one thing it can start is a payment, and that goes to the person owed like any other.
 - `GET /g/:token` returns names and amounts and no ids. Each debt carries an opaque `ref`, a hash tied to that link, which is what the page sends back to pay it.
 
@@ -434,10 +436,10 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 ## Not in here yet
 
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
-- Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
+- Opening an invite link straight into the installed app on an iPhone. That needs Associated Domains; it opens the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
-- Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
+- Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app handles only `/join/<token>`, and only on Android.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.
 - Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.

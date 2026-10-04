@@ -54,7 +54,7 @@ interface Settings {
   settled: boolean;
   /** A payment in the group hasn't finished. The server won't delete the group until it has. */
   paying: boolean;
-  /** The group's link, if someone has made one. */
+  /** A read-only link from when the app handed those out, if the group still has one. */
   link: GroupLink | null;
   /** The group's invite, if it has one that still works. */
   invite: Invite | null;
@@ -187,49 +187,36 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
             </>
           ) : (
             <Text style={s.body}>
-              This group has no invite, so nobody new can join it. Share one from the group screen.
+              This group has no invite, so nobody new can join it. The share icon on the group screen makes one.
             </Text>
           )}
         </Card>
       </View>
 
-      <View>
-        <SectionLabel>Group link</SectionLabel>
-        <Card style={{ gap: space.md }}>
-          {data.link ? (
-            <>
-              <Text style={s.body}>
-                Anyone holding this link can see the group’s spends and who owes what, and pay a debt. They can’t
-                change anything.
-              </Text>
-              <Text style={s.url} selectable numberOfLines={1}>
-                {`${APP_URL}${groupLinkPath(data.link.token)}`}
-              </Text>
-              <ConfirmButton
-                label="Make a new link"
-                confirmLabel="Yes, replace the link"
-                hint="The old one stops working for everyone who has it."
-                onConfirm={async () => {
-                  await keys.run('replace-link', { groupId, old: data.link!.token }, (k) => client.createGroupLink(groupId, k));
-                  reload();
-                }}
-              />
-              <ConfirmButton
-                label="Turn off the link"
-                confirmLabel="Yes, turn it off"
-                onConfirm={async () => {
-                  await keys.run('remove-link', { groupId, old: data.link!.token }, (k) => client.removeGroupLink(groupId, k));
-                  reload();
-                }}
-              />
-            </>
-          ) : (
+      {/* The app shares one link now, the invite. One of these made earlier still works until it's turned off here. */}
+      {data.link && (
+        <View>
+          <SectionLabel>Read-only link</SectionLabel>
+          <Card style={{ gap: space.md }}>
             <Text style={s.body}>
-              This group has no link, so only the people in it can see it. Share one from the group screen.
+              Shared earlier. Anyone holding it can see the group’s spends and who owes what, and pay a debt, without
+              joining. They can’t change anything.
             </Text>
-          )}
-        </Card>
-      </View>
+            <Text style={s.url} selectable numberOfLines={1}>
+              {`${APP_URL}${groupLinkPath(data.link.token)}`}
+            </Text>
+            <ConfirmButton
+              label="Turn off the link"
+              confirmLabel="Yes, turn it off"
+              hint="It stops working for everyone who has it. The invite is then the group’s only link."
+              onConfirm={async () => {
+                await keys.run('remove-link', { groupId, old: data.link!.token }, (k) => client.removeGroupLink(groupId, k));
+                reload();
+              }}
+            />
+          </Card>
+        </View>
+      )}
 
       <View>
         <SectionLabel>Leave</SectionLabel>
