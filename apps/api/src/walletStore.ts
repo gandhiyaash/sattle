@@ -32,6 +32,8 @@ export function createWalletStore(db: Db) {
          methods = excluded.methods, alias = excluded.alias, connected_at = excluded.connected_at`
     ),
     linkMembers: db.prepare(`UPDATE members SET status = 'nwc_linked' WHERE claimed_by_user_id = ?`),
+    remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
+    unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
   };
 
   const toConnection = (r: Row): WalletConnection => {
@@ -59,6 +61,13 @@ export function createWalletStore(db: Db) {
       q.upsert.run(userId, c.nwcUri, c.walletPubkey, JSON.stringify(c.methods), c.alias ?? null, c.connectedAt);
       q.linkMembers.run(userId);
       return toConnection(q.byUser.get(userId) as unknown as Row);
+    },
+
+    /** Forgets the connection string, and puts the user's members back to `joined`. */
+    remove(userId: string): WalletConnection {
+      q.remove.run(userId);
+      q.unlinkMembers.run(userId);
+      return { connected: false, methods: [], excessMethods: [] };
     },
 
     /** The secret, for the payment backend only. Never put it in a response. */

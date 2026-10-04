@@ -1,6 +1,7 @@
 /**
- * The ledger on Nostr. Every expense and every confirmed settlement becomes
- * one event, so a group's history outlives this server:
+ * The ledger on Nostr. Every expense, every change to one, and every
+ * confirmed settlement becomes one event, so a group's history outlives this
+ * server:
  *
  *   signed     by the server's key, so an entry can't be forged by a relay
  *   encrypted  with NIP-44 under a random per-group key that only members
@@ -8,8 +9,12 @@
  *   chained    each entry names the one before it (seq + prev), so a missing
  *              or reordered entry shows up when the ledger is read back
  *
- * Writes go through an outbox (ledger_entries). `sync` finds expenses and
- * confirmed settlements that have no entry yet and signs one for each;
+ * A published entry can't be altered, so an expense that is edited gets a
+ * second entry with how it reads now, and one that is removed gets an entry
+ * saying so. Whoever reads the ledger back takes the last word on each.
+ *
+ * Writes go through an outbox (ledger_entries). `sync` finds expenses, changes
+ * to them and confirmed settlements that have no entry yet and signs one for each;
  * `publish` sends unpublished entries to the relays. Both run on a timer, so
  * no route has to remember to call them, and a relay outage or a restart
  * only delays publishing.
@@ -46,7 +51,10 @@ export interface LedgerEntry {
   group: { id: string; name: string; currency: string };
   /** Everyone in the group when the entry was made, so names and balances can be read without the server. */
   members: { id: string; displayName: string }[];
+  /** A new expense, or an earlier one as it reads after an edit. */
   expense?: Expense;
+  /** An earlier expense that was removed. */
+  removed?: { expenseId: string };
   settlement?: Settlement;
 }
 
@@ -143,11 +151,18 @@ export function readLedger(events: Event[], { pubkey, key }: Pick<LedgerAccess, 
     prevId = id;
   });
 
+  // The last word on each expense: an edit replaces it where it stands, a removal drops it.
+  const expenses = new Map<string, Expense>();
+  for (const { entry } of ordered) {
+    if (entry.expense) expenses.set(entry.expense.id, entry.expense);
+    if (entry.removed) expenses.delete(entry.removed.expenseId);
+  }
+
   const last = ordered.at(-1)?.entry;
   return {
     group: last?.group,
     members: last?.members ?? [],
-    expenses: ordered.flatMap(({ entry }) => (entry.expense ? [entry.expense] : [])),
+    expenses: [...expenses.values()],
     settlements: ordered.flatMap(({ entry }) => (entry.settlement ? [entry.settlement] : [])),
     entries: ordered.length,
     problems,
@@ -227,21 +242,28 @@ export class NostrLedger {
   }
 
   /**
-   * Signs an entry for every expense and confirmed settlement that doesn't
-   * have one, oldest first. Returns how many it made.
+   * Signs an entry for every expense, change to an expense and confirmed
+   * settlement that doesn't have one, oldest first. Returns how many it made.
+   *
+   * A change is filed as an 'expense' entry whose ref is the change, not the
+   * expense. `ord` keeps changes made in the same instant in the order they
+   * happened, after the expense they change.
    */
   sync(): number {
     const due = this.db
       .prepare(
-        `SELECT 'expense' AS kind, id, group_id, created_at AS at FROM expenses e
+        `SELECT 'expense' AS kind, id, group_id, created_at AS at, 0 AS ord FROM expenses e
            WHERE NOT EXISTS (SELECT 1 FROM ledger_entries l WHERE l.kind = 'expense' AND l.ref_id = e.id)
          UNION ALL
-         SELECT 'settlement', id, group_id, updated_at FROM settlements s
+         SELECT 'change', 'change-' || id, group_id, created_at, id FROM expense_changes c
+           WHERE NOT EXISTS (SELECT 1 FROM ledger_entries l WHERE l.kind = 'expense' AND l.ref_id = 'change-' || c.id)
+         UNION ALL
+         SELECT 'settlement', id, group_id, updated_at, 0 FROM settlements s
            WHERE status IN (${LEDGER_STATUSES.map((st) => `'${st}'`).join(', ')})
              AND NOT EXISTS (SELECT 1 FROM ledger_entries l WHERE l.kind = 'settlement' AND l.ref_id = s.id)
-         ORDER BY at, id`
+         ORDER BY at, ord, id`
       )
-      .all() as { kind: 'expense' | 'settlement'; id: string; group_id: string; at: string }[];
+      .all() as { kind: 'expense' | 'change' | 'settlement'; id: string; group_id: string; at: string; ord: number }[];
     if (due.length === 0) return 0;
 
     const secret = this.signingKey();
@@ -252,6 +274,14 @@ export class NostrLedger {
       `INSERT INTO ledger_entries (event_id, group_id, seq, kind, ref_id, event, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
+    const changeById = this.db.prepare('SELECT expense_id, expense FROM expense_changes WHERE id = ?');
+    /** What the entry is about: the expense, how it now reads, that it's gone, or the settlement. */
+    const subject = (d: (typeof due)[number]): Pick<LedgerEntry, 'expense' | 'removed' | 'settlement'> => {
+      if (d.kind === 'settlement') return { settlement: this.repo.settlement(d.id)! };
+      if (d.kind === 'expense') return { expense: this.repo.expense(d.id)! };
+      const change = changeById.get(d.ord) as { expense_id: string; expense: string | null };
+      return change.expense ? { expense: JSON.parse(change.expense) } : { removed: { expenseId: change.expense_id } };
+    };
 
     transaction(this.db, () => {
       for (const d of due) {
@@ -263,13 +293,12 @@ export class NostrLedger {
           prev: last?.event_id ?? null,
           group: { id: group.id, name: group.name, currency: group.currency },
           members: this.repo.members(group.id).map((m) => ({ id: m.id, displayName: m.displayName })),
-          ...(d.kind === 'expense'
-            ? { expense: this.repo.expenses(group.id).find((e) => e.id === d.id)! }
-            : { settlement: this.repo.settlement(d.id)! }),
+          ...subject(d),
         };
         const key = this.groupKey(group.id);
         const event = signEntry(entry, key, secret, Math.floor(Date.parse(d.at) / 1000));
-        insert.run(event.id, group.id, entry.seq, d.kind, d.id, JSON.stringify(event), new Date().toISOString());
+        const kind = d.kind === 'settlement' ? 'settlement' : 'expense';
+        insert.run(event.id, group.id, entry.seq, kind, d.id, JSON.stringify(event), new Date().toISOString());
       }
     });
     return due.length;

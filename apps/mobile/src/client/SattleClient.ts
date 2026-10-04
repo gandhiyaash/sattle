@@ -19,6 +19,8 @@ import type {
   Expense,
   ExpenseInput,
   Group,
+  GroupGuestView,
+  GroupLink,
   GuestView,
   Invite,
   InviteView,
@@ -107,11 +109,76 @@ export interface SattleClient {
   /** The signed-in user becomes the invite's member. Returns the group they're now in. */
   acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
 
+  // -- group links ----------------------------------------------------------
+  //
+  // One link for the whole group: whoever holds it sees the spends and who
+  // owes whom, and can pay a debt. It can't change anything.
+
+  /** The group's link, or null when it has none. */
+  getGroupLink(groupId: string): Promise<GroupLink | null>;
+  /**
+   * Makes the group's link; anyone in the group can. If there was one, it
+   * stops working. Share `${APP_URL}${groupLinkPath(token)}`.
+   */
+  createGroupLink(groupId: string, idempotencyKey?: string): Promise<GroupLink>;
+  /** Turns the group's link off. */
+  removeGroupLink(groupId: string, idempotencyKey?: string): Promise<void>;
+  /** Public. What the group page shows. Throws `not_found` for a link that was replaced or turned off. */
+  getGroupGuestView(token: string): Promise<GroupGuestView>;
+  /**
+   * Public. Someone on the group page chose the debt `ref` to pay. Returns the
+   * token of a pay link for it; open that like any pay link. Throws
+   * `link_expired` if the debt is gone, `member_cannot_receive` if the person
+   * owed has nowhere to receive.
+   */
+  payFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<{ token: string }>;
+
+  // -- changing and removing ------------------------------------------------
+  //
+  // Nobody can undo what someone else is owed: an expense is its payer's to
+  // change, a group goes only once it's settled, and a member who is part of
+  // the ledger stays in it. What you can always do is take yourself out.
+
+  /**
+   * Replaces what an expense says. Only the person who paid may, once they've
+   * joined (`invalid_input` for anyone else); what a ghost paid, anyone in the
+   * group may change. See canChangeExpense.
+   */
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
+  /** Same rule as updateExpense. */
+  deleteExpense(groupId: string, expenseId: string, idempotencyKey?: string): Promise<void>;
+
+  renameGroup(groupId: string, name: string, idempotencyKey?: string): Promise<Group>;
+  /** For everyone in it. Throws `conflict` while anything is owed or a payment is under way. */
+  deleteGroup(groupId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Removes a ghost that no expense or payment names. Throws `conflict` for
+   * one that is part of the ledger, `invalid_input` for someone who has joined.
+   */
+  removeMember(groupId: string, memberId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Your member becomes a ghost again, with its name and balance, and you
+   * lose the group; an invite brings you back. Throws `conflict` if you're
+   * the only one with an account, or a payment to you is under way.
+   */
+  leaveGroup(groupId: string, idempotencyKey?: string): Promise<void>;
+
   // -- wallet connection ----------------------------------------------------
 
   /** Throws `invalid_wallet` unless the connection grants NWC_REQUIRED_METHODS. */
   connectWallet(nwcUri: string): Promise<WalletConnection>;
   getWalletConnection(): Promise<WalletConnection>;
+  /** The server forgets the connection string. Throws `conflict` while a payment to you is under way. */
+  disconnectWallet(): Promise<WalletConnection>;
+
+  // -- account --------------------------------------------------------------
+
+  /**
+   * Ends the signed-in account for good: you leave every group (one only you
+   * could open is deleted), and the wallet connection and the links you sent
+   * go. Throws `conflict` while a payment to you is under way.
+   */
+  deleteAccount(): Promise<void>;
 }
 
 export function newIdempotencyKey(): string {

@@ -5,8 +5,8 @@
 
 import {
   SattleError,
-  TERMINAL_STATUSES,
   computeBalances,
+  isInProgress,
   simplifyDebts,
   type Group,
   type Settlement,
@@ -79,12 +79,8 @@ export function inProgressFor(repo: Repo, g: Group, body: Pair) {
     .find((s) => isInProgress(s) && s.fromMemberId === body.fromMemberId && s.toMemberId === body.toMemberId);
 }
 
-/** Non-terminal, and not an awaiting_payment whose quote has lapsed. */
-export function isInProgress(s: Settlement) {
-  if (TERMINAL_STATUSES.includes(s.status)) return false;
-  if (s.status === 'awaiting_payment' && s.quote && Date.parse(s.quote.expiresAt) < Date.now()) return false;
-  return true;
-}
+/** Non-terminal, and not an awaiting_payment whose quote has lapsed. Shared with the app, so it lives in @sattle/core. */
+export { isInProgress };
 
 export function newSettlement(
   g: Group,
