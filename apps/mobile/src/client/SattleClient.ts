@@ -24,6 +24,7 @@ import type {
   GuestView,
   Invite,
   InviteView,
+  JoinAs,
   LedgerBackup,
   Member,
   PayLink,
@@ -87,7 +88,8 @@ export interface SattleClient {
   // -- invites --------------------------------------------------------------
   //
   // One link for the whole group: whoever opens it picks which of the people
-  // who haven't joined they are, and becomes that member.
+  // who haven't joined they are, and becomes that member. Someone who isn't
+  // one of them adds themselves.
 
   /** The group's invite, or null when it has none that still works. */
   getGroupInvite(groupId: string): Promise<Invite | null>;
@@ -102,11 +104,13 @@ export interface SattleClient {
   /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
   getInvite(token: string): Promise<InviteView>;
   /**
-   * The signed-in user becomes the member `ref` names, one of `getInvite`'s.
-   * Returns the group they're now in. Throws `conflict` if someone else has
-   * joined as that person since.
+   * The signed-in user joins the invite's group and gets it back. With a
+   * `ref`, one of `getInvite`'s, they become that member; throws `conflict` if
+   * someone else has joined as that person since. With a `displayName`, they
+   * are added as a new member; throws `conflict` if that name is a member
+   * still waiting to be picked.
    */
-  acceptInvite(token: string, ref: string, idempotencyKey?: string): Promise<Group>;
+  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string): Promise<Group>;
 
   // -- group links ----------------------------------------------------------
   //

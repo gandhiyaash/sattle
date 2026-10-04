@@ -33,6 +33,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinAs,
   type LedgerBackup,
   type Member,
   type PayLink,
@@ -541,19 +542,35 @@ export class MockClient implements SattleClient {
    * The mock has one user, who is already in every group, so this always
    * ends in "already in this group". The join itself needs the real API.
    */
-  acceptInvite(token: string, ref: string, idempotencyKey?: string) {
+  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call(() => {
       const invite = this.liveInvite(token);
       const me = fixtures.currentUser;
-      if (this.members.some((m) => m.groupId === invite.groupId && m.claimedByUserId === me.id)) {
+      const g = this.findGroup(invite.groupId);
+      const members = this.members.filter((m) => m.groupId === g.id);
+      if (members.some((m) => m.claimedByUserId === me.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
       }
-      const member = this.members.find((m) => m.groupId === invite.groupId && this.memberRef(token, m.id) === ref);
+      const status = this.wallet.connected ? 'nwc_linked' : 'joined';
+
+      if ('displayName' in as) {
+        const name = as.displayName.trim();
+        const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === name.toLowerCase());
+        if (waiting) {
+          throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
+        }
+        const added: Member = { id: this.id('m'), groupId: g.id, displayName: name, status, claimedByUserId: me.id };
+        this.members.push(added);
+        g.memberIds.push(added.id);
+        return g;
+      }
+
+      const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
       if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
       if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
       member.claimedByUserId = me.id;
-      member.status = this.wallet.connected ? 'nwc_linked' : 'joined';
-      return this.findGroup(invite.groupId);
+      member.status = status;
+      return g;
     }, idempotencyKey);
   }
 

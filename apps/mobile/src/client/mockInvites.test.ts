@@ -41,7 +41,9 @@ describe('MockClient invites', () => {
     const c = client();
     const invite = await c.createInvite('g-goa');
     const aman = (await c.getInvite(invite.token)).members.find((m) => m.name === 'Aman')!;
-    await expect(c.acceptInvite(invite.token, aman.ref)).rejects.toMatchObject({ code: 'conflict' });
+    await expect(c.acceptInvite(invite.token, { ref: aman.ref })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(c.acceptInvite(invite.token, { displayName: 'Someone new' })).rejects.toMatchObject({ code: 'conflict' });
+    expect(await c.getMembers('g-goa')).toHaveLength((await c.getGroup('g-goa')).memberIds.length);
     expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-aman')?.status).toBe('ghost');
   });
 

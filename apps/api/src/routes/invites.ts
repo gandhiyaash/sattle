@@ -1,8 +1,9 @@
 /**
  * Invites: someone in a group shares /join/<token>, and whoever opens it
  * picks which of the group's ghosts they are and, with an account, takes that
- * ghost over. That makes them a member like any other, so they can read and
- * write everything in the group. Nothing here can take that back, which is
+ * ghost over. Someone the group hasn't listed adds themselves instead, as a
+ * new member. Either way they are a member like any other, so they can read
+ * and write everything in the group. Nothing here can take that back, which is
  * why a token is unguessable, expires, and can be replaced or turned off by
  * anyone in the group. It is one link for the whole group, like the group
  * link: there is none until someone makes one, and only ever one.
@@ -21,8 +22,15 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { parse } from '../http';
 import { idempotency } from '../middleware';
+import { newId } from '../repo';
 
-const JoinBody = z.object({ token: z.string().min(1), ref: z.string().min(1) });
+/** The token, and who they are: a `ref` from the join page, or their own name if they weren't on it. */
+const JoinBody = z.union([
+  z.object({ token: z.string().min(1), ref: z.string().min(1) }),
+  z.object({ token: z.string().min(1), displayName: z.string().trim().min(1).max(40) }),
+]);
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /** Long enough to send, see and act on; short enough that a stray link dies. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -108,27 +116,43 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
   });
 
   /**
-   * Authed. The signed-in user becomes the ghost they picked on the join page,
-   * with the balance already on that name. Returns the Group they're now in.
-   *   invite not usable                 → as `live` above
-   *   already in this group             → 409 conflict (one person, one member)
-   *   nobody in the group has that ref  → 404 not_found
-   *   someone else joined as them first → 409 conflict
+   * Authed. The signed-in user joins the invite's group and gets the Group back.
+   *
+   * With a `ref`, they become the ghost they picked on the join page, with the
+   * balance already on that name. With a `displayName`, they weren't on the
+   * page: they are added as a new member, after everyone else.
+   *   invite not usable                     → as `live` above
+   *   already in this group                 → 409 conflict (one person, one member)
+   *   nobody in the group has that ref      → 404 not_found
+   *   someone else joined as them first     → 409 conflict
+   *   that name is a ghost waiting to join  → 409 conflict: they should pick it,
+   *                                           not start a second row beside it
    * The member is `joined`, or `nwc_linked` if the user has a wallet connected,
    * like the members they have in other groups.
    */
   r.post('/groups/join', once, async (c) => {
     const user = c.get('user');
-    const { token, ref } = parse(JoinBody, await c.req.json());
+    const { token, ...who } = parse(JoinBody, await c.req.json());
 
     const groupId = transaction(db, () => {
       const invite = live(token);
       if (repo.memberForUser(invite.groupId, user.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
       }
-      const member = repo.members(invite.groupId).find((m) => memberRef(invite.token, m.id) === ref);
-      if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
+      const members = repo.members(invite.groupId);
       const status = wallets.connection(user.id).connected ? 'nwc_linked' : 'joined';
+
+      if ('displayName' in who) {
+        const waiting = members.find((m) => !m.claimedByUserId && sameName(m.displayName, who.displayName));
+        if (waiting) {
+          throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
+        }
+        repo.appendMember({ id: newId('m'), groupId: invite.groupId, displayName: who.displayName, status, claimedByUserId: user.id });
+        return invite.groupId;
+      }
+
+      const member = members.find((m) => memberRef(invite.token, m.id) === who.ref);
+      if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
       if (member.claimedByUserId || !repo.claimMember(member.id, user.id, status)) {
         throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
       }

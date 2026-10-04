@@ -6,14 +6,16 @@
  * from then on you can see and add to everything in the group. The screen
  * says so above the button.
  *
- * Nobody types who they are. The group already has a row for each person, so
- * the page lists the ones nobody has joined as yet and the person picks one.
+ * Nobody on the list types who they are. The group already has a row for each
+ * person, so the page lists the ones nobody has joined as yet and the person
+ * picks one. Someone the group hasn't listed taps + and gives their name, and
+ * joins as a new member.
  */
 
 import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SattleError, parseInviteToken, type InviteMember } from '@sattle/core';
+import { SattleError, parseInviteToken, type JoinAs } from '@sattle/core';
 import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
@@ -33,6 +35,8 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
   // A retry after a lost response replays the join instead of finding the name taken.
   const keys = useActionKeys();
   const [active, setActive] = useState(token ?? null);
+  // What they're already called, for the name field if they add themselves.
+  const me = useAsync(() => client.getCurrentUser(), [client]);
 
   return (
     <Screen title="Join a group" onBack={onBack}>
@@ -40,9 +44,10 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
         <WhoAreYou
           token={active}
           note="Once you join, you can see everything in this group and add to it."
-          join={async (member) => {
-            const input = { token: active, ref: member.ref };
-            const group = await keys.run('join', input, (k) => client.acceptInvite(input.token, input.ref, k));
+          suggestedName={me.data?.displayName}
+          join={async (as) => {
+            const input = { token: active, as };
+            const group = await keys.run('join', input, (k) => client.acceptInvite(input.token, input.as, k));
             onJoined(group.id);
           }}
           otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
@@ -55,9 +60,9 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
 }
 
 /**
- * For someone who opened an invite with no account on this device. Picking
- * who they are is also how they get one: the account takes that name, so
- * there is nothing to type.
+ * For someone who opened an invite with no account on this device. Saying who
+ * they are is also how they get one: the account takes the name they picked,
+ * or the one they gave if they added themselves.
  */
 export function JoinAsNewScreen({
   token,
@@ -95,17 +100,17 @@ export function JoinAsNewScreen({
       <WhoAreYou
         token={token}
         note="Once you join, you can see everything in this group and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
-        join={async (member) => {
-          if (made.current && made.current.name !== member.name) await forget();
+        join={async (as, name) => {
+          if (made.current && made.current.name !== name) await forget();
           if (!made.current) {
-            const account = await createAccount(API_URL, member.name);
+            const account = await createAccount(API_URL, name);
             await writeToken(account.token);
-            made.current = { token: account.token, name: member.name };
+            made.current = { token: account.token, name };
           }
           const accountToken = made.current.token;
-          const input = { token, ref: member.ref };
+          const input = { token, as };
           const group = await keys
-            .run('join', input, (k) => buildClient(accountToken).acceptInvite(input.token, input.ref, k))
+            .run('join', input, (k) => buildClient(accountToken).acceptInvite(input.token, input.as, k))
             .catch(async (e) => {
               // A lost connection is worth keeping the account for: the retry replays this join.
               // Anything else means they can't be this person, so the account goes.
@@ -159,27 +164,37 @@ function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
   );
 }
 
+/** The row that isn't anyone on the list. Refs are base64url or the mock's, so this is never one. */
+const NEW = '+';
+
 /**
- * Who invited you to what, the people you could be, and Join. `join` does the
- * joining and leaves the screen; if it throws, the message is shown and the
- * list is read again, since the name may just have been taken.
+ * Who invited you to what, the people you could be, and Join. Someone who
+ * isn't one of them taps + and gives their own name. `join` does the joining
+ * and leaves the screen; if it throws, the message is shown and the list is
+ * read again, since the name may just have been taken.
  */
 function WhoAreYou({
   token,
   note,
+  suggestedName,
   join,
   otherwise,
 }: {
   token: string;
   /** What joining means, above the button. */
   note: string;
-  join: (member: InviteMember) => Promise<void>;
-  /** The way on when this invite can't be used: a dead link, or nobody left to join as. */
+  /** What someone adding themselves is already called, if they have an account. */
+  suggestedName?: string;
+  /** `name` is what they will be called in the group: the member's, or the one they typed. */
+  join: (as: JoinAs, name: string) => Promise<void>;
+  /** The way on when this invite can't be used. */
   otherwise: { label: string; onPress: () => void };
 }) {
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getInvite(token), [token]);
   const [picked, setPicked] = useState<string | null>(null);
+  // Null until they type, so a name that arrives late still fills the field.
+  const [typed, setTyped] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -196,15 +211,18 @@ function WhoAreYou({
     );
   }
 
-  // With one person left there is nothing to choose between.
-  const chosen = data.members.find((m) => m.ref === picked) ?? (data.members.length === 1 ? data.members[0] : null);
+  // With nobody left to pick, adding yourself is the only way in.
+  const adding = picked === NEW || data.members.length === 0;
+  const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
+  const draft = typed ?? suggestedName ?? '';
+  const name = adding ? draft.trim() : (member?.name ?? '');
 
   const submit = async () => {
-    if (!chosen || busy) return;
+    if (!name || busy) return;
     setBusy(true);
     setFailed(null);
     try {
-      await join(chosen);
+      await join(member ? { ref: member.ref } : { displayName: name }, name);
     } catch (e) {
       setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
       setPicked(null);
@@ -220,56 +238,74 @@ function WhoAreYou({
         <Text style={s.group}>{data.groupName}</Text>
       </Card>
 
-      {data.members.length === 0 ? (
-        <>
-          {failed && <ErrorState message={failed} />}
-          <ErrorState message="Everyone in this group has already joined. Ask someone in it to add you by name, then open this link again." />
-          <Button label={otherwise.label} onPress={otherwise.onPress} />
-        </>
-      ) : (
-        <>
-          <View>
-            <SectionLabel>Who are you?</SectionLabel>
-            <Card style={{ padding: 0 }}>
-              {data.members.map((member, i) => {
-                const on = member.ref === chosen?.ref;
-                return (
-                  <View key={member.ref}>
-                    {i > 0 && <Divider />}
-                    <Pressable
-                      onPress={() => setPicked(member.ref)}
-                      disabled={busy}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: on }}
-                      style={({ pressed }) => [
-                        s.row,
-                        i === 0 && s.rowFirst,
-                        i === data.members.length - 1 && s.rowLast,
-                        (on || pressed) && { backgroundColor: color.accentWash },
-                      ]}
-                    >
-                      <Avatar name={member.name} dim={!on} />
-                      <Text style={s.name}>{member.name}</Text>
-                      <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </Card>
-            <Text style={s.hint}>You take over that name as it is, with the balance already on it.</Text>
-          </View>
+      <View>
+        <SectionLabel>Who are you?</SectionLabel>
+        <Card style={{ padding: 0 }}>
+          {data.members.map((m, i) => {
+            const on = m.ref === member?.ref;
+            return (
+              <View key={m.ref}>
+                {i > 0 && <Divider />}
+                <Pressable
+                  onPress={() => setPicked(m.ref)}
+                  disabled={busy}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  style={({ pressed }) => [s.row, i === 0 && s.rowFirst, (on || pressed) && s.rowOn]}
+                >
+                  <Avatar name={m.name} dim={!on} />
+                  <Text style={s.name}>{m.name}</Text>
+                  <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
+                </Pressable>
+              </View>
+            );
+          })}
+          {data.members.length > 0 && <Divider />}
+          <Pressable
+            onPress={() => setPicked(NEW)}
+            disabled={busy}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: adding }}
+            style={({ pressed }) => [
+              s.row,
+              data.members.length === 0 && s.rowFirst,
+              !adding && s.rowLast,
+              (adding || pressed) && s.rowOn,
+            ]}
+          >
+            <View style={[s.plus, adding && { backgroundColor: color.surface }]}>
+              <Text style={s.plusText}>+</Text>
+            </View>
+            <Text style={s.name}>{data.members.length === 0 ? 'Add yourself' : 'I’m not on this list'}</Text>
+            <View style={[s.radio, adding && s.radioOn]}>{adding && <View style={s.radioDot} />}</View>
+          </Pressable>
+          {adding && (
+            <View style={[s.adding, s.rowLast]}>
+              <TextInput
+                style={s.input}
+                value={draft}
+                onChangeText={setTyped}
+                onSubmitEditing={submit}
+                returnKeyType="done"
+                placeholder="Your name"
+                placeholderTextColor={color.inkFaint}
+                maxLength={40}
+                editable={!busy}
+                autoFocus
+              />
+            </View>
+          )}
+        </Card>
+        <Text style={s.hint}>
+          {adding
+            ? 'You’re added to the group as a new member, with nothing owed either way.'
+            : 'You take over that name as it is, with the balance already on it.'}
+        </Text>
+      </View>
 
-          <Text style={s.note}>{note}</Text>
-          {failed && <ErrorState message={failed} />}
-          <Button
-            label={chosen ? `Join as ${chosen.name}` : 'Join'}
-            variant="primary"
-            busy={busy}
-            disabled={!chosen}
-            onPress={submit}
-          />
-        </>
-      )}
+      <Text style={s.note}>{note}</Text>
+      {failed && <ErrorState message={failed} />}
+      <Button label={name ? `Join as ${name}` : 'Join'} variant="primary" busy={busy} disabled={!name} onPress={submit} />
     </>
   );
 }
@@ -284,6 +320,18 @@ const s = StyleSheet.create({
   // The card's corners are rounded and it doesn't clip, so the rows at its ends are too.
   rowFirst: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
   rowLast: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  rowOn: { backgroundColor: color.accentWash },
+  // The same circle an avatar is, for the row that has no name yet.
+  plus: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: color.surfaceSunken,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plusText: { ...type.heading, color: color.accent },
+  adding: { backgroundColor: color.accentWash, paddingHorizontal: space.lg, paddingBottom: space.lg },
   name: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
   radio: {
     width: 20,

@@ -159,8 +159,9 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
           {data.invite ? (
             <>
               <Text style={s.body}>
-                Anyone holding this link can join as one of the people who haven’t yet, and from then on see
-                everything in the group and add to it. It stops working a week after it was made.
+                Anyone holding this link can join, as one of the people who haven’t yet or by adding themselves,
+                and from then on see everything in the group and add to it. It stops working a week after it was
+                made.
               </Text>
               <Text style={s.url} selectable numberOfLines={1}>
                 {`${APP_URL}${invitePath(data.invite.token)}`}

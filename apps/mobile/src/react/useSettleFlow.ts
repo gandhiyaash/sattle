@@ -63,7 +63,7 @@ export async function inviteLink(client: SattleClient, groupId: string) {
   const days = Math.max(1, Math.ceil((Date.parse(invite.expiresAt) - Date.now()) / 86_400_000));
   return {
     url: `${APP_URL}${invitePath(invite.token)}`,
-    sentNote: `Sent. It works ${days === 1 ? 'until tomorrow' : `for ${days} more days`}, for everyone who hasn’t joined.`,
+    sentNote: `Sent. It works ${days === 1 ? 'until tomorrow' : `for ${days} more days`}.`,
   };
 }
 

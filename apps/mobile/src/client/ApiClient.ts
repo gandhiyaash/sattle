@@ -23,6 +23,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinAs,
   type LedgerBackup,
   type Member,
   type PayLink,
@@ -173,8 +174,8 @@ export class ApiClient implements SattleClient {
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  acceptInvite(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Group>('POST', '/groups/join', { token, ref }, idempotencyKey);
+  acceptInvite(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups/join', { token, ...as }, idempotencyKey);
   }
 
   getGroupLink(groupId: string) {

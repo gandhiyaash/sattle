@@ -210,8 +210,8 @@ export interface GuestView {
 /**
  * A shareable link that lets people into a group: whoever opens /join/<token>
  * picks which of its ghosts they are and, with an account, becomes that
- * member. Unlike a pay link this grants the whole group, to read and to
- * write, so it expires. A group has none until someone in it makes one, and
+ * member, or adds themselves if they aren't one of them. Unlike a pay link
+ * this grants the whole group, to read and to write, so it expires. A group has none until someone in it makes one, and
  * at most one at a time; anyone in the group can replace it or turn it off.
  */
 export interface Invite {
@@ -227,6 +227,9 @@ export interface InviteMember {
   ref: string;
   name: string;
 }
+
+/** Who someone joins as: one of the people the invite offers, or a new member under that name. */
+export type JoinAs = { ref: string } | { displayName: string };
 
 /** Only what the join page may show before someone joins. Names, no ids. */
 export interface InviteView {

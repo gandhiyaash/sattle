@@ -295,6 +295,78 @@ describe('POST /groups/join', () => {
     expect(again.body.id).toBe(group.id);
   });
 
+  it('lets someone who isn’t on the list add themselves, as a member who has joined', async () => {
+    const { call, base, signUp, invite, page, members, group } = await setup();
+    const { token } = (await invite()).body;
+    const d = await signUp('Dev');
+
+    const joined = await call<Group>('POST', '/groups/join', { token, displayName: '  Dev  ' }, d.token);
+    expect(joined.status).toBe(200);
+    expect(joined.body.id).toBe(group.id);
+
+    // A new row after everyone else, already theirs. The ghosts are still there to be picked.
+    const ms = await members();
+    expect(ms.map((m) => m.displayName)).toEqual(['Riya', 'Kabir', 'Aman', 'Dev']);
+    expect(ms[3]).toMatchObject({ displayName: 'Dev', status: 'joined', claimedByUserId: d.user.id });
+    expect((await page(token)).body.members.map((m) => m.name)).toEqual(['Kabir', 'Aman']);
+
+    const added = await call<Expense>(
+      'POST',
+      `${base}/expenses`,
+      { description: 'Chai', amount: 200, paidByMemberId: ms[3].id, splitMode: 'equal', parts: ms.map((m) => ({ memberId: m.id })) },
+      d.token
+    );
+    expect(added.status).toBe(201);
+  });
+
+  it('still lets people in once everyone listed has joined', async () => {
+    const { call, signUp, invite, joinAs, page, members } = await setup();
+    const { token } = (await invite()).body;
+    await joinAs('Kabir', token, (await signUp('Kabir')).token);
+    await joinAs('Aman', token, (await signUp('Aman')).token);
+    expect((await page(token)).body.members).toEqual([]);
+
+    expect((await call('POST', '/groups/join', { token, displayName: 'Dev' }, (await signUp('Dev')).token)).status).toBe(200);
+    expect((await members()).map((m) => m.displayName)).toEqual(['Riya', 'Kabir', 'Aman', 'Dev']);
+  });
+
+  it('won’t start a second row beside a name that is still waiting to be picked', async () => {
+    const { call, signUp, invite, members } = await setup();
+    const { token } = (await invite()).body;
+    const res = await call('POST', '/groups/join', { token, displayName: 'kabir ' }, (await signUp('Kabir')).token);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'conflict', message: 'Kabir is already in this group. Pick that name to join as them.' });
+    expect(await members()).toHaveLength(3);
+  });
+
+  it('allows a name someone who has joined already goes by', async () => {
+    const { call, signUp, invite, members } = await setup();
+    const { token } = (await invite()).body;
+    expect((await call('POST', '/groups/join', { token, displayName: 'Riya' }, (await signUp('Riya')).token)).status).toBe(200);
+    expect((await members()).filter((m) => m.displayName === 'Riya')).toHaveLength(2);
+  });
+
+  it('adds nobody without an account, with an empty or overlong name, on a dead link, or twice', async () => {
+    const { db, call, signUp, invite, members, riya } = await setup();
+    const { token } = (await invite()).body;
+    const d = await signUp('Dev');
+
+    expect((await call('POST', '/groups/join', { token, displayName: 'Dev' })).status).toBe(401);
+    expect((await call('POST', '/groups/join', { token, displayName: '   ' }, d.token)).status).toBe(400);
+    expect((await call('POST', '/groups/join', { token, displayName: 'x'.repeat(41) }, d.token)).status).toBe(400);
+    expect((await call('POST', '/groups/join', { token: 'nope', displayName: 'Dev' }, d.token)).status).toBe(404);
+    expect((await call('POST', '/groups/join', { token, displayName: 'Riya again' }, riya.token)).status).toBe(409);
+    expect(await members()).toHaveLength(3);
+
+    expect((await call('POST', '/groups/join', { token, displayName: 'Dev' }, d.token)).status).toBe(200);
+    expect((await call('POST', '/groups/join', { token, displayName: 'Dev' }, d.token)).status).toBe(409);
+    expect(await members()).toHaveLength(4);
+
+    db.prepare('UPDATE invites SET expires_at = ? WHERE token = ?').run(new Date(Date.now() - 1000).toISOString(), token);
+    expect((await call('POST', '/groups/join', { token, displayName: 'Late' }, (await signUp('Late')).token)).status).toBe(410);
+    expect(await members()).toHaveLength(4);
+  });
+
   it('lets the new member share the invite, and replace it', async () => {
     const { call, base, signUp, invite, joinAs } = await setup();
     const { token } = (await invite()).body;

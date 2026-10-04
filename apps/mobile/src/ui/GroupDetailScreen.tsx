@@ -215,7 +215,7 @@ export function GroupDetailScreen({
           <Divider />
           <AddMember groupId={groupId} onAdded={refresh} />
         </Card>
-        {data.members.some((m) => !m.claimedByUserId) && <InviteToJoin groupId={groupId} groupName={data.name} />}
+        <InviteToJoin groupId={groupId} groupName={data.name} />
       </View>
 
       <View>
@@ -295,11 +295,11 @@ function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
 }
 
 /**
- * One invite for everyone who hasn't joined, for the chat they're all in.
- * Whoever opens it picks their own name from the list and becomes that member,
- * so nobody needs a link of their own. Joining is full membership: they can
- * see and add to the whole group, which is why it says so before it's sent.
- * Replacing it and turning it off are under Manage.
+ * One invite for everyone, for the chat they're all in. Whoever opens it picks
+ * their own name from the list and becomes that member, or adds themselves if
+ * they aren't on it, so nobody needs a link of their own. Joining is full
+ * membership: they can see and add to the whole group, which is why it says
+ * so before it's sent. Replacing it and turning it off are under Manage.
  */
 function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: string }) {
   const client = useClient();
@@ -314,15 +314,15 @@ function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: stri
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
       return;
     }
-    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this and pick your name: ${link.url}`;
+    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this and pick your name, or add it: ${link.url}`;
     setState({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
   };
 
   return (
     <View style={s.inviteBlock}>
       <Button
-        label={state.kind === 'sent' ? 'Share the invite again' : 'Invite them to join'}
-        hint="One link for everyone who hasn’t joined. They pick their name, then can see this group and add to it."
+        label={state.kind === 'sent' ? 'Share the invite again' : 'Invite people to join'}
+        hint="One link for everyone. They pick their name, or add themselves, then can see this group and add to it."
         busy={state.kind === 'busy'}
         onPress={send}
       />
