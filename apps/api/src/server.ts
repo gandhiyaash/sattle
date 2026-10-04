@@ -5,9 +5,10 @@ import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
 import { productionProblems } from './env';
 import { NostrLedger } from './nostrLedger';
+import { LnurlClient } from './lnurl';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
-import { NwcPayments } from './payments/nwc';
+import { LightningPayments } from './payments/lightning';
 import { createRateService } from './rates';
 
 const num = (v: string | undefined, fallback: number) => {
@@ -30,7 +31,8 @@ const db = openDb(env.DATABASE_PATH ?? 'data/sattle.db');
 // Demo fixtures are opt-in, so a production database starts empty.
 if (env.SEED === 'true') seedIfEmpty(db);
 
-// PAYMENTS=nwc mints real invoices on payees' wallets; anything else simulates.
+// PAYMENTS=nwc gets real invoices from payees' wallets (NWC) or their own
+// Lightning addresses; anything else simulates.
 const realPayments = env.PAYMENTS === 'nwc';
 
 // A `created` row never got an invoice to anyone, so nothing can have moved.
@@ -43,7 +45,7 @@ db.prepare(
      updated_at = ? WHERE status IN ${interrupted}`
 ).run(new Date().toISOString());
 
-let nwcPayments: NwcPayments | undefined;
+let lightning: LightningPayments | undefined;
 const rates = createRateService({ fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 9_000_000) } });
 
 // Unset or empty: entries are signed and kept, and go out once relays are set.
@@ -57,7 +59,15 @@ const app = createApp({
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
   payments: (repo, wallets) =>
     realPayments
-      ? (nwcPayments = new NwcPayments({ db, repo, wallets, rates, nwc: (uri) => new NwcClient(uri) }))
+      ? (lightning = new LightningPayments({
+          db,
+          repo,
+          wallets,
+          rates,
+          nwc: (uri) => new NwcClient(uri),
+          // `bc` is mainnet; set LIGHTNING_NETWORK=tbs to test on signet.
+          lnurl: new LnurlClient({ network: env.LIGHTNING_NETWORK || 'bc' }),
+        }))
       : new SimulatedPayments(repo, {
           stepMs: num(env.SIM_STEP_MS, 400),
           settleDelayMs: num(env.SIM_SETTLE_MS, 2500),
@@ -66,11 +76,11 @@ const app = createApp({
         }),
 });
 
-const resumed = nwcPayments?.resume() ?? 0;
+const resumed = lightning?.resume() ?? 0;
 ledger.start();
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real NWC payments' : 'simulated payments'})`);
+  console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real payments' : 'simulated payments'})`);
   if (resumed > 0) console.log(`  watching ${resumed} open invoice(s) from before the restart`);
   console.log(
     ledgerRelays.length > 0

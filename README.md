@@ -58,7 +58,8 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `SEED` | `false` | `true` loads the demo fixtures into an empty database. Leave unset in production |
 | `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
 | `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
-| `PAYMENTS` | `sim` | `nwc` mints real invoices on payees' connected wallets; anything else simulates |
+| `PAYMENTS` | `sim` | `nwc` gets real invoices from payees' connected wallets or their own Lightning addresses; anything else simulates |
+| `LIGHTNING_NETWORK` | `bc` | network address invoices must be on: `bc` mainnet, `tbs` signet, `tb` testnet, `bcrt` regtest |
 | `LEDGER_RELAYS` | empty | comma-separated relays the group ledger is published to. Empty: entries are signed and kept, not sent. See [The ledger on Nostr](#the-ledger-on-nostr) |
 | `RATE_FALLBACK_INR_PER_BTC` | `9000000` | rate used if CoinGecko has never answered |
 | `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
@@ -203,10 +204,14 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
 
-- `nwc` (`payments/nwc.ts`): real payments. For each settlement it pins a quote at the live rate, asks the payee's own wallet for an invoice over Nostr Wallet Connect, and polls that wallet (`lookup_invoice`) until it reports the invoice paid. The preimage is checked against the payment hash before it's stored. Open invoices are picked up again after a restart. The server never holds funds.
+- `nwc` (`payments/lightning.ts`): real payments. For each settlement it pins a quote at the live rate and gets an invoice that pays the payee directly:
+  - from their own wallet over Nostr Wallet Connect, polling it (`lookup_invoice`) until it reports the invoice paid, or
+  - for a member with no NWC wallet, from the Lightning address they set themselves (LNURL-pay, `lnurl.ts`). The invoice is checked first: exact amount, our network, the address's metadata. When the address has a verify link (LUD-21) it's polled, and only a preimage that matches the payment hash counts as paid. Without one, the invoice is closed when it expires, saying we couldn't tell. Every request to an address goes through `safeFetch.ts`, which refuses private addresses, redirects and slow or oversized answers.
+
+  The preimage is checked against the payment hash before it's stored. Open invoices are picked up again after a restart. The server never holds funds. `npm run lnurl:smoke -w @sattle/api -- you@wallet.com` checks a real address.
 - anything else: `SimulatedPayments`, which walks the same states as the mock with a fake preimage.
 
-One gap with real payments on: a ghost's Lightning address can't be paid yet, because the payee's wallet is how a payment is confirmed and a ghost hasn't connected one. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
+One gap with real payments on: a ghost's Lightning address can't be paid yet. A groupmate typed it, so a payment to it proves nothing about the ghost; joining clears it, and the member sets their own. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
 
 Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 

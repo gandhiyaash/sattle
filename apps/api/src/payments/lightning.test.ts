@@ -8,7 +8,7 @@ import { createApp } from '../app';
 import { openDb, seedIfEmpty, type Db } from '../db';
 import { NwcError, type MakeInvoiceParams, type NwcApi, type NwcInvoice } from '../nwc';
 import type { RateService } from '../rates';
-import { NwcPayments } from './nwc';
+import { LightningPayments } from './lightning';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
 const PREIMAGE = randomBytes(32).toString('hex');
@@ -21,7 +21,7 @@ let mintError: Error | undefined;
 /** Set to make the wallet hand back an invoice it already gave us. */
 let repeatHash: string | undefined;
 let opened: number;
-let backend: NwcPayments | undefined;
+let backend: LightningPayments | undefined;
 /** What lookup_invoice answers. Swap it mid-test to move the invoice along. */
 let lookup: () => Partial<NwcInvoice> | Error;
 let lookups: number;
@@ -58,7 +58,7 @@ function as(userId: string) {
     nwc: fakeNwc,
     // One backend per test, like the one the server builds at boot.
     payments: (repo, wallets) =>
-      (backend ??= new NwcPayments({ db, repo, wallets, rates, nwc: fakeNwc, now: () => NOW, pollMs: 2 })),
+      (backend ??= new LightningPayments({ db, repo, wallets, rates, nwc: fakeNwc, now: () => NOW, pollMs: 2 })),
   });
 }
 
@@ -110,7 +110,7 @@ beforeEach(() => {
   lookups = 0;
 });
 
-describe('NwcPayments', () => {
+describe('LightningPayments', () => {
   beforeEach(async () => {
     expect((await call('u-yash', 'PUT', '/me/wallet', { nwcUri: URI })).status).toBe(200);
   });
@@ -157,7 +157,7 @@ describe('NwcPayments', () => {
   });
 });
 
-describe('NwcPayments without a connected wallet', () => {
+describe('LightningPayments without a connected wallet', () => {
   it('fails, naming who has to connect one', async () => {
     const s = await settled((await omPaysYash()).body.id);
     expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash hasn’t connected a wallet to receive yet. Nothing moved.' });
