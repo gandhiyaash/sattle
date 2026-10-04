@@ -106,8 +106,11 @@ export function createRepo(db: Db) {
     ),
     setAddress: db.prepare('UPDATE members SET lightning_address = ? WHERE id = ?'),
     // Only ever claims a ghost: the WHERE is what keeps two people off one member.
+    // The address a groupmate typed for the ghost goes: a joined member only
+    // ever has an address they set themselves (see payout-address).
     claimMember: db.prepare(
-      'UPDATE members SET claimed_by_user_id = ?, status = ? WHERE id = ? AND claimed_by_user_id IS NULL'
+      `UPDATE members SET claimed_by_user_id = ?, status = ?, lightning_address = NULL
+       WHERE id = ? AND claimed_by_user_id IS NULL`
     ),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(

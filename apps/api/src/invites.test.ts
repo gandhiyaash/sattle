@@ -162,6 +162,22 @@ describe('POST /groups/join', () => {
     expect((await join(forKabir, (await signUp('Kabir')).token)).status).toBe(200);
   });
 
+  it('drops the address a groupmate typed, so the member chooses where they get paid', async () => {
+    const { call, signUp, invite, join, members, riya, kabir } = await setup();
+    // Riya could type her own address for Kabir. Once he has joined, a
+    // payment proven to that address must not count as paying him.
+    expect((await call('PUT', `/members/${kabir}/payout-address`, { address: 'riya@getalby.com' }, riya.token)).status).toBe(200);
+    const { token } = (await invite(kabir)).body;
+    const k = await signUp('Kabir');
+    expect((await join(token, k.token)).status).toBe(200);
+    expect((await members()).find((m) => m.id === kabir)?.lightningAddress).toBeUndefined();
+
+    // Only he can set one now.
+    expect((await call('PUT', `/members/${kabir}/payout-address`, { address: 'riya@getalby.com' }, riya.token)).status).toBe(400);
+    expect((await call('PUT', `/members/${kabir}/payout-address`, { address: 'kabir@blink.sv' }, k.token)).status).toBe(200);
+    expect((await members()).find((m) => m.id === kabir)?.lightningAddress).toBe('kabir@blink.sv');
+  });
+
   it('stops working after a week', async () => {
     const { db, call, signUp, invite, join, kabir } = await setup();
     const { token } = (await invite(kabir)).body;

@@ -516,6 +516,7 @@ export class MockClient implements SattleClient {
       }
       member.claimedByUserId = me.id;
       member.status = this.wallet.connected ? 'nwc_linked' : 'joined';
+      delete member.lightningAddress; // as the API: a groupmate typed it, not them
       return this.findGroup(invite.groupId);
     }, idempotencyKey);
   }
