@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       bump_type:
-        description: 'Version bump type (none, patch, minor, major)'
+        description: 'Version bump from the latest vX.Y.Z tag (none rebuilds that version)'
         required: true
         default: 'patch'
         type: choice
@@ -36,7 +36,7 @@ on:
           - '4'
           - '5'
 
-# Two runs bumping the version at once would race on the branch and the tag.
+# Two runs bumping the version at once would race for the same tag.
 concurrency:
   group: android-release
   cancel-in-progress: false
@@ -92,39 +92,41 @@ jobs:
             exit 1
           fi
 
-      - name: Configure Git
-        if: ${{ github.event.inputs.bump_type != '' && github.event.inputs.bump_type != 'none' }}
-        run: |
-          set -e
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Bump Version
-        if: ${{ github.event.inputs.bump_type != '' && github.event.inputs.bump_type != 'none' }}
-        id: version_bump
+      - name: Determine Version
         env:
           BUMP_TYPE: ${{ github.event.inputs.bump_type }}
+          REF: ${{ github.ref_name }}
         run: |
           set -e
-          # Commit and tag locally only. They are pushed after the build succeeds, so a
-          # failed build leaves no version commit or tag behind.
-          npm version "$BUMP_TYPE" --no-git-tag-version -w @sattle/mobile
-          NEW_VERSION=$(node -p "require('./apps/mobile/package.json').version")
-          git add apps/mobile/package.json package-lock.json
-          git commit -m "chore(release): bump version to v$NEW_VERSION"
-          git tag "v$NEW_VERSION"
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          # The tag marks the commit that was built, so releases come from main only.
+          if [ "$REF" != "main" ]; then
+            echo "::error::Releases are cut from main; this run is on $REF."
+            exit 1
+          fi
+          # Releases are tags only. main only takes pull requests, so nothing is
+          # committed back: the newest vX.Y.Z tag is the current version, and
+          # apps/mobile/package.json is only the starting point before the first one.
+          LAST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          BASE=${LAST#v}
+          BASE=${BASE:-$(node -p "require('./apps/mobile/package.json').version")}
+          IFS=. read -r MAJOR MINOR PATCH <<<"$BASE"
+          case "$BUMP_TYPE" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+            *)     NEW_VERSION="$BASE" ;;
+          esac
+          # A bump must not land on a version that's already out. `none` rebuilds the
+          # latest one, whose tag stays where it is.
+          if [ "$BUMP_TYPE" != "none" ] && git rev-parse -q --verify "refs/tags/v$NEW_VERSION" >/dev/null; then
+            echo "::error::v$NEW_VERSION is already tagged."
+            exit 1
+          fi
+          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          echo "Building v$NEW_VERSION (latest tag: ${LAST:-none})"
 
       - name: Install Dependencies
         run: npm ci
-
-      - name: Determine Current Version
-        run: |
-          VERSION=$(node -p "require('./apps/mobile/package.json').version")
-          if [ -z "$NEW_VERSION" ]; then
-            echo "NEW_VERSION=$VERSION" >> $GITHUB_ENV
-          fi
-          echo "Building version: ${NEW_VERSION:-$VERSION}"
 
       - name: Setup Java Jdk
         uses: actions/setup-java@v4
@@ -177,27 +179,23 @@ jobs:
             -PSATTLE_UPLOAD_KEY_ALIAS="$KEY_ALIAS" \
             -PSATTLE_UPLOAD_KEY_PASSWORD="$KEY_PASSWORD"
 
-      - name: Push Version Bump
-        if: ${{ github.event.inputs.bump_type != '' && github.event.inputs.bump_type != 'none' }}
-        env:
-          BRANCH: ${{ github.ref_name }}
+      - name: Tag the Release
         run: |
-          # Branch and tag go together so neither lands alone. No rebase-and-retry: if the
-          # branch moved during the build, the tag would point at code that wasn't built.
-          # The output is kept so the error below can say why the push was refused.
-          if OUT=$(git push --atomic origin "HEAD:$BRANCH" "refs/tags/v$NEW_VERSION" 2>&1); then
-            echo "$OUT"
+          set -e
+          TAG="v$NEW_VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists; rebuilding it without moving the tag."
             exit 0
           fi
-          echo "$OUT"
-          if grep -q 'GH013\|repository rule violations' <<<"$OUT"; then
-            echo "::error::The $BRANCH ruleset refused the push. Add GitHub Actions to the ruleset's bypass list (Settings → Rules → Rulesets), then re-run."
-          elif grep -q 'non-fast-forward\|fetch first' <<<"$OUT"; then
-            echo "::error::$BRANCH moved while building v$NEW_VERSION. Re-run the workflow."
-          else
-            echo "::error::Pushing v$NEW_VERSION to $BRANCH failed; see the git output above."
+          # Only the tag is pushed. The main ruleset covers the branch, not tags, so the
+          # workflow's own token can push it, and a failed build never gets this far.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          if ! git push origin "refs/tags/$TAG"; then
+            echo "::error::Pushing $TAG failed. If another run tagged it first, re-run with the next bump."
+            exit 1
           fi
-          exit 1
 
       - name: Extract Release Notes
         id: changelog

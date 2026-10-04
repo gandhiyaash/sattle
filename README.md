@@ -232,15 +232,15 @@ gh workflow run android-release.yml -f bump_type=patch -f track=internal -f upda
 
 | Input | Values | What it sets |
 | --- | --- | --- |
-| `bump_type` | `patch` (default), `minor`, `major`, `none` | How the version in `apps/mobile/package.json` moves. `none` rebuilds the version already there. |
+| `bump_type` | `patch` (default), `minor`, `major`, `none` | How the version moves from the newest `vX.Y.Z` tag. `none` rebuilds that version without moving its tag. |
 | `track` | `internal` (default), `alpha`, `beta`, `production` | The Play track the build is published to. |
 | `update_priority` | `0` (default) to `5` | How hard installed copies are pushed to update. See [Update priority](#update-priority). |
 
 The run then does the whole release:
 
-1. Bumps the version, and commits and tags it as `vX.Y.Z`, locally for now.
+1. Works out the version from the newest `vX.Y.Z` tag. Releases are tags only: `main` takes changes only through pull requests, so nothing is committed back, and `apps/mobile/package.json` is just the starting point before the first tag. Runs from any branch but `main` are refused.
 2. Generates `android/` with `expo prebuild` and builds a signed APK and AAB. The version name is the bumped version. The version code is the workflow's run number, so it only ever goes up.
-3. Pushes the commit and the tag together. This comes after the build, so a failed build leaves neither behind.
+3. Tags the commit it built as `vX.Y.Z` and pushes only the tag, which the `main` ruleset doesn't cover. This comes after the build, so a failed build leaves no tag behind.
 4. Creates the GitHub release `vX.Y.Z`, with both files attached and the commits since the last tag as its notes.
 5. Uploads the AAB to the chosen Play track, rolled out to everyone on it.
 
@@ -257,7 +257,6 @@ What it needs from the repository:
 | Secrets | `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | Signing. The run stops at the start without all four, rather than ship a build signed with the debug key. |
 | Secret | `PLAY_STORE_CREDENTIALS` | The Play upload: a service account's JSON key. Without it the run ends at the GitHub release. |
 | Variable | `EXPO_PUBLIC_USE_MOCK` | Leave unset. The run refuses to send a mock build to `production`. |
-| Ruleset | a bypass on `main` for the workflow | Step 3 pushes straight to `main`, which otherwise only takes pull requests. Without the bypass the run builds everything, fails at "Push Version Bump", and leaves no tag and no release. |
 
 ### Android updates
 
