@@ -59,6 +59,7 @@ export class NwcPayments implements PaymentBackend {
   /** One client per connection string, kept open: each new one costs a relay handshake. */
   private readonly clients = new Map<string, NwcApi>();
   private readonly setHash;
+  private readonly hashTaken;
   private readonly groupName;
   private readonly openInvoices;
   private readonly now: () => number;
@@ -68,6 +69,7 @@ export class NwcPayments implements PaymentBackend {
 
   constructor(private readonly deps: NwcPaymentsDeps) {
     this.setHash = deps.db.prepare('UPDATE settlements SET payment_hash = ? WHERE id = ?');
+    this.hashTaken = deps.db.prepare('SELECT 1 FROM settlements WHERE payment_hash = ?');
     this.groupName = deps.db.prepare('SELECT name FROM expense_groups WHERE id = ?');
     this.openInvoices = deps.db.prepare(
       `SELECT id, to_member_id, payment_hash FROM settlements WHERE status IN ${OPEN}`
@@ -144,10 +146,18 @@ export class NwcPayments implements PaymentBackend {
       return this.fail(s.id, mintFailure(e, payee.displayName));
     }
 
-    transaction(this.deps.db, () => {
+    // One payment hash, one settlement: otherwise a single payment would
+    // confirm both. The unique index (migration 011) backs this up.
+    const fresh = transaction(this.deps.db, () => {
+      if (this.hashTaken.get(invoice.paymentHash)) return false;
       this.setHash.run(invoice.paymentHash, s.id);
       repo.updateSettlement(s.id, { status: 'awaiting_payment', quote, destination: invoice.invoice });
+      return true;
     });
+    if (!fresh) {
+      console.warn(`settlement ${s.id}: wallet returned an invoice we already hold`);
+      return this.fail(s.id, `${payee.displayName}’s wallet gave us an invoice it had already given us. Nothing moved.`);
+    }
     this.watch({ settlementId: s.id, uri, paymentHash: invoice.paymentHash });
   }
 

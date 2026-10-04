@@ -18,6 +18,8 @@ const NOW = Date.parse('2026-10-02T10:00:00Z');
 let db: Db;
 let minted: MakeInvoiceParams[];
 let mintError: Error | undefined;
+/** Set to make the wallet hand back an invoice it already gave us. */
+let repeatHash: string | undefined;
 let opened: number;
 let backend: NwcPayments | undefined;
 /** What lookup_invoice answers. Swap it mid-test to move the invoice along. */
@@ -33,7 +35,10 @@ function fakeNwc(): NwcApi {
     makeInvoice: async (p) => {
       if (mintError) throw mintError;
       minted.push(p);
-      return { invoice: 'lnbc1real', paymentHash: HASH, amountMsat: p.amountMsat, createdAt: NOW / 1000, state: 'pending' };
+      // The first invoice is the one PREIMAGE pays; later ones are new
+      // invoices, so new hashes, as a real wallet would mint.
+      const paymentHash = repeatHash ?? (minted.length === 1 ? HASH : randomBytes(32).toString('hex'));
+      return { invoice: 'lnbc1real', paymentHash, amountMsat: p.amountMsat, createdAt: NOW / 1000, state: 'pending' };
     },
     lookupInvoice: async ({ paymentHash }: { paymentHash: string }) => {
       lookups++;
@@ -97,6 +102,7 @@ beforeEach(() => {
   db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = 'demo'`).run();
   minted = [];
   mintError = undefined;
+  repeatHash = undefined;
   opened = 0;
   backend?.close();
   backend = undefined;
@@ -182,7 +188,22 @@ describe('confirmation loop', () => {
   it('marks it expired when the wallet says so, which frees the debt for a new invoice', async () => {
     lookup = () => ({ state: 'expired' });
     expect((await closed((await omPaysYash()).body.id)).status).toBe('expired');
-    expect((await omPaysYash()).status).toBe(201);
+    const again = await omPaysYash();
+    expect(again.status).toBe(201);
+    expect((await settled(again.body.id)).status).toBe('awaiting_payment');
+  });
+
+  it('refuses an invoice whose payment hash another settlement already holds', async () => {
+    lookup = () => ({ state: 'expired' });
+    const first = (await omPaysYash()).body.id;
+    expect((await closed(first)).status).toBe('expired');
+
+    // One payment would confirm both, so the second never shows an invoice.
+    repeatHash = HASH;
+    const second = await settled((await omPaysYash()).body.id);
+    expect(second).toMatchObject({ status: 'failed', failureReason: 'Yash’s wallet gave us an invoice it had already given us. Nothing moved.' });
+    expect(second.destination).toBeUndefined();
+    expect((await get(first)).status).toBe('expired');
   });
 
   it('waits out the grace period before believing an invoice expired', async () => {
