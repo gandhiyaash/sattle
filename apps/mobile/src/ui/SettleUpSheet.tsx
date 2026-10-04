@@ -6,6 +6,7 @@
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
+ *   upi / upi_sent    what to pay in a UPI app, then waiting on the payee
  *
  * The blocked screen is not an error state. It offers the routes to the
  * same outcome that can work here, ordered by how likely they are to: get an
@@ -15,7 +16,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatFiat, type Debt, type Member } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
@@ -23,6 +24,7 @@ import { InvoicePanel } from './InvoicePanel';
 import { Button, Card, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
+import { UpiPanel } from './UpiPanel';
 
 export interface SettleUpSheetProps {
   debt: Debt;
@@ -41,7 +43,7 @@ export function SettleUpSheet({
 }: SettleUpSheetProps) {
   const color = useColors();
   const s = useStyles();
-  const flow = useSettleFlow(debt, members, groupName);
+  const flow = useSettleFlow(debt, members, groupName, currency);
   const [draft, setDraft] = useState('');
   // The quote ran out on screen before the server marked the invoice expired.
   const [lapsed, setLapsed] = useState(false);
@@ -71,6 +73,64 @@ export function SettleUpSheet({
   };
 
   if (!recipient || !flow.options) return null;
+
+  // -- UPI -----------------------------------------------------------------
+
+  if (flow.step === 'upi_sent') {
+    return (
+      <View style={s.sheet}>
+        <Text style={s.title}>Waiting for {recipient.displayName}</Text>
+        <Text style={s.body}>
+          You’ve told {recipient.displayName} you paid {amount} by UPI. It’s settled once they confirm it arrived.
+        </Text>
+        {flow.upiClaim?.reference && (
+          <View style={s.receipt}>
+            <Text style={s.receiptLabel}>UPI reference</Text>
+            <Text style={s.receiptValue} numberOfLines={1}>
+              {flow.upiClaim.reference}
+            </Text>
+          </View>
+        )}
+        <Button label="Done" variant="primary" onPress={onClose} />
+      </View>
+    );
+  }
+
+  if (flow.step === 'upi' && flow.upi) {
+    // Only Android hears back from the UPI app. Whatever it said short of success leaves it to the payer.
+    const said = flow.openUpiApp ? flow.upi.outcome?.status : undefined;
+    const instructions =
+      said === 'failed'
+        ? 'Your UPI app says the payment didn’t go through. Nothing was recorded, and you can try again.'
+        : said === 'pending'
+          ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
+          : said === 'unknown'
+            ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
+            : flow.openUpiApp
+              ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
+              : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
+    return (
+      <View style={s.sheet}>
+        <Text style={s.title}>Pay {recipient.displayName} by UPI</Text>
+        <View style={s.amountBlock}>
+          <Text style={s.amount}>{amount}</Text>
+        </View>
+        <Text style={s.body}>{instructions}</Text>
+
+        <UpiPanel payee={flow.upi.payee} uri={flow.upi.uri} busy={flow.busy} onOpen={flow.openUpiApp ?? undefined} />
+        {flow.error && <ErrorState message={flow.error.message} />}
+
+        <Button
+          label="I’ve paid"
+          variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
+          hint={`Tells ${recipient.displayName}, who confirms once it arrives.`}
+          busy={flow.busy}
+          onPress={flow.claimUpi}
+        />
+        <Button label="Back" variant="quiet" onPress={flow.leaveUpi} />
+      </View>
+    );
+  }
 
   // -- paying / done -------------------------------------------------------
 

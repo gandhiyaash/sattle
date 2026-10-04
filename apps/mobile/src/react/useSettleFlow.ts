@@ -5,7 +5,13 @@
  *      │   ▲                     │
  *      │   └──────failed─────────┘   (error shown, nothing moved)
  *      ├──startAddressEntry──▶ entering_address ──save──▶ choosing (re-resolved)
+ *      ├──choose('upi')──▶ upi ──claimUpi──▶ upi_sent   (the payee confirms, elsewhere)
  *      └──markManual──────────────────────────────────▶ done
+ *
+ * UPI is paid outside Sattle, in the payer's UPI app, so its branch ends in a
+ * claim, not a settlement: nothing here can see the money move. On Android
+ * the UPI app is opened for them and its answer makes the claim; elsewhere
+ * the payer pays and says so.
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything.
@@ -18,16 +24,28 @@ import {
   parseLightningAddress,
   resolveSettlementOptions,
   TERMINAL_STATUSES,
+  upiPayUri,
   type Debt,
   type Member,
   type Rail,
   type Settlement,
   type SettlementOptions,
+  type UpiClaim,
+  type UpiOutcome,
+  type UpiPayee,
 } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
+import { launchUpi } from '../upi/launchUpi';
 import { useActionKeys, useClient, usePaymentMode, useWallet } from './SattleProvider';
 
-export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';
+export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_sent';
+
+/** Paying by UPI: who to pay, the link that pays them, and what the UPI app last said, if it says anything. */
+export interface UpiSession {
+  payee: UpiPayee;
+  uri: string;
+  outcome: UpiOutcome | null;
+}
 
 export interface SettleFlow {
   step: SettleStep;
@@ -43,6 +61,16 @@ export interface SettleFlow {
   clearError: () => void;
   /** The group's invite, worded for the recipient. Throws if it can't; nothing else in the flow changes. */
   createInvite: (groupName: string) => Promise<{ url: string; message: string; sentNote: string }>;
+  /** Set on the `upi` step. */
+  upi: UpiSession | null;
+  /** The payer's word that they paid, once given. Set on `upi_sent`. */
+  upiClaim: UpiClaim | null;
+  /** Opens the UPI app again and acts on what it says. Null where no UPI app reports back (iOS, web). */
+  openUpiApp: (() => Promise<void>) | null;
+  /** Tells the person owed it has been paid. They confirm it. */
+  claimUpi: () => Promise<void>;
+  /** Back to the options, with nothing recorded. */
+  leaveUpi: () => void;
 }
 
 /** Base for every link the app hands out: invites and pay links. */
@@ -67,7 +95,7 @@ export async function inviteLink(client: SattleClient, groupId: string) {
   };
 }
 
-export function useSettleFlow(debt: Debt, members: Member[], _groupName: string): SettleFlow {
+export function useSettleFlow(debt: Debt, members: Member[], groupName: string, currency: string): SettleFlow {
   const client = useClient();
   const wallet = useWallet();
   // A retry after a network error reuses the attempt's key, so a payment
@@ -80,14 +108,18 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
+  const [upi, setUpi] = useState<UpiSession | null>(null);
+  const [upiClaim, setUpiClaim] = useState<UpiClaim | null>(null);
   const unsub = useRef<(() => void) | null>(null);
 
   useEffect(() => () => unsub.current?.(), []);
 
   const options = useMemo(
     () =>
-      recipient ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable, mode }) : null,
-    [recipient, wallet.isAvailable, mode]
+      recipient
+        ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable, mode, currency })
+        : null,
+    [recipient, wallet.isAvailable, mode, currency]
   );
 
   const run = async (fn: () => Promise<void>) => {
@@ -118,15 +150,56 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
     }
   };
 
+  const claimUpi = async (reference?: string) => {
+    const input = { ...pick(debt), ...(reference ? { reference } : {}) };
+    setUpiClaim(await keys.run('upi-claim', input, (k) => client.createUpiClaim(input, k)));
+    setStep('upi_sent');
+  };
+
+  /** Android: hands over to a UPI app, and acts on what it says when it hands back. */
+  const openUpiApp = async (session: UpiSession) => {
+    if (!launchUpi) return;
+    let outcome: UpiOutcome;
+    try {
+      outcome = await launchUpi(session.uri);
+    } catch {
+      throw new Error('No UPI app on this phone could open this. Pay the UPI ID below from your UPI app, then mark it as paid.');
+    }
+    setUpi({ ...session, outcome });
+    // The app says the money left, so tell the person owed, with the reference to check it against.
+    if (outcome.status === 'success') await claimUpi(outcome.reference);
+  };
+
   return {
     step,
     options,
     settlement,
     error,
     busy,
+    upi,
+    upiClaim,
+    openUpiApp: launchUpi && upi ? () => run(() => openUpiApp(upi)) : null,
+    claimUpi: () => run(() => claimUpi(upi?.outcome?.reference)),
+    leaveUpi: () => {
+      setError(null);
+      setUpi(null);
+      setStep('choosing');
+    },
 
     choose: (rail) =>
       run(async () => {
+        if (rail === 'upi') {
+          const payee = await client.getUpiPayee(debt.groupId, debt.toMemberId);
+          const session: UpiSession = {
+            payee,
+            uri: upiPayUri({ upiId: payee.upiId, name: payee.name, amount: debt.amount, note: `Sattle ${groupName}` }),
+            outcome: null,
+          };
+          setUpi(session);
+          setStep('upi');
+          await openUpiApp(session);
+          return;
+        }
         if (rail === 'manual') {
           const input = { ...pick(debt), note: 'Settled outside the app' };
           onUpdate(await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k)));

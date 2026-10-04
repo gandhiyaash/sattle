@@ -85,6 +85,7 @@ function Navigator({
     debt: Debt;
     members: Member[];
     groupName: string;
+    currency: string;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -143,7 +144,7 @@ function Navigator({
               setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
             }
             onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
-            onSettle={(debt, members, groupName) => setSettling({ debt, members, groupName })}
+            onSettle={(debt, members, groupName, currency) => setSettling({ debt, members, groupName, currency })}
           />
         );
 
@@ -225,6 +226,7 @@ function Navigator({
               debt={settling.debt}
               members={settling.members}
               groupName={settling.groupName}
+              currency={settling.currency}
               onClose={() => {
                 setSettling(null);
                 refresh();

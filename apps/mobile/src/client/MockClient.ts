@@ -19,12 +19,14 @@ import {
   isInProgress,
   fixtures,
   parseLightningAddress,
+  parseUpiId,
   resolveParts,
   simplifyDebts,
   toGuestSettlement,
   type CreateGroupInput,
   type CreatePayLinkInput,
   type CreateSettlementInput,
+  type CreateUpiClaimInput,
   type Expense,
   type ExpenseInput,
   type Group,
@@ -39,6 +41,9 @@ import {
   type PayLink,
   type ReceiveAddress,
   type Settlement,
+  type UpiClaim,
+  type UpiPayee,
+  type UpiProfile,
   type WalletConnection,
 } from '@sattle/core';
 import type { SattleClient } from './SattleClient';
@@ -72,6 +77,9 @@ export class MockClient implements SattleClient {
   private groupLinks: GroupLink[];
   private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
   private receiveAddress: string | null = null;
+  /** user id → their UPI ID. Om has one, so the demo has someone to pay by UPI. */
+  private upiIds: Record<string, string> = { 'u-om': 'om@okhdfcbank' };
+  private upiClaims: UpiClaim[] = [];
   private listeners = new Map<string, Set<(s: Settlement) => void>>();
   /** idempotency key → the first reply, like the server's table. */
   private replies = new Map<string, unknown>();
@@ -237,7 +245,9 @@ export class MockClient implements SattleClient {
   getMembers(groupId: string) {
     return this.call(() => {
       const g = this.findGroup(groupId);
-      return g.memberIds.map((id) => this.members.find((m) => m.id === id)!);
+      return g.memberIds
+        .map((id) => this.members.find((m) => m.id === id)!)
+        .map((m): Member => (this.takesUpi(m) ? { ...m, upi: true } : m));
     });
   }
 
@@ -344,6 +354,9 @@ export class MockClient implements SattleClient {
     return this.call(() => {
       if (input.rail === 'manual') {
         throw new SattleError('invalid_expense', 'Use markSettledManually for manual settlements.');
+      }
+      if (input.rail === 'upi') {
+        throw new SattleError('invalid_input', 'Use createUpiClaim for a UPI payment.');
       }
       const g = this.findGroup(input.groupId);
       this.checkCaller(input, 'payer');
@@ -893,6 +906,161 @@ export class MockClient implements SattleClient {
       this.receiveAddress = null;
       return { address: null };
     });
+  }
+
+  // -- UPI ------------------------------------------------------------------
+  //
+  // The same rules as the server's routes/upi.ts. The mock has one user, so a
+  // claim they make waits forever: nobody else is here to confirm it.
+
+  private takesUpi(member: Member) {
+    return Boolean(member.claimedByUserId && this.upiIds[member.claimedByUserId]);
+  }
+
+  private findUpiClaim(id: string) {
+    const claim = this.upiClaims.find((x) => x.id === id);
+    if (!claim) throw new SattleError('not_found', 'That UPI payment isn’t waiting any more.');
+    return claim;
+  }
+
+  private checkRupees(groupId: string) {
+    if (this.findGroup(groupId).currency !== 'INR') {
+      throw new SattleError('invalid_input', 'UPI only works for a group in rupees.');
+    }
+  }
+
+  getUpiId() {
+    return this.call((): UpiProfile => ({ upiId: this.upiIds[fixtures.currentUser.id] ?? null }));
+  }
+
+  setUpiId(upiId: string) {
+    return this.call((): UpiProfile => {
+      const parsed = parseUpiId(upiId);
+      if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
+      this.upiIds[fixtures.currentUser.id] = parsed.upiId;
+      return { upiId: parsed.upiId };
+    });
+  }
+
+  clearUpiId() {
+    return this.call((): UpiProfile => {
+      delete this.upiIds[fixtures.currentUser.id];
+      return { upiId: null };
+    });
+  }
+
+  getUpiPayee(groupId: string, memberId: string) {
+    return this.call((): UpiPayee => {
+      const g = this.findGroup(groupId);
+      const payee = this.members.find((m) => m.id === memberId && m.groupId === g.id);
+      if (!payee) throw new SattleError('not_found', 'That member isn’t in this group.');
+      this.checkRupees(groupId);
+      const me = this.myMember(groupId);
+      if (!this.debtsOf(groupId).some((d) => d.fromMemberId === me?.id && d.toMemberId === payee.id)) {
+        throw new SattleError('conflict', `You don’t owe ${payee.displayName} anything right now.`);
+      }
+      if (!this.takesUpi(payee)) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} hasn’t added a UPI ID.`);
+      }
+      return { upiId: this.upiIds[payee.claimedByUserId!], name: payee.displayName };
+    });
+  }
+
+  getUpiClaims(groupId: string) {
+    return this.call(() => {
+      const me = this.myMember(groupId)?.id;
+      return this.upiClaims.filter((x) => x.groupId === groupId && (x.fromMemberId === me || x.toMemberId === me));
+    });
+  }
+
+  createUpiClaim(input: CreateUpiClaimInput, idempotencyKey?: string) {
+    return this.call(() => {
+      this.findGroup(input.groupId);
+      this.checkCaller(input, 'payer');
+      const debt = this.debtsOf(input.groupId).find(
+        (d) => d.fromMemberId === input.fromMemberId && d.toMemberId === input.toMemberId
+      );
+      if (!debt) throw new SattleError('conflict', 'Nothing is owed here any more.');
+      if (input.amount > debt.amount) throw new SattleError('conflict', 'That’s more than is owed. Refresh and try again.');
+      this.checkRupees(input.groupId);
+      const payee = this.members.find((m) => m.id === input.toMemberId)!;
+      if (!this.takesUpi(payee)) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} hasn’t added a UPI ID.`);
+      }
+      const claim: UpiClaim = {
+        id: this.id('uc'),
+        groupId: input.groupId,
+        fromMemberId: input.fromMemberId,
+        toMemberId: input.toMemberId,
+        amount: input.amount,
+        ...(input.reference?.trim() ? { reference: input.reference.trim() } : {}),
+        status: 'pending',
+        createdAt: this.now(),
+      };
+      // One per pair: the new claim takes the place of the last.
+      this.upiClaims = [
+        ...this.upiClaims.filter(
+          (x) => !(x.groupId === claim.groupId && x.fromMemberId === claim.fromMemberId && x.toMemberId === claim.toMemberId)
+        ),
+        claim,
+      ];
+      return claim;
+    }, idempotencyKey);
+  }
+
+  confirmUpiClaim(claimId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const claim = this.findUpiClaim(claimId);
+      const g = this.findGroup(claim.groupId);
+      const payee = this.members.find((m) => m.id === claim.toMemberId)!;
+      if (payee.claimedByUserId !== fixtures.currentUser.id) {
+        throw new SattleError('invalid_input', `Only ${payee.displayName} can confirm this.`);
+      }
+      const debt = this.debtsOf(claim.groupId).find(
+        (d) => d.fromMemberId === claim.fromMemberId && d.toMemberId === claim.toMemberId
+      );
+      if (!debt) throw new SattleError('conflict', 'Nothing is owed here any more.');
+      if (claim.amount > debt.amount) throw new SattleError('conflict', 'That’s more than is owed. Refresh and try again.');
+      const s: Settlement = {
+        id: this.id('s'),
+        groupId: claim.groupId,
+        fromMemberId: claim.fromMemberId,
+        toMemberId: claim.toMemberId,
+        amount: claim.amount,
+        currency: g.currency,
+        rail: 'upi',
+        status: 'manually_confirmed',
+        note: claim.reference ? `Paid by UPI, ref ${claim.reference}` : 'Paid by UPI',
+        createdAt: this.now(),
+        updatedAt: this.now(),
+      };
+      this.settlements.push(s);
+      this.upiClaims = this.upiClaims.filter((x) => x !== claim);
+      return s;
+    }, idempotencyKey);
+  }
+
+  declineUpiClaim(claimId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const claim = this.findUpiClaim(claimId);
+      const payee = this.members.find((m) => m.id === claim.toMemberId)!;
+      if (payee.claimedByUserId !== fixtures.currentUser.id) {
+        throw new SattleError('invalid_input', `Only ${payee.displayName} can say whether this arrived.`);
+      }
+      claim.status = 'declined';
+      return claim;
+    }, idempotencyKey);
+  }
+
+  withdrawUpiClaim(claimId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const claim = this.findUpiClaim(claimId);
+      const payer = this.members.find((m) => m.id === claim.fromMemberId)!;
+      if (payer.claimedByUserId !== fixtures.currentUser.id) {
+        throw new SattleError('invalid_input', `Only ${payer.displayName} can take this back.`);
+      }
+      this.upiClaims = this.upiClaims.filter((x) => x !== claim);
+    }, idempotencyKey);
   }
 
   disconnectWallet() {

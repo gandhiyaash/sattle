@@ -20,10 +20,12 @@ import {
   groupLinkPath,
   payLinkPath,
   simplifyDebts,
+  UPI_CURRENCY,
   type Debt,
   type Expense,
   type Member,
   type PaymentMode,
+  type UpiClaim,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
 import { APP_URL, inviteLink } from '../react/useSettleFlow';
@@ -50,7 +52,7 @@ export interface GroupDetailScreenProps {
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group. */
   onManage: () => void;
-  onSettle: (debt: Debt, members: Member[], groupName: string) => void;
+  onSettle: (debt: Debt, members: Member[], groupName: string, currency: string) => void;
 }
 
 interface GroupView {
@@ -59,6 +61,8 @@ interface GroupView {
   members: Member[];
   expenses: Expense[];
   debts: Debt[];
+  /** UPI payments someone says they made, to or from the user, that the person owed hasn't confirmed. */
+  claims: UpiClaim[];
   userId: string;
   myMemberId: string | null;
   myNet: number;
@@ -78,12 +82,14 @@ export function GroupDetailScreen({
   const mode = usePaymentMode();
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
-    const [user, group, members, expenses, settlements] = await Promise.all([
+    const [user, group, members, expenses, settlements, claims] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
+      // A server from before UPI has no such route. The group still opens, with nothing waiting.
+      client.getUpiClaims(groupId).catch((): UpiClaim[] => []),
     ]);
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
@@ -96,6 +102,7 @@ export function GroupDetailScreen({
       members,
       expenses: [...expenses].reverse(),
       debts,
+      claims,
       userId: user.id,
       myMemberId: mine?.id ?? null,
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
@@ -172,7 +179,14 @@ export function GroupDetailScreen({
               const other = owedByMe ? debt.toMemberId : debt.fromMemberId;
               const otherMember = data.members.find((m) => m.id === other);
               const blocked = !owedByMe && false; // they pay you; nothing to block
-              const cannotReceive = owedByMe && otherMember && !canReceive(otherMember, mode);
+              // UPI is a way to pay someone who has no wallet here, as long as the group is in rupees.
+              const takesUpi = Boolean(otherMember?.upi) && data.currency === UPI_CURRENCY;
+              const cannotReceive = owedByMe && otherMember && !canReceive(otherMember, mode) && !takesUpi;
+              const claim = data.claims.find(
+                (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId
+              );
+              // They've said they paid by UPI. Paying again would pay twice, so Pay waits with the claim.
+              const waiting = owedByMe && claim?.status === 'pending';
 
               return (
                 <Card key={debt.id} style={{ padding: space.md }}>
@@ -188,14 +202,23 @@ export function GroupDetailScreen({
                         size="sm"
                       />
                     </View>
-                    {owedByMe && (
+                    {owedByMe && !waiting && (
                       <Button
                         label={cannotReceive ? 'Options' : 'Pay'}
                         variant={cannotReceive ? 'secondary' : 'primary'}
-                        onPress={() => onSettle(debt, data.members, data.name)}
+                        onPress={() => onSettle(debt, data.members, data.name, data.currency)}
                       />
                     )}
                   </View>
+                  {claim && (
+                    <UpiClaimNote
+                      claim={claim}
+                      mine={owedByMe}
+                      otherName={nameOf(other)}
+                      currency={data.currency}
+                      onChanged={refresh}
+                    />
+                  )}
                   {!owedByMe &&
                     (iCanReceive ? (
                       <SendPayLink
@@ -585,6 +608,94 @@ function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: st
         <Button label="Mark as settled" variant="quiet" hint="Paid in cash, UPI, or forgiven." onPress={() => setState('confirming')} />
       )}
       {typeof state === 'object' && <Text style={s.linkError}>{state.failed}</Text>}
+    </View>
+  );
+}
+
+/**
+ * A UPI payment someone says they made, on the debt it is for. Sattle can't
+ * see it, so the person owed is asked whether it arrived; that is what
+ * settles it. The payer sees that it is waiting, or that it was turned down,
+ * and can take it back.
+ */
+function UpiClaimNote({
+  claim,
+  mine,
+  otherName,
+  currency,
+  onChanged,
+}: {
+  claim: UpiClaim;
+  /** The user is the one who paid. Otherwise they are the one owed. */
+  mine: boolean;
+  otherName: string;
+  currency: string;
+  onChanged: () => void;
+}) {
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const amount = formatFiat(claim.amount, currency);
+  const declined = claim.status === 'declined';
+
+  const act = async (action: string, fn: (key: string) => Promise<unknown>) => {
+    setBusy(action);
+    setError(null);
+    try {
+      await keys.run(action, { id: claim.id }, fn);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That didn’t work. Try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (mine) {
+    return (
+      <View style={s.linkBlock}>
+        <Text style={declined ? s.linkError : s.linkNote}>
+          {declined
+            ? `${otherName} says your UPI payment of ${amount} didn’t arrive. Check with them, or pay again.`
+            : `You told ${otherName} you paid ${amount} by UPI. It’s settled once they confirm it arrived.`}
+        </Text>
+        <Button
+          label={declined ? 'OK' : 'I didn’t pay after all'}
+          variant="quiet"
+          busy={busy === 'upi-withdraw'}
+          onPress={() => act('upi-withdraw', (k) => client.withdrawUpiClaim(claim.id, k))}
+        />
+        {error && <Text style={s.linkError}>{error}</Text>}
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.linkBlock}>
+      <Text style={s.linkNote}>
+        {declined
+          ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
+          : `${otherName} says they paid you ${amount} by UPI.${
+              claim.reference ? ` Reference ${claim.reference}.` : ''
+            } Check your bank or UPI app before you confirm.`}
+      </Text>
+      <Button
+        label={declined ? 'It arrived after all' : 'Yes, I got it'}
+        variant={declined ? 'secondary' : 'primary'}
+        busy={busy === 'upi-confirm'}
+        onPress={() => act('upi-confirm', (k) => client.confirmUpiClaim(claim.id, k))}
+      />
+      {!declined && (
+        <Button
+          label="It didn’t arrive"
+          variant="quiet"
+          busy={busy === 'upi-decline'}
+          onPress={() => act('upi-decline', (k) => client.declineUpiClaim(claim.id, k))}
+        />
+      )}
+      {error && <Text style={s.linkError}>{error}</Text>}
     </View>
   );
 }

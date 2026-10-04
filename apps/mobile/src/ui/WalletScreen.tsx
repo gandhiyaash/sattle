@@ -49,6 +49,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
         />
         <ConnectWallet />
         <ReceiveAtAddress />
+        <UpiIdCard />
         <AppearancePicker />
         <TrustModel />
       </Screen>
@@ -89,6 +90,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       <ConnectWallet />
 
       <ReceiveAtAddress />
+      <UpiIdCard />
       <AppearancePicker />
 
       <TrustModel />
@@ -318,6 +320,100 @@ function ReceiveAtAddress() {
 }
 
 /**
+ * A UPI ID, for being paid in rupees outside Lightning. One for every group.
+ * Sattle can't see a UPI payment, so the card says who confirms one, and that
+ * the ID is only shown to people who owe them.
+ */
+function UpiIdCard() {
+  const color = useColors();
+  const s = useStyles();
+  const client = useClient();
+  const current = useAsync(() => client.getUpiId(), []);
+  const [saved, setSaved] = useState<string | null | undefined>(undefined);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upiId = saved !== undefined ? saved : current.data?.upiId;
+
+  const run = async (fn: () => Promise<{ upiId: string | null }>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setSaved((await fn()).upiId);
+      setInput('');
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t save that UPI ID.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () => input.trim() && run(() => client.setUpiId(input.trim()));
+
+  return (
+    <View>
+      <SectionLabel>UPI</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {current.loading && upiId === undefined && <Loading lines={2} />}
+        {current.error && upiId === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
+
+        {upiId && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Text style={s.label}>You can be paid at</Text>
+            <Text style={s.address}>{upiId}</Text>
+            <Text style={s.rowBody}>In every group kept in rupees. Only people who owe you are shown it.</Text>
+          </View>
+        )}
+
+        {upiId === null && !editing && (
+          <Text style={s.rowBody}>
+            Add your UPI ID and people who owe you in a rupee group can pay you from GPay, PhonePe or any UPI app. It
+            looks like name@okhdfcbank.
+          </Text>
+        )}
+
+        {(upiId === null || editing) && (
+          <View style={{ gap: space.sm }}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={save}
+              placeholder="name@okhdfcbank"
+              placeholderTextColor={color.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+            <Button label="Save" variant="primary" busy={busy} disabled={!input.trim()} onPress={save} />
+            {editing && <Button label="Cancel" variant="quiet" onPress={() => setEditing(false)} />}
+          </View>
+        )}
+
+        {upiId !== undefined && (
+          <Text style={s.rowBody}>
+            Sattle can’t see a UPI payment. The person paying tells you they’ve paid, and it’s settled when you
+            confirm it arrived.
+          </Text>
+        )}
+
+        {error && <Text style={s.error}>{error}</Text>}
+
+        {upiId && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Button label="Change UPI ID" onPress={() => setEditing(true)} />
+            <Button label="Remove it" variant="quiet" busy={busy} onPress={() => run(() => client.clearUpiId())} />
+          </View>
+        )}
+      </Card>
+    </View>
+  );
+}
+
+/**
  * Deliberately not hidden behind a "learn more". A user deciding whether to
  * connect a wallet should read this without hunting for it.
  *
@@ -344,6 +440,10 @@ function ReceiveAtAddress() {
  *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
  *   Group links         routes/groupLinks.ts: no row in group_links until POST
  *                       /groups/:id/link, guestView, and nothing under /g/ that writes
+ *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement;
+ *                       only the payee's confirm makes one; walletStore.ts upi_id, and
+ *                       GET /groups/:id/members/:memberId/upi refuses anyone who
+ *                       doesn't owe them
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
  */
 export function TrustModel() {
@@ -380,6 +480,11 @@ export function TrustModel() {
         <Row
           title="Is it really paid?"
           body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
+        />
+        <Divider />
+        <Row
+          title="UPI"
+          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and only someone who owes you is shown it."
         />
         <Divider />
         <Row

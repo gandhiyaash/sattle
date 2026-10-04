@@ -73,6 +73,35 @@ describe('resolveSettlementOptions with real payments', () => {
   });
 });
 
+describe('resolveSettlementOptions and UPI', () => {
+  const takesUpi = member({ status: 'joined', claimedByUserId: 'u-aman', upi: true });
+  const options = (recipient: Member, mode: 'real' | 'simulated', currency?: string) =>
+    resolveSettlementOptions({ recipient, walletAvailable: false, mode, currency });
+
+  it('offers UPI for a rupee debt to someone who gave a UPI ID, after Lightning and before by hand', () => {
+    const linkedUpi = member({ status: 'nwc_linked', claimedByUserId: 'u-aman', upi: true, receivable: true });
+    expect(options(linkedUpi, 'real', 'INR').rails.map((r) => r.rail)).toEqual(['invoice', 'upi', 'manual']);
+    expect(options(linkedUpi, 'real', 'INR').rails.find((r) => r.rail === 'upi')?.availability.available).toBe(true);
+  });
+
+  it('doesn’t block someone who can only be paid by UPI: it is the first thing offered', () => {
+    const o = options(takesUpi, 'real', 'INR');
+    expect(o.blocked).toBeUndefined();
+    expect(o.rails[0]).toMatchObject({ rail: 'upi', rank: 1 });
+  });
+
+  it('leaves it out for another currency, for no currency, and for someone with no UPI ID', () => {
+    expect(options(takesUpi, 'real', 'USD').rails.map((r) => r.rail)).not.toContain('upi');
+    expect(options(takesUpi, 'real').rails.map((r) => r.rail)).not.toContain('upi');
+    expect(options(takesUpi, 'real', 'USD').blocked?.remedies).toEqual(['remind']);
+    expect(options(joined, 'simulated', 'INR').rails.map((r) => r.rail)).not.toContain('upi');
+  });
+
+  it('never offers it for a ghost: there is nobody to confirm it arrived', () => {
+    expect(options(member({ upi: true }), 'simulated', 'INR').rails.map((r) => r.rail)).not.toContain('upi');
+  });
+});
+
 describe('resolveSettlementOptions with simulated payments', () => {
   it('keeps the address and in-app routes', () => {
     expect(rails(ghostWithAddress, 'simulated')).toContain('lightning_address');

@@ -38,6 +38,11 @@ export interface Member {
    * account, not here. Absent from the mock and older servers.
    */
   receivable?: boolean;
+  /**
+   * Whether they've given a UPI ID to be paid at. The ID itself isn't here:
+   * it is only shown to someone who owes them (UpiPayee).
+   */
+  upi?: boolean;
 }
 
 export interface Group {
@@ -129,7 +134,13 @@ export interface RateSource {
   fetchedAt?: string;
 }
 
-export type Rail = 'in_app' | 'lightning_address' | 'invoice' | 'manual';
+/**
+ * `upi` is a payment made outside Sattle, from the payer's UPI app to the
+ * payee's UPI ID. Nothing can check it, so it starts as a UpiClaim and only
+ * becomes a settlement, already `manually_confirmed`, when the payee says it
+ * arrived.
+ */
+export type Rail = 'in_app' | 'lightning_address' | 'invoice' | 'manual' | 'upi';
 
 export type SettlementStatus =
   | 'created'
@@ -347,6 +358,46 @@ export interface WalletConnection {
  */
 export interface ReceiveAddress {
   address: string | null;
+}
+
+// -- UPI -------------------------------------------------------------------
+
+/** A person's own UPI ID, for being paid in rupees outside Lightning. Null when they haven't set one. */
+export interface UpiProfile {
+  upiId: string | null;
+}
+
+/** Who to pay over UPI. Only someone who owes them right now is given this. */
+export interface UpiPayee {
+  upiId: string;
+  name: string;
+}
+
+/**
+ * A payer's word that they paid a debt over UPI. Nobody can check it, so it
+ * moves no balance. The person owed either confirms it, which makes it a
+ * settlement, or says it didn't arrive, which the payer is then shown.
+ */
+export interface UpiClaim {
+  id: string;
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  /** Minor units. */
+  amount: number;
+  /** The reference the payer's UPI app handed back, when it gave one. A hint, not proof. */
+  reference?: string;
+  /** `declined`: the person owed said it didn't arrive. It stays until the payer has seen it. */
+  status: 'pending' | 'declined';
+  createdAt: string;
+}
+
+export interface CreateUpiClaimInput {
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amount: number;
+  reference?: string;
 }
 
 export type SattleErrorCode =

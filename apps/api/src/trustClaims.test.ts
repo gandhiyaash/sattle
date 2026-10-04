@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, GroupGuestView, Settlement, User } from '@sattle/core';
+import type { Debt, GroupGuestView, Member, Settlement, UpiClaim, UpiPayee, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -123,6 +123,53 @@ describe('Is it really paid?', () => {
     )!;
     const res = await call<Settlement>('POST', '/groups/g-goa/settlements/manual', { ...debt, note: 'cash' });
     expect(res.status).toBe(201);
+  });
+});
+
+describe('UPI', () => {
+  const yashOwesOm = async (call: ReturnType<typeof setup>['call']) =>
+    (await call<Debt[]>('GET', '/groups/g-goa/debts')).body.find(
+      (d) => d.fromMemberId === 'm-goa-yash' && d.toMemberId === 'm-goa-om'
+    )?.amount ?? 0;
+
+  it('"the balance moves only when the person who is owed confirms it arrived": the payer’s word settles nothing, and he can’t confirm it himself', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
+    const owed = await yashOwesOm(call);
+
+    const claim = await call<UpiClaim>('POST', '/groups/g-goa/upi-claims', {
+      fromMemberId: 'm-goa-yash',
+      toMemberId: 'm-goa-om',
+      amount: owed,
+      reference: '412345678901',
+    });
+    expect(claim.status).toBe(201);
+    expect(await yashOwesOm(call)).toBe(owed);
+    expect((await call('POST', `/upi-claims/${claim.body.id}/confirm`)).status).toBe(400);
+    expect(await yashOwesOm(call)).toBe(owed);
+
+    const confirmed = await call<Settlement>('POST', `/upi-claims/${claim.body.id}/confirm`, undefined, {
+      authorization: 'Bearer t-om',
+    });
+    expect(confirmed.body).toMatchObject({ rail: 'upi', status: 'manually_confirmed' });
+    expect(confirmed.body).not.toHaveProperty('preimage');
+    expect(await yashOwesOm(call)).toBe(0);
+  });
+
+  it('"only someone who owes you is shown it": Yash, who owes Om, is; the member list never carries it', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
+
+    expect((await call<UpiPayee>('GET', '/groups/g-goa/members/m-goa-om/upi')).body).toEqual({ upiId: 'om@okhdfcbank', name: 'Om' });
+    const members = await call<Member[]>('GET', '/groups/g-goa/members');
+    expect(members.body.find((m) => m.id === 'm-goa-om')?.upi).toBe(true);
+    expect(JSON.stringify(members.body)).not.toContain('okhdfcbank');
+
+    // Yash's own, asked for by Om, who owes Yash nothing here.
+    await call('PUT', '/me/upi', { upiId: 'yash@ybl' });
+    const asOm = await call('GET', '/groups/g-goa/members/m-goa-yash/upi', undefined, { authorization: 'Bearer t-om' });
+    expect(asOm.status).toBe(409);
+    expect(JSON.stringify(asOm.body)).not.toContain('yash@ybl');
   });
 });
 

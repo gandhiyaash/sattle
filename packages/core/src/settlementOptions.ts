@@ -17,6 +17,11 @@
  * address, both on their account, so the server says (`receivable`). A
  * ghost's address was typed by someone else and proves nothing, so paying it
  * isn't offered.
+ *
+ * UPI is beside all of that. It is a payment outside Sattle that the payee
+ * confirms, so it is offered whenever they've given a UPI ID and the group
+ * is in rupees, whatever the backend, and someone who can only be paid that
+ * way isn't blocked.
  */
 
 import type { Member, Rail } from './types';
@@ -47,16 +52,23 @@ export function canReceive(member: Member, mode: PaymentMode = 'simulated'): boo
   return Boolean(member.lightningAddress);
 }
 
+/** UPI only moves rupees. */
+export const UPI_CURRENCY = 'INR';
+
 export function resolveSettlementOptions({
   recipient,
   walletAvailable,
   mode = 'simulated',
+  currency,
 }: {
   recipient: Member;
   walletAvailable: boolean;
   mode?: PaymentMode;
+  /** The group's. Without it UPI is never offered. */
+  currency?: string;
 }): SettlementOptions {
   const real = mode === 'real';
+  const upi = Boolean(recipient.upi && recipient.claimedByUserId) && currency === UPI_CURRENCY;
   const name = recipient.displayName;
   const candidates: Array<Omit<RailOption, 'rank'>> = [];
 
@@ -91,6 +103,15 @@ export function resolveSettlementOptions({
     });
   }
 
+  if (upi) {
+    candidates.push({
+      rail: 'upi',
+      label: 'Pay by UPI',
+      detail: `From GPay, PhonePe or any UPI app. ${name} confirms once it arrives.`,
+      availability: { available: true },
+    });
+  }
+
   candidates.push(
     recipient.claimedByUserId
       ? {
@@ -114,7 +135,7 @@ export function resolveSettlementOptions({
   ];
   const rails = ordered.map((c, i) => ({ ...c, rank: i + 1 }));
 
-  if (!canReceive(recipient, mode)) {
+  if (!canReceive(recipient, mode) && !upi) {
     return { rails, blocked: blockedFor(recipient, mode) };
   }
 

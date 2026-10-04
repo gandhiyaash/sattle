@@ -12,6 +12,7 @@
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
+ *   routes/upi.ts          a UPI ID on the account, and paying a debt over UPI
  */
 
 import { Hono } from 'hono';
@@ -36,6 +37,7 @@ import { inviteRoutes } from './routes/invites';
 import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
+import { upiRoutes } from './routes/upi';
 import { walletRoutes } from './routes/wallet';
 import { createWalletStore, type WalletStore } from './walletStore';
 
@@ -97,6 +99,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
   app.route('/', ledgerRoutes(ctx));
+  app.route('/', upiRoutes(ctx));
 
   return app;
 }

@@ -1,6 +1,6 @@
 /**
- * How a user receives: their NWC connection and their own Lightning
- * address. Kept apart from repo.ts as the only module that reads nwc_uri.
+ * How a user receives: their NWC connection, their own Lightning address,
+ * and their UPI ID. Kept apart from repo.ts as the only module that reads nwc_uri.
  * Everything it returns to a route is a WalletConnection, which has no
  * field for the string.
  */
@@ -35,6 +35,8 @@ export function createWalletStore(db: Db) {
     linkMembers: db.prepare(`UPDATE members SET status = 'nwc_linked' WHERE claimed_by_user_id = ?`),
     receiveAddress: db.prepare('SELECT receive_address FROM users WHERE id = ?'),
     setReceiveAddress: db.prepare('UPDATE users SET receive_address = ? WHERE id = ?'),
+    upiId: db.prepare('SELECT upi_id FROM users WHERE id = ?'),
+    setUpiId: db.prepare('UPDATE users SET upi_id = ? WHERE id = ?'),
     remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
     unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
   };
@@ -80,6 +82,15 @@ export function createWalletStore(db: Db) {
 
     setReceiveAddress(userId: string, address: string | null) {
       q.setReceiveAddress.run(address, userId);
+    },
+
+    /** The user's own UPI ID, if they've set one. Shown only to someone who owes them. */
+    upiId(userId: string): string | undefined {
+      return (q.upiId.get(userId) as { upi_id: string | null } | undefined)?.upi_id ?? undefined;
+    },
+
+    setUpiId(userId: string, upiId: string | null) {
+      q.setUpiId.run(upiId, userId);
     },
 
     /** The secret, for the payment backend only. Never put it in a response. */

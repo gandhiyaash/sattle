@@ -17,6 +17,7 @@ import {
   type Member,
   type PayLink,
   type Settlement,
+  type UpiClaim,
   type User,
 } from '@sattle/core';
 
@@ -82,6 +83,17 @@ const toPayLink = (r: Row): PayLink => ({
 const toGroupLink = (r: Row): GroupLink => ({
   token: r.token as string,
   groupId: r.group_id as string,
+  createdAt: r.created_at as string,
+});
+
+const toUpiClaim = (r: Row): UpiClaim => ({
+  id: r.id as string,
+  groupId: r.group_id as string,
+  fromMemberId: r.from_member_id as string,
+  toMemberId: r.to_member_id as string,
+  amount: r.amount as number,
+  reference: opt(r.reference),
+  status: r.status as UpiClaim['status'],
   createdAt: r.created_at as string,
 });
 
@@ -185,6 +197,23 @@ export function createRepo(db: Db) {
     groupLinkByGroup: db.prepare('SELECT * FROM group_links WHERE group_id = ?'),
     insertGroupLink: db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)'),
     deleteGroupLink: db.prepare('DELETE FROM group_links WHERE group_id = ?'),
+    upiClaimById: db.prepare('SELECT * FROM upi_claims WHERE id = ?'),
+    upiClaimsOfGroup: db.prepare('SELECT * FROM upi_claims WHERE group_id = ? ORDER BY created_at'),
+    insertUpiClaim: db.prepare(
+      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ),
+    setUpiClaimStatus: db.prepare('UPDATE upi_claims SET status = ? WHERE id = ?'),
+    deleteUpiClaim: db.prepare('DELETE FROM upi_claims WHERE id = ?'),
+    deleteUpiClaimForPair: db.prepare(
+      'DELETE FROM upi_claims WHERE group_id = ? AND from_member_id = ? AND to_member_id = ?'
+    ),
+    deleteUpiClaimsOfMember: db.prepare('DELETE FROM upi_claims WHERE from_member_id = ? OR to_member_id = ?'),
+    deleteUpiClaimsOfUser: db.prepare(
+      `DELETE FROM upi_claims
+       WHERE from_member_id IN (SELECT id FROM members WHERE claimed_by_user_id = ?)
+          OR to_member_id IN (SELECT id FROM members WHERE claimed_by_user_id = ?)`
+    ),
     // A link that has been paid is spent: opening it shows "Paid" for good and mints nothing.
     payLinkFor: db.prepare(
       `SELECT l.* FROM pay_links l
@@ -206,6 +235,7 @@ export function createRepo(db: Db) {
     'DELETE FROM pay_links WHERE group_id = ?',
     'DELETE FROM invites WHERE group_id = ?',
     'DELETE FROM group_links WHERE group_id = ?',
+    'DELETE FROM upi_claims WHERE group_id = ?',
     'DELETE FROM expenses WHERE group_id = ?',
     'DELETE FROM expense_changes WHERE group_id = ?',
     'DELETE FROM ledger_entries WHERE group_id = ?',
@@ -312,10 +342,13 @@ export function createRepo(db: Db) {
     },
     /** The reverse: the member is a ghost again, with its name, history and balance. An invite can hand it back. */
     unclaimMember(id: string) {
+      // A UPI claim is between two people with accounts: one made it, the other confirms it.
+      q.deleteUpiClaimsOfMember.run(id, id);
       q.unclaimMember.run(id);
     },
     /** Every member the user holds, in every group. */
     unclaimAllOf(userId: string) {
+      q.deleteUpiClaimsOfUser.run(userId, userId);
       q.unclaimAllOf.run(userId);
     },
     /** How many people with an account are in the group. */
@@ -329,6 +362,7 @@ export function createRepo(db: Db) {
     },
     /** Only for a member with no history. */
     deleteMember(id: string) {
+      q.deleteUpiClaimsOfMember.run(id, id);
       q.deleteMember.run(id);
     },
 
@@ -473,6 +507,29 @@ export function createRepo(db: Db) {
     },
     deleteInvite(groupId: string) {
       q.deleteInvite.run(groupId);
+    },
+
+    /** A payer's word that they paid over UPI, waiting on the person owed. */
+    upiClaim: (id: string) => {
+      const r = q.upiClaimById.get(id) as Row | undefined;
+      return r && toUpiClaim(r);
+    },
+    upiClaims: (groupId: string) => (q.upiClaimsOfGroup.all(groupId) as Row[]).map(toUpiClaim),
+    /** One per pair: the new claim takes the place of the last, whether it was pending or declined. */
+    replaceUpiClaim(claim: UpiClaim) {
+      q.deleteUpiClaimForPair.run(claim.groupId, claim.fromMemberId, claim.toMemberId);
+      q.insertUpiClaim.run(
+        claim.id, claim.groupId, claim.fromMemberId, claim.toMemberId, claim.amount,
+        claim.reference ?? null, claim.status, claim.createdAt
+      );
+      return claim;
+    },
+    setUpiClaimStatus(id: string, status: UpiClaim['status']) {
+      q.setUpiClaimStatus.run(status, id);
+      return repo.upiClaim(id)!;
+    },
+    deleteUpiClaim(id: string) {
+      q.deleteUpiClaim.run(id);
     },
   };
 
