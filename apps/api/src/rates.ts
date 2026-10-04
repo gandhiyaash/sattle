@@ -12,6 +12,8 @@
  * minutes ago is still closer to the truth than a hard-coded one.
  */
 
+import type { RateSource as QuoteRateSource } from '@sattle/core';
+
 export type RateSource = 'cache' | 'live' | 'stale' | 'fallback';
 
 export interface Rate {
@@ -37,6 +39,7 @@ export interface RateOptions {
 }
 
 export const RATE_TTL_MS = 30_000;
+export const RATE_PROVIDER = 'CoinGecko';
 const COINGECKO = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=';
 
 export function createRateService(opts: RateOptions): RateService {
@@ -91,3 +94,16 @@ export function createRateService(opts: RateOptions): RateService {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/** What the payer is told about a rate. Cache and live are both the market: at most 30s apart. */
+export function quoteRateSource(rate: Rate): QuoteRateSource {
+  switch (rate.source) {
+    case 'cache':
+    case 'live':
+      return { kind: 'market', provider: RATE_PROVIDER, fetchedAt: rate.fetchedAt };
+    case 'stale':
+      return { kind: 'stale', provider: RATE_PROVIDER, fetchedAt: rate.fetchedAt };
+    case 'fallback':
+      return { kind: 'fallback' };
+  }
+}

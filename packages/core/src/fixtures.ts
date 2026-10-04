@@ -84,6 +84,7 @@ export const settlements: Settlement[] = [
       amountSat: 13_334,
       feeSat: 40,
       rateFiatPerBtc: 9_000_000,
+      rateSource: { kind: 'demo' },
       expiresAt: new Date(Date.now() + 90_000).toISOString(),
     },
     destination: 'lnbc133340n1demoinvoiceqqqsp5mockmockmockmockmockmockmockmockmockmock',
