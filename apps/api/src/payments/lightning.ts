@@ -7,7 +7,7 @@
  *   1. The payee's NWC connection: minted on their own wallet.
  *   2. The payee's Lightning address (LNURL-pay), for wallets that can't do
  *      NWC. Only a joined member's own address is used: joining clears one a
- *      groupmate typed (migration 009), so a payment to it is a payment to
+ *      groupmate typed (migration 010), so a payment to it is a payment to
  *      them.
  *
  * How we learn it was paid:
@@ -165,7 +165,7 @@ export class LightningPayments implements PaymentBackend {
         watching++;
         continue;
       }
-      // Rows from before migration 011 have no receive_via: they're NWC.
+      // Rows from before migration 012 have no receive_via: they're NWC.
       const uri = this.uriFor(r.to_member_id);
       if (!uri) {
         console.warn(`settlement ${r.id}: payee's wallet is no longer connected; can't confirm it`);
@@ -258,7 +258,7 @@ export class LightningPayments implements PaymentBackend {
 
   /**
    * One payment hash, one settlement: otherwise a single payment would
-   * confirm both. The unique index (migration 010) backs this up.
+   * confirm both. The unique index (migration 011) backs this up.
    */
   private store(id: string, paymentHash: string, write: () => void) {
     const fresh = transaction(this.deps.db, () => {
