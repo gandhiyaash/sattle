@@ -160,17 +160,17 @@ Each task is one branch and one PR. "Done when" is what the reviewer checks.
 
 | ID | Task | Needs | Files | Done when |
 |---|---|---|---|---|
-| L1 | Joining clears the address a groupmate typed, and migration 007 clears the ones joined members already inherited. A joined member's address is then always one they set (the route already stops others changing it), so no extra column is needed. | — | `migrations/007_address_owner.sql`, `repo.ts`, `MockClient.ts` | Test: a groupmate sets their own address on a ghost, the ghost joins, the address is gone and only the member can set a new one |
+| L1 | Joining clears the address a groupmate typed, and migration 009 clears the ones joined members already inherited. A joined member's address is then always one they set (the route already stops others changing it), so no extra column is needed. | — | `migrations/009_address_owner.sql`, `repo.ts`, `MockClient.ts` | Test: a groupmate sets their own address on a ghost, the ghost joins, the address is gone and only the member can set a new one |
 | L2 | BOLT11 decoder (payment hash, amount, description hash, expiry). Safe fetch: https only, private and loopback IPs blocked after DNS, no redirects, short timeout, size cap. | — | `apps/api/src/bolt11.ts`, `apps/api/src/safeFetch.ts` | Decodes invoices from every tested provider; fetch refuses `localhost`, `10.x`, `169.254.x`, a redirect, an oversized body |
 | L3 | LNURL-pay client: read `/.well-known/lnurlp/<name>`, check min/max, request the invoice, check amount and `description_hash`, keep `verify` if present | L2 | `apps/api/src/lnurl.ts` | Tests on recorded responses from the 16 providers; a wrong amount or hash is refused |
-| L4 | `NwcPayments` becomes one backend with two steps: get an invoice (NWC or address), confirm it (NWC lookup, LUD-21 verify, or wait for proof). A joined member with a self-set address and no NWC can receive on `invoice`. LUD-21 confirms only when the preimage matches. | L1 L3 | `payments/nwc.ts` → `payments/lightning.ts`, `migrations/008_verify_url.sql`, `server.ts`, `settlementOptions.ts` (core) | Existing NWC tests pass unchanged; `PAYMENTS=nwc` mints from a real address and confirms over verify |
+| L4 | `NwcPayments` becomes one backend with two steps: get an invoice (NWC or address), confirm it (NWC lookup, LUD-21 verify, or wait for proof). A joined member with a self-set address and no NWC can receive on `invoice`. LUD-21 confirms only when the preimage matches. | L1 L3 | `payments/nwc.ts` → `payments/lightning.ts`, `migrations/011_address_invoices.sql`, `server.ts`, `settlementOptions.ts` (core) | Existing NWC tests pass unchanged; `PAYMENTS=nwc` mints from a real address and confirms over verify |
 | L5 | Proof submission: `POST /groups/:id/settlements/:sid/proof` (authed payer) and `POST /s/:token/proof` (guest), both through `preimageMatches`. A proof can confirm an expired settlement. Without a verify URL, expiry closes the row as "unknown" with a message to paste proof or ask the payee. | L4 | `routes/settlements.ts`, `routes/payLinks.ts`, `payments/lightning.ts`, `SattleClient.ts`, `MockClient.ts`, `nostrLedger.ts` | A wrong preimage is refused; a right one confirms, also after expiry; the Nostr ledger records the late confirmation |
 
 #### Om
 
 | ID | Task | Needs | Files | Done when |
 |---|---|---|---|---|
-| L6 | "Receive with a Lightning address" on the wallet screen, next to NWC, with copy for providers we can't confirm automatically | L4 | `ui/WalletScreen.tsx` | Works on the mock; on the API a self-set address makes the member payable |
+| L6 | "Receive with a Lightning address" on the wallet screen, next to NWC, with copy for providers we can't confirm automatically. The address belongs to the person, like the NWC connection, so one covers every group: `users.receive_address` and `/me/receive-address`, checked on save. | L4 | `ui/WalletScreen.tsx`, `routes/wallet.ts`, `migrations/012_receive_address.sql` | Works on the mock; on the API a saved address makes the member payable in every group |
 | L7 | Guest page: a browser wallet pays and sends the proof back; otherwise a field to paste it | L5 | `ui/GuestPayScreen.tsx` | Both paths reachable on the mock; a pasted proof flips the page to settled |
 
 #### Together
@@ -232,4 +232,4 @@ Need answers before L2. (Whether to clear a groupmate's address on join was deci
 
 ### Rules
 
-Same as [Rules](#rules) above. Migrations here take 007 and 008. L4 and L5 change `@sattle/core` and `SattleClient`, so they are contract changes: talk first.
+Same as [Rules](#rules) above. Migrations here take 009 to 012 (Om's group work took 007 and 008). L4 and L5 change `@sattle/core` and `SattleClient`, so they are contract changes: talk first.
