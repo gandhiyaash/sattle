@@ -73,6 +73,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
   invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
+  expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
@@ -83,6 +84,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   routes/                    One module per owner: groups, settlements, payLinks, invites, wallet, ledger.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
+  groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
   db.ts                      Migration runner and seeding.
   migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
@@ -121,6 +123,8 @@ apps/mobile/                 @sattle/mobile: Expo
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: who invited you to what, and Join.
+      GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
+      AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -208,7 +212,7 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns one ghost into a member. Anyone already in the group taps **Invite** on a ghost's row and sends the link, `/join/<token>`. Whoever opens it sees who invited them to what, makes an account if they don't have one, and joins. They take over that row as it is: same name, same history, same balance.
 
-Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own, and nothing in the app takes that back. The link is therefore treated as a key:
+Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
 
 - It is 128 random bits, and only a member of the group can make one.
 - It works once. After someone joins with it, it answers `410 link_expired`.
@@ -219,6 +223,26 @@ Joining is full membership. There are no roles, so the new member can read every
 `GET /join/:token` is public, like the pay page, and returns three names and nothing else: the group, the ghost, and the inviter. Accepting is `POST /groups/join` and needs an account.
 
 A link opens the web app. The installed app has no link handling yet, so there the link is pasted under **Join with a link** on the groups list.
+
+### Changing and removing
+
+One rule runs through all of it, the same one settling follows: nobody can undo what someone else is owed. `groupRules.ts` holds it, and the app only offers what the server would accept.
+
+| What | Who | When it's refused |
+| --- | --- | --- |
+| Change or delete an expense | The person who paid it. What a ghost paid, anyone in the group. | For anyone else: a groupmate could otherwise shrink what they owe. |
+| Rename a group | Anyone in it | |
+| Remove a member | Anyone in the group, for a ghost that no expense, payment or pay link names | For anyone in the ledger, and for someone who has joined: only they can leave. |
+| Leave a group | Yourself | If you're the only one with an account (delete the group instead), or while a payment to you is under way. |
+| Delete a group | Anyone in it | While anything is owed in it or a payment is under way, so deleting it can't erase a debt. |
+| Disconnect a wallet | Yourself | While a payment to you is under way: that wallet is what confirms it. |
+| Delete an account | Yourself | While a payment to you is under way. |
+
+Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; an invite hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
+
+Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links and the invites it made are removed; the names its members had in shared groups stay.
+
+An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
 
 ### Deploying
 
@@ -330,11 +354,12 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 
 ## The ledger on Nostr
 
-The server keeps the ledger in SQLite, so if the server goes away, so would a group's history. To stop that, every expense and every confirmed settlement is also published to Nostr relays as one event (`nostrLedger.ts`):
+The server keeps the ledger in SQLite, so if the server goes away, so would a group's history. To stop that, every expense, every change to one, and every confirmed settlement is also published to Nostr relays as one event (`nostrLedger.ts`):
 
 - **Signed** by the server's Nostr key (made on first start, kept in the database), so a relay can't forge or alter an entry.
 - **Encrypted** with NIP-44 under a random key per group. Relays and anyone else see ciphertext. Only members are given the key.
 - **Chained.** Each entry carries a sequence number and the id of the entry before it, so a missing or reordered entry shows up when the ledger is read back.
+- **Append-only.** A published entry can't be altered. An expense that is edited gets a second entry with how it reads now, and one that is deleted gets an entry saying so; whoever reads the ledger back takes the last word on each.
 
 Entries go through an outbox table, `ledger_entries`. Every few seconds the server signs an entry for anything new, then publishes whatever hasn't gone out. A relay outage or a restart only delays publishing. With `LEDGER_RELAYS` empty, entries are still signed and kept, and they go out once relays are set, history included.
 
@@ -354,7 +379,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
-- Removing a member or leaving a group. Joining can't be undone.
+- Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).

@@ -13,8 +13,10 @@ import {
   SattleError,
   TERMINAL_STATUSES,
   buildQuote,
+  canChangeExpense,
   canReceive,
   computeBalances,
+  isInProgress,
   fixtures,
   parseLightningAddress,
   resolveParts,
@@ -138,6 +140,10 @@ export class MockClient implements SattleClient {
     }
   }
 
+  private myMember(groupId: string) {
+    return this.members.find((m) => m.groupId === groupId && m.claimedByUserId === fixtures.currentUser.id);
+  }
+
   private findSettlement(id: string) {
     const s = this.settlements.find((x) => x.id === id);
     if (!s) throw new SattleError('not_found', 'That payment doesn’t exist.');
@@ -156,8 +162,9 @@ export class MockClient implements SattleClient {
     return this.call(() => fixtures.currentUser);
   }
 
+  /** Only the groups the user is in, like the server: leaving one takes it off the list. */
   getGroups() {
-    return this.call(() => this.groups);
+    return this.call(() => this.groups.filter((g) => this.myMember(g.id)));
   }
 
   getGroup(groupId: string) {
@@ -520,6 +527,116 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
+  // -- changing and removing ------------------------------------------------
+  // The same rules as the server's groupRules.ts.
+
+  private findExpense(groupId: string, expenseId: string) {
+    const e = this.expenses.find((x) => x.id === expenseId && x.groupId === groupId);
+    if (!e) throw new SattleError('not_found', 'That expense doesn’t exist.');
+    return e;
+  }
+
+  private checkExpenseOwner(expense: Expense) {
+    const payer = this.members.find((m) => m.id === expense.paidByMemberId);
+    if (!canChangeExpense(payer, fixtures.currentUser.id)) {
+      throw new SattleError('invalid_input', `Only ${payer!.displayName} can change this, because they paid it.`);
+    }
+  }
+
+  /** A payment on its way to the user: they can't leave, disconnect or go until it lands. */
+  private checkNothingIncoming(groupId?: string) {
+    const mine = new Set(this.members.filter((m) => m.claimedByUserId === fixtures.currentUser.id).map((m) => m.id));
+    const open = this.settlements.some(
+      (s) => isInProgress(s) && mine.has(s.toMemberId) && (!groupId || s.groupId === groupId)
+    );
+    if (open) throw new SattleError('conflict', 'A payment to you is still in progress. Wait for it to finish.');
+  }
+
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(input.groupId);
+      const bad = [input.paidByMemberId, ...input.parts.map((p) => p.memberId)].find(
+        (id) => !g.memberIds.includes(id)
+      );
+      if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
+      const current = this.findExpense(g.id, expenseId);
+      this.checkExpenseOwner(current);
+      return Object.assign(current, { ...input, parts: resolveParts(input) });
+    }, idempotencyKey);
+  }
+
+  deleteExpense(groupId: string, expenseId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const current = this.findExpense(groupId, expenseId);
+      this.checkExpenseOwner(current);
+      this.expenses = this.expenses.filter((e) => e !== current);
+    }, idempotencyKey);
+  }
+
+  renameGroup(groupId: string, name: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      const next = name.trim();
+      if (!next) throw new SattleError('invalid_input', 'Give the group a name.');
+      g.name = next;
+      return g;
+    }, idempotencyKey);
+  }
+
+  deleteGroup(groupId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      const mine = (x: { groupId: string }) => x.groupId === groupId;
+      if (this.settlements.some((s) => mine(s) && isInProgress(s))) {
+        throw new SattleError('conflict', 'A payment in this group is still in progress. Wait for it to finish.');
+      }
+      const balances = computeBalances(g.memberIds, this.expenses.filter(mine), this.settlements.filter(mine));
+      if (simplifyDebts(groupId, balances).length > 0) {
+        throw new SattleError('conflict', 'There’s still money owed in this group. Settle up first.');
+      }
+      this.groups = this.groups.filter((x) => x !== g);
+      this.members = this.members.filter((x) => !mine(x));
+      this.expenses = this.expenses.filter((x) => !mine(x));
+      this.settlements = this.settlements.filter((x) => !mine(x));
+      this.payLinks = this.payLinks.filter((x) => !mine(x));
+      this.invites = this.invites.filter((x) => !mine(x));
+    }, idempotencyKey);
+  }
+
+  removeMember(groupId: string, memberId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      const member = this.members.find((m) => m.id === memberId && m.groupId === groupId);
+      if (!member) throw new SattleError('not_found', 'That member isn’t in this group.');
+      if (member.claimedByUserId) {
+        throw new SattleError('invalid_input', `${member.displayName} has joined. Only they can leave.`);
+      }
+      const named =
+        this.expenses.some((e) => e.paidByMemberId === memberId || e.parts.some((p) => p.memberId === memberId)) ||
+        [...this.settlements, ...this.payLinks].some((x) => x.fromMemberId === memberId || x.toMemberId === memberId);
+      if (named) {
+        throw new SattleError('conflict', `${member.displayName} is part of this group’s expenses or payments, so they can’t be removed.`);
+      }
+      this.members = this.members.filter((m) => m !== member);
+      this.invites = this.invites.filter((i) => i.memberId !== memberId);
+      g.memberIds = g.memberIds.filter((id) => id !== memberId);
+    }, idempotencyKey);
+  }
+
+  leaveGroup(groupId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      const me = this.myMember(g.id);
+      if (!me) throw new SattleError('not_found', 'That group doesn’t exist.');
+      if (this.members.filter((m) => m.groupId === g.id && m.claimedByUserId).length === 1) {
+        throw new SattleError('conflict', 'You’re the only one here with an account. Delete the group instead.');
+      }
+      this.checkNothingIncoming(g.id);
+      delete me.claimedByUserId;
+      me.status = 'ghost';
+    }, idempotencyKey);
+  }
+
   // -- wallet connection ----------------------------------------------------
 
   connectWallet(nwcUri: string) {
@@ -558,16 +675,30 @@ export class MockClient implements SattleClient {
   getWalletConnection() {
     return this.call(() => this.wallet);
   }
+
+  disconnectWallet() {
+    return this.call(() => {
+      this.checkNothingIncoming();
+      this.wallet = { connected: false, methods: [], excessMethods: [] };
+      for (const m of this.members) {
+        if (m.claimedByUserId === fixtures.currentUser.id && m.status === 'nwc_linked') m.status = 'joined';
+      }
+      return this.wallet;
+    });
+  }
+
+  // -- account --------------------------------------------------------------
+
+  /** The mock's one user isn't an account: there is no token, and nothing to delete. */
+  deleteAccount(): Promise<void> {
+    return this.call(() => {
+      throw new SattleError('invalid_input', 'The demo has no account to delete. Reload to start it over.');
+    });
+  }
 }
 
 export function isTerminal(s: Settlement) {
   return TERMINAL_STATUSES.includes(s.status);
-}
-
-/** Same rule as the server: an invoice whose quote has lapsed no longer counts. */
-function isInProgress(s: Settlement) {
-  if (isTerminal(s)) return false;
-  return !(s.status === 'awaiting_payment' && s.quote && Date.parse(s.quote.expiresAt) < Date.now());
 }
 
 function networkError() {

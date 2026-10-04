@@ -71,10 +71,13 @@ describe('Your wallet connection', () => {
     expect(row.nwc_uri).toBe(URI);
   });
 
-  it('"There is no disconnect button yet": the server has no route to remove one', async () => {
-    const { call } = setup();
-    await call('PUT', '/me/wallet', { nwcUri: URI });
-    expect((await call('DELETE', '/me/wallet')).status).toBe(404);
+  it('"Disconnect makes the server forget the string": the row is gone', async () => {
+    const { db, call } = setup();
+    const { token } = (await call<{ token: string }>('POST', '/accounts', { displayName: 'Riya' })).body;
+    const as = { authorization: `Bearer ${token}` };
+    await call('PUT', '/me/wallet', { nwcUri: URI }, as);
+    expect((await call('DELETE', '/me/wallet', undefined, as)).status).toBe(200);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM wallet_connections').get()).toEqual({ n: 0 });
   });
 });
 

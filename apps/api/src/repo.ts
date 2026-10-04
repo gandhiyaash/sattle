@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   SattleError,
+  TERMINAL_STATUSES,
   type Expense,
   type Group,
   type Invite,
@@ -94,6 +95,7 @@ export function createRepo(db: Db) {
        ORDER BY g.created_at DESC`
     ),
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
+    renameGroup: db.prepare('UPDATE expense_groups SET name = ? WHERE id = ?'),
     insertGroup: db.prepare('INSERT INTO expense_groups (id, name, currency, created_at) VALUES (?, ?, ?, ?)'),
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     memberForUser: db.prepare('SELECT * FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
@@ -109,13 +111,36 @@ export function createRepo(db: Db) {
     claimMember: db.prepare(
       'UPDATE members SET claimed_by_user_id = ?, status = ? WHERE id = ? AND claimed_by_user_id IS NULL'
     ),
+    unclaimMember: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE id = ?`),
+    unclaimAllOf: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE claimed_by_user_id = ?`),
+    claimedCount: db.prepare('SELECT COUNT(*) AS n FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL'),
+    deleteMember: db.prepare('DELETE FROM members WHERE id = ?'),
+    // Rows that point at a member and so keep it from being deleted. The member id is bound
+    // four times: a numbered ?1 is refused by node:sqlite on some of the Node versions we support.
+    memberRefs: db.prepare(
+      `SELECT (SELECT COUNT(*) FROM settlements WHERE from_member_id = ? OR to_member_id = ?)
+            + (SELECT COUNT(*) FROM pay_links WHERE from_member_id = ? OR to_member_id = ?) AS n`
+    ),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
       `INSERT INTO expenses (id, group_id, description, amount, paid_by_member_id, split_mode, parts, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ),
+    expenseById: db.prepare('SELECT * FROM expenses WHERE id = ?'),
+    updateExpense: db.prepare(
+      'UPDATE expenses SET description = ?, amount = ?, paid_by_member_id = ?, split_mode = ?, parts = ? WHERE id = ?'
+    ),
+    deleteExpense: db.prepare('DELETE FROM expenses WHERE id = ?'),
+    insertExpenseChange: db.prepare(
+      'INSERT INTO expense_changes (group_id, expense_id, expense, created_at) VALUES (?, ?, ?, ?)'
+    ),
     settlementsOfGroup: db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY created_at'),
     settlementById: db.prepare('SELECT * FROM settlements WHERE id = ?'),
+    // Finished payments are left out here, so a long history isn't loaded to answer "is anything open?".
+    unfinishedToUser: db.prepare(
+      `SELECT s.* FROM settlements s JOIN members m ON m.id = s.to_member_id
+       WHERE m.claimed_by_user_id = ? AND s.status NOT IN (${TERMINAL_STATUSES.map((st) => `'${st}'`).join(', ')})`
+    ),
     insertSettlement: db.prepare(
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status,
                                 note, created_at, updated_at)
@@ -138,6 +163,27 @@ export function createRepo(db: Db) {
     deleteInvitesFor: db.prepare('DELETE FROM invites WHERE member_id = ?'),
   };
 
+  // Everything a group owns, in an order the foreign keys allow.
+  const dropGroup = [
+    'DELETE FROM settlements WHERE group_id = ?',
+    'DELETE FROM pay_links WHERE group_id = ?',
+    'DELETE FROM invites WHERE group_id = ?',
+    'DELETE FROM expenses WHERE group_id = ?',
+    'DELETE FROM expense_changes WHERE group_id = ?',
+    'DELETE FROM ledger_entries WHERE group_id = ?',
+    'DELETE FROM members WHERE group_id = ?',
+    'DELETE FROM expense_groups WHERE id = ?',
+  ].map((sql) => db.prepare(sql));
+
+  // What an account leaves behind once its members have been handed back.
+  const dropUser = [
+    'UPDATE settlements SET pay_link_token = NULL WHERE pay_link_token IN (SELECT token FROM pay_links WHERE created_by_user_id = ?)',
+    'DELETE FROM pay_links WHERE created_by_user_id = ?',
+    'DELETE FROM invites WHERE created_by_user_id = ?',
+    'DELETE FROM idempotency_keys WHERE user_id = ?',
+    'DELETE FROM users WHERE id = ?',
+  ].map((sql) => db.prepare(sql));
+
   const repo = {
     userById: (id: string) => {
       const r = q.userById.get(id) as Row | undefined;
@@ -150,6 +196,14 @@ export function createRepo(db: Db) {
     insertUser(u: User, token: string): User {
       q.insertUser.run(u.id, u.displayName, token);
       return u;
+    },
+    /**
+     * Removes the account and what only it could use: its pay links, the
+     * invites it sent, its saved replies. Its members must already be handed
+     * back (unclaimAllOf) and its wallet connection removed (walletStore).
+     */
+    deleteUser(id: string) {
+      for (const stmt of dropUser) stmt.run(id);
     },
 
     groupsForUser(userId: string): Group[] {
@@ -187,6 +241,13 @@ export function createRepo(db: Db) {
     insertGroup(g: Omit<Group, 'memberIds'>) {
       q.insertGroup.run(g.id, g.name, g.currency, g.createdAt);
     },
+    renameGroup(id: string, name: string) {
+      q.renameGroup.run(name, id);
+    },
+    /** The group and everything in it. Its ledger key goes too, so what was mirrored can't be read back from here. */
+    deleteGroup(id: string) {
+      for (const stmt of dropGroup) stmt.run(id);
+    },
 
     members: (groupId: string) => (q.membersOfGroup.all(groupId) as Row[]).map(toMember),
     /** Adds the member after everyone already in the group. */
@@ -211,11 +272,48 @@ export function createRepo(db: Db) {
     claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
       return q.claimMember.run(userId, status, id).changes === 1;
     },
+    /** The reverse: the member is a ghost again, with its name, history and balance. An invite can hand it back. */
+    unclaimMember(id: string) {
+      q.unclaimMember.run(id);
+    },
+    /** Every member the user holds, in every group. */
+    unclaimAllOf(userId: string) {
+      q.unclaimAllOf.run(userId);
+    },
+    /** How many people with an account are in the group. */
+    claimedCount: (groupId: string) => (q.claimedCount.get(groupId) as { n: number }).n,
+    /** In an expense, a payment or a pay link. Such a member can't be deleted without rewriting the ledger. */
+    memberHasHistory(groupId: string, memberId: string): boolean {
+      if ((q.memberRefs.get(memberId, memberId, memberId, memberId) as { n: number }).n > 0) return true;
+      return repo
+        .expenses(groupId)
+        .some((e) => e.paidByMemberId === memberId || e.parts.some((p) => p.memberId === memberId));
+    },
+    /** Only for a member with no history. Invites sent for them go too. */
+    deleteMember(id: string) {
+      q.deleteInvitesFor.run(id);
+      q.deleteMember.run(id);
+    },
 
     expenses: (groupId: string) => (q.expensesOfGroup.all(groupId) as Row[]).map(toExpense),
     insertExpense(e: Expense) {
       q.insertExpense.run(e.id, e.groupId, e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.createdAt);
       return e;
+    },
+    expense: (id: string) => {
+      const r = q.expenseById.get(id) as Row | undefined;
+      return r && toExpense(r);
+    },
+    /** Replaces what the expense says, and notes the change for the ledger on Nostr. */
+    updateExpense(e: Expense) {
+      q.updateExpense.run(e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.id);
+      q.insertExpenseChange.run(e.groupId, e.id, JSON.stringify(e), nowIso());
+      return e;
+    },
+    /** Removes the expense, and notes that for the ledger on Nostr. */
+    deleteExpense(e: Expense) {
+      q.deleteExpense.run(e.id);
+      q.insertExpenseChange.run(e.groupId, e.id, null, nowIso());
     },
 
     settlements: (groupId: string) => (q.settlementsOfGroup.all(groupId) as Row[]).map(toSettlement),
@@ -223,6 +321,12 @@ export function createRepo(db: Db) {
       const r = q.settlementById.get(id) as Row | undefined;
       return r && toSettlement(r);
     },
+    /**
+     * Payments that haven't reached an end state, whose payee is a member this
+     * user holds, in any group. Not all of them are still open: an invoice
+     * whose quote has lapsed is in here too (isInProgress tells them apart).
+     */
+    unfinishedToUser: (userId: string) => (q.unfinishedToUser.all(userId) as Row[]).map(toSettlement),
     insertSettlement(s: Settlement) {
       q.insertSettlement.run(
         s.id, s.groupId, s.fromMemberId, s.toMemberId, s.amount, s.currency, s.rail, s.status,

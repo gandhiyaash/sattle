@@ -45,6 +45,10 @@ export interface GroupDetailScreenProps {
   groupId: string;
   onBack: () => void;
   onAddExpense: (members: Member[], currency: string) => void;
+  /** Opens an expense to change or delete it. `userId` is who is signed in. */
+  onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
+  /** Opens the screen for renaming, leaving and deleting the group. */
+  onManage: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string) => void;
 }
 
@@ -54,6 +58,7 @@ interface GroupView {
   members: Member[];
   expenses: Expense[];
   debts: Debt[];
+  userId: string;
   myMemberId: string | null;
   myNet: number;
 }
@@ -62,6 +67,8 @@ export function GroupDetailScreen({
   groupId,
   onBack,
   onAddExpense,
+  onEditExpense,
+  onManage,
   onSettle,
 }: GroupDetailScreenProps) {
   const client = useClient();
@@ -85,6 +92,7 @@ export function GroupDetailScreen({
       members,
       expenses: [...expenses].reverse(),
       debts,
+      userId: user.id,
       myMemberId: mine?.id ?? null,
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
     };
@@ -128,6 +136,7 @@ export function GroupDetailScreen({
       title={data.name}
       subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
       onBack={onBack}
+      right={<Button label="Manage" variant="quiet" onPress={onManage} />}
     >
       <Card>
         <Text style={s.label}>
@@ -215,7 +224,10 @@ export function GroupDetailScreen({
             {data.expenses.map((expense, i) => (
               <View key={expense.id}>
                 {i > 0 && <Divider />}
-                <View style={s.expenseRow}>
+                <Pressable
+                  onPress={() => onEditExpense(expense, data.members, data.currency, data.userId)}
+                  style={({ pressed }) => [s.expenseRow, pressed && { backgroundColor: color.surfaceSunken }]}
+                >
                   <View style={{ flex: 1 }}>
                     <Text style={s.expenseName}>{expense.description}</Text>
                     <Text style={s.expenseMeta}>
@@ -223,7 +235,7 @@ export function GroupDetailScreen({
                     </Text>
                   </View>
                   <Amount minor={expense.amount} currency={data.currency} size="md" />
-                </View>
+                </Pressable>
               </View>
             ))}
           </Card>

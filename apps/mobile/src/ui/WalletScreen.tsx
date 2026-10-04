@@ -16,17 +16,7 @@ import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { WalletConnection } from '@sattle/core';
 import { useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
-import {
-  Badge,
-  Button,
-  Card,
-  Divider,
-  EmptyState,
-  ErrorState,
-  Loading,
-  Screen,
-  SectionLabel,
-} from './primitives';
+import { Badge, Button, Card, ConfirmButton, Divider, EmptyState, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { color, radius, space, type } from './theme';
 
 export interface WalletScreenProps {
@@ -210,6 +200,14 @@ function ConnectWallet() {
         {conn?.connected && !replacing && (
           <Button label="Replace connection" onPress={() => setReplacing(true)} />
         )}
+        {conn?.connected && !replacing && (
+          <ConfirmButton
+            label="Disconnect wallet"
+            confirmLabel="Yes, disconnect"
+            hint="Sattle forgets the connection. Money people owe you can’t land there until you connect again."
+            onConfirm={async () => setConnection(await client.disconnectWallet())}
+          />
+        )}
       </Card>
     </View>
   );
@@ -224,7 +222,8 @@ function ConnectWallet() {
  *
  *   Your money          payments/nwc.ts mints on the payee's wallet; nothing spends
  *   Wallet connection   walletStore.ts keeps nwc_uri as plain text; nwc.ts only calls
- *                       get_info, make_invoice, lookup_invoice; there is no delete route
+ *                       get_info, make_invoice, lookup_invoice; DELETE /me/wallet
+ *                       removes the row
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
  *   Your account        routes/accounts.ts: a name in, a random token out, nothing
  *                       else; account/tokenStore keeps it on the device
@@ -248,7 +247,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Your wallet connection"
-          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. There is no disconnect button yet: to cut Sattle off, delete the connection in your wallet."
+          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. Disconnect makes the server forget the string. To be sure nobody can use it again, also delete the connection in your wallet."
         />
         <Divider />
         <Row

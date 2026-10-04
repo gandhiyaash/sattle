@@ -95,11 +95,52 @@ export interface SattleClient {
   /** The signed-in user becomes the invite's member. Returns the group they're now in. */
   acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
 
+  // -- changing and removing ------------------------------------------------
+  //
+  // Nobody can undo what someone else is owed: an expense is its payer's to
+  // change, a group goes only once it's settled, and a member who is part of
+  // the ledger stays in it. What you can always do is take yourself out.
+
+  /**
+   * Replaces what an expense says. Only the person who paid may, once they've
+   * joined (`invalid_input` for anyone else); what a ghost paid, anyone in the
+   * group may change. See canChangeExpense.
+   */
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
+  /** Same rule as updateExpense. */
+  deleteExpense(groupId: string, expenseId: string, idempotencyKey?: string): Promise<void>;
+
+  renameGroup(groupId: string, name: string, idempotencyKey?: string): Promise<Group>;
+  /** For everyone in it. Throws `conflict` while anything is owed or a payment is under way. */
+  deleteGroup(groupId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Removes a ghost that no expense or payment names. Throws `conflict` for
+   * one that is part of the ledger, `invalid_input` for someone who has joined.
+   */
+  removeMember(groupId: string, memberId: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Your member becomes a ghost again, with its name and balance, and you
+   * lose the group; an invite brings you back. Throws `conflict` if you're
+   * the only one with an account, or a payment to you is under way.
+   */
+  leaveGroup(groupId: string, idempotencyKey?: string): Promise<void>;
+
   // -- wallet connection ----------------------------------------------------
 
   /** Throws `invalid_wallet` unless the connection grants NWC_REQUIRED_METHODS. */
   connectWallet(nwcUri: string): Promise<WalletConnection>;
   getWalletConnection(): Promise<WalletConnection>;
+  /** The server forgets the connection string. Throws `conflict` while a payment to you is under way. */
+  disconnectWallet(): Promise<WalletConnection>;
+
+  // -- account --------------------------------------------------------------
+
+  /**
+   * Ends the signed-in account for good: you leave every group (one only you
+   * could open is deleted), and the wallet connection and the links you sent
+   * go. Throws `conflict` while a payment to you is under way.
+   */
+  deleteAccount(): Promise<void>;
 }
 
 export function newIdempotencyKey(): string {

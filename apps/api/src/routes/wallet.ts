@@ -14,6 +14,7 @@ import { NWC_REQUIRED_METHODS, SattleError } from '@sattle/core';
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { parse } from '../http';
+import { checkNothingIncoming } from '../groupRules';
 import { NwcError, parseNwcUri } from '../nwc';
 import { nowIso } from '../repo';
 
@@ -21,7 +22,7 @@ export const ConnectWalletBody = z.object({
   nwcUri: z.string().startsWith('nostr+walletconnect://'),
 });
 
-export function walletRoutes({ db, wallets, nwc }: Ctx) {
+export function walletRoutes({ db, repo, wallets, nwc }: Ctx) {
   const r = new Hono<AppEnv>();
 
   /**
@@ -67,6 +68,20 @@ export function walletRoutes({ db, wallets, nwc }: Ctx) {
 
   /** WalletConnection; `{ connected: false, methods: [], excessMethods: [] }` when none. */
   r.get('/me/wallet', (c) => c.json(wallets.connection(c.get('user').id)));
+
+  /**
+   * Forgets the connection string. The user's members go back to `joined`.
+   * 409 while a payment to them is under way: this wallet is what confirms
+   * it. Returns the WalletConnection, now not connected.
+   */
+  r.delete('/me/wallet', (c) => {
+    const user = c.get('user');
+    const gone = transaction(db, () => {
+      checkNothingIncoming(repo, user.id);
+      return wallets.remove(user.id);
+    });
+    return c.json(gone);
+  });
 
   return r;
 }
