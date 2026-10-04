@@ -1,0 +1,65 @@
+name: android-build
+
+on:
+  pull_request:
+
+# A new push to a pull request makes the build of the previous one pointless.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: release apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default also installs the legacy 'tools' package, which no longer exists in
+          # cmdline-tools 16+ and makes sdkmanager fail. Gradle fetches platforms/build-tools.
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
+
+      # android/ is not committed; this creates it from app.json and the config plugins.
+      - name: Generate native Android project
+        working-directory: ./apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      # The build android-release.yml makes, minus the upload keystore: with no
+      # SATTLE_UPLOAD_* properties, plugins/withAndroidReleaseSigning signs with the debug
+      # key. So it needs no secrets and runs for forks too. The APK installs on a phone, but
+      # not over a copy from Play, which is signed with a different key.
+      - name: Build release APK
+        working-directory: ./apps/mobile/android
+        env:
+          # The values a release is built with, so this is the app a release would ship.
+          EXPO_PUBLIC_USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+        run: ./gradlew assembleRelease
+
+      - name: Name the APK after the pull request
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: mv apps/mobile/android/app/build/outputs/apk/release/app-release.apk "sattle-pr-$PR.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: sattle-pr-${{ github.event.pull_request.number }}.apk
+          # Uploaded as the .apk itself rather than a zip, so it opens straight from a phone.
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
