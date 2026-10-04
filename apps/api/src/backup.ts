@@ -6,9 +6,13 @@
  * Files are named sattle-<time>-<kind>[-<note>].db, so they sort by time.
  * Each kind is pruned on its own, so a busy day of deploys can't push out
  * the daily copies.
+ *
+ * A copy holds everything the database does, NWC connection strings and
+ * account tokens included, so the folder and every file are owner-only
+ * whatever umask the caller runs with.
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -28,7 +32,8 @@ export interface BackupOptions {
 /** Returns the new file, or null when there's no database yet to copy. */
 export function backupDb({ dbPath, dir, kind, note, keep, now = new Date() }: BackupOptions): string | null {
   if (!existsSync(dbPath)) return null;
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
 
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   const safeNote = note?.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 40);
@@ -41,6 +46,7 @@ export function backupDb({ dbPath, dir, kind, note, keep, now = new Date() }: Ba
   } finally {
     db.close();
   }
+  chmodSync(file, 0o600);
 
   prune(dir, kind, keep);
   return file;

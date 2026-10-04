@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -37,6 +37,20 @@ describe('backupDb', () => {
     // The live database is untouched and still writable.
     live.prepare("INSERT INTO users (id, display_name, token) VALUES ('u-after', 'After', 't-after')").run();
     expect(count(file, 'users')).toBe(count(dbPath, 'users') - 1);
+  });
+
+  it('makes the folder and the copy readable by their owner only, whatever the umask', () => {
+    const root = tmp();
+    const dbPath = join(root, 'sattle.db');
+    openDb(dbPath).close();
+    const old = process.umask(0o022);
+    try {
+      const file = backupDb({ dbPath, dir: join(root, 'backups'), kind: 'manual', keep: 1 })!;
+      expect(statSync(join(root, 'backups')).mode & 0o777).toBe(0o700);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(old);
+    }
   });
 
   it('returns null when there is no database yet', () => {
