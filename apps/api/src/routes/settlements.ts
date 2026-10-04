@@ -7,6 +7,7 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
+import { applyProof, ProofBody, readPreimage } from '../proof';
 import { checkManualRecorder, checkPayer, checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
 
 const SettlementBody = z.object({
@@ -74,6 +75,20 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
       });
     });
     return c.json(settlement, 201);
+  });
+
+  /**
+   * Proof of payment for an invoice: confirms it, even one we'd called
+   * expired. Anyone in the group may send it; only someone who paid has it.
+   *   not 64 hex characters, or for another invoice  → 400 invalid_input
+   *   already confirmed                              → 200, unchanged
+   */
+  r.post('/settlements/:id/proof', once, async (c) => {
+    const s = repo.settlement(c.req.param('id'));
+    if (!s) throw new SattleError('not_found', 'That payment doesn’t exist.');
+    repo.groupForUser(s.groupId, c.get('user').id);
+    const { preimage } = parse(ProofBody, await c.req.json());
+    return c.json(applyProof(repo, s, readPreimage(preimage)));
   });
 
   return r;

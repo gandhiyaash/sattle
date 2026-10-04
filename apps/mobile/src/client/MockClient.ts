@@ -144,6 +144,24 @@ export class MockClient implements SattleClient {
     return s;
   }
 
+  /**
+   * The mock has no real invoices to hash, so any well-formed proof matches,
+   * except 64 zeros, which stands in for a proof of some other payment so
+   * that error can be seen.
+   */
+  private prove(s: Settlement, raw: string) {
+    const preimage = raw.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(preimage)) {
+      throw new SattleError('invalid_input', 'That isn’t a payment proof. It’s 64 characters of 0–9 and a–f, from your wallet’s payment details.');
+    }
+    if (!s.destination) throw new SattleError('invalid_input', 'This payment never had an invoice, so there’s nothing to prove.');
+    if (/^0{64}$/.test(preimage)) throw new SattleError('invalid_input', 'That proof is for a different payment.');
+    if (s.status !== 'confirmed' && s.status !== 'manually_confirmed') {
+      this.update(s.id, { status: 'confirmed', preimage, failureReason: undefined });
+    }
+    return structuredClone(s);
+  }
+
   private update(id: string, patch: Partial<Settlement>) {
     const s = this.findSettlement(id);
     Object.assign(s, patch, { updatedAt: this.now() });
@@ -372,6 +390,20 @@ export class MockClient implements SattleClient {
   }
 
   // -- pay links ------------------------------------------------------------
+
+  submitProof(settlementId: string, preimage: string, idempotencyKey?: string) {
+    return this.call(() => this.prove(this.findSettlement(settlementId), preimage), idempotencyKey);
+  }
+
+  submitGuestProof(token: string, preimage: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const link = this.findLink(token);
+      const sid = this.payLinkSettlements[token];
+      if (!sid) throw new SattleError('invalid_input', 'That proof is for a different payment.');
+      this.prove(this.findSettlement(sid), preimage);
+      return this.guestView(link);
+    }, idempotencyKey);
+  }
 
   private findLink(token: string) {
     const link = this.payLinks.find((l) => l.token === token);

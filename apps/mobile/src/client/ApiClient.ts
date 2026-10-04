@@ -126,6 +126,9 @@ export class ApiClient implements SattleClient {
   getSettlement(settlementId: string) {
     return this.request<Settlement>('GET', `/settlements/${settlementId}`);
   }
+  submitProof(settlementId: string, preimage: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Settlement>('POST', `/settlements/${settlementId}/proof`, { preimage }, idempotencyKey);
+  }
   getLedgerBackup(groupId: string) {
     return this.request<LedgerBackup>('GET', `/groups/${groupId}/ledger`);
   }
@@ -157,6 +160,9 @@ export class ApiClient implements SattleClient {
   }
   getGuestView(token: string) {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);
+  }
+  submitGuestProof(token: string, preimage: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/proof`, { preimage }, idempotencyKey);
   }
 
   createInvite(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {

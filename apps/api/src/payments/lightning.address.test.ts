@@ -360,3 +360,117 @@ describe('after a restart', () => {
     expect((await closed(id)).status).toBe('confirmed');
   });
 });
+
+describe('proof of payment', () => {
+  const prove = (id: string, preimage: string, as = 'u-om') => call<Settlement & { code?: string; message?: string }>(as, 'POST', `/settlements/${id}/proof`, { preimage });
+  const guestProve = (preimage: string, token = 'demo') =>
+    call<{ settlement?: Settlement; code?: string; message?: string }>('u-om', 'POST', `/s/${token}/proof`, { preimage });
+
+  beforeEach(() => {
+    mint = () => ({ verifyUrl: undefined }); // a provider that can't tell us
+  });
+
+  it('confirms an invoice with its preimage, however it was pasted', async () => {
+    const id = await omPaysYash();
+    await minted(id);
+    const res = await prove(id, `  ${preimages[0].toUpperCase()}\n`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: 'confirmed', preimage: preimages[0] });
+    expect(res.body.failureReason).toBeUndefined();
+  });
+
+  it('confirms one we’d already called expired, and clears the reason', async () => {
+    const id = await omPaysYash();
+    await minted(id);
+    now += 600_000 + EXPIRY_GRACE_MS;
+    expect((await closed(id)).status).toBe('expired');
+
+    const res = await prove(id, preimages[0]);
+    expect(res.body).toMatchObject({ status: 'confirmed', preimage: preimages[0] });
+    expect(res.body.failureReason).toBeUndefined();
+  });
+
+  it('is fine to send twice', async () => {
+    const id = await omPaysYash();
+    await minted(id);
+    const first = await prove(id, preimages[0]);
+    const again = await prove(id, preimages[0]);
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(first.body);
+  });
+
+  it('stops the watch: a later verify answer can’t move it', async () => {
+    mint = () => ({}); // with a verify link this time
+    verify = () => ({ settled: false });
+    const id = await omPaysYash();
+    await minted(id);
+    await prove(id, preimages[0]);
+    now += 600_000 + EXPIRY_GRACE_MS;
+    await settle(10);
+    expect((await get(id)).status).toBe('confirmed');
+  });
+
+  it('refuses a proof for another payment, or something that isn’t one', async () => {
+    const id = await omPaysYash();
+    await minted(id);
+    const wrong = await prove(id, randomBytes(32).toString('hex'));
+    expect(wrong).toMatchObject({ status: 400, body: { code: 'invalid_input', message: 'That proof is for a different payment.' } });
+    for (const junk of ['abc', 'g'.repeat(64), preimages[0].slice(1), `${preimages[0]}00`]) {
+      expect((await prove(id, junk)).status).toBe(400);
+    }
+    expect((await get(id)).status).toBe('awaiting_payment');
+  });
+
+  it('refuses a payment that never had an invoice', async () => {
+    const manual = await call<Settlement>('u-yash', 'POST', '/groups/g-flat/settlements/manual', {
+      fromMemberId: 'm-flat-om',
+      toMemberId: 'm-flat-yash',
+      amount: 1_000,
+    });
+    expect(manual.status).toBe(201);
+    expect((await prove(manual.body.id, randomBytes(32).toString('hex'), 'u-yash')).status).toBe(400);
+  });
+
+  it('is 404 to someone outside the group', async () => {
+    const id = await omPaysYash();
+    await minted(id);
+    expect((await prove(id, preimages[0], 'u-priya')).status).toBe(404);
+    expect((await get(id)).status).toBe('awaiting_payment');
+  });
+
+  describe('on a pay link', () => {
+    const openLink = async () => {
+      expect((await call('u-om', 'POST', '/s/demo/open')).status).toBe(200);
+      const id = (db.prepare(`SELECT id FROM settlements WHERE pay_link_token = 'demo' ORDER BY created_at DESC, rowid DESC LIMIT 1`).get() as { id: string }).id;
+      await minted(id);
+      return id;
+    };
+
+    it('lets the guest confirm with their proof, and shows them it’s paid', async () => {
+      const id = await openLink();
+      const res = await guestProve(preimages[0]);
+      expect(res.status).toBe(200);
+      expect(res.body.settlement).toMatchObject({ id, status: 'confirmed', preimage: preimages[0] });
+    });
+
+    it('takes a proof for an older invoice the link opened', async () => {
+      const first = await openLink();
+      db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = ?`).run(first);
+      const second = await openLink();
+      expect(second).not.toBe(first);
+
+      const res = await guestProve(preimages[0]);
+      expect(res.body.settlement).toMatchObject({ id: first, status: 'confirmed' });
+      expect((await get(second)).status).toBe('awaiting_payment');
+    });
+
+    it('refuses a proof for a payment the link didn’t open, without saying whether it exists', async () => {
+      const id = await omPaysYash(); // same pair, but not through the link
+      await minted(id);
+      const res = await guestProve(preimages[0]);
+      expect(res).toMatchObject({ status: 400, body: { message: 'That proof is for a different payment.' } });
+      expect((await get(id)).status).toBe('awaiting_payment');
+      expect((await guestProve(randomBytes(32).toString('hex'))).body.message).toBe('That proof is for a different payment.');
+    });
+  });
+});
