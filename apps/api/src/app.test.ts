@@ -120,7 +120,9 @@ describe('settlements', () => {
   });
 
   it('refuses a ghost with nowhere to receive', async () => {
-    const debt = (await call<Debt[]>('GET', '/groups/g-goa/debts')).body.find((d) => d.toMemberId === 'm-goa-aman')!;
+    const debt = (await call<Debt[]>('GET', '/groups/g-goa/debts')).body.find(
+      (d) => d.fromMemberId === 'm-goa-yash' && d.toMemberId === 'm-goa-aman'
+    )!;
     const { status, body } = await call<{ code: string }>('POST', '/groups/g-goa/settlements', { ...debt, rail: 'invoice' });
     expect(status).toBe(409);
     expect(body.code).toBe('member_cannot_receive');
@@ -142,9 +144,53 @@ describe('settlements', () => {
 
   it('records a manual settlement immediately', async () => {
     const debt = await owedToOm();
-    const { body } = await call<Settlement>('POST', '/groups/g-goa/settlements/manual', { ...debt, note: 'cash' });
+    const { body } = await call<Settlement>('POST', '/groups/g-goa/settlements/manual', { ...debt, note: 'cash' }, asOm());
     expect(body.status).toBe('manually_confirmed');
     expect(await owedToOm()).toBeUndefined();
+  });
+});
+
+/** Signs in as Om, who has no token in the seed. */
+const asOm = () => {
+  db.prepare("UPDATE users SET token = 't-om' WHERE id = 'u-om'").run();
+  return { authorization: 'Bearer t-om' };
+};
+
+describe('who may settle', () => {
+  const debt = async (groupId: string, from: string, to: string) =>
+    (await call<Debt[]>('GET', `/groups/${groupId}/debts`)).body.find(
+      (d) => d.fromMemberId === from && d.toMemberId === to
+    )!;
+
+  it('lets only the payer start a payment', async () => {
+    // Om owes Yash; Yash is in the group but isn't the one paying.
+    const d = await debt('g-flat', 'm-flat-om', 'm-flat-yash');
+    const res = await call<{ code: string }>('POST', '/groups/g-flat/settlements', { ...d, rail: 'invoice' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_input');
+  });
+
+  it('won’t let the payer mark a joined payee as paid', async () => {
+    const d = await debt('g-goa', 'm-goa-yash', 'm-goa-om');
+    const res = await call<{ code: string; message: string }>('POST', '/groups/g-goa/settlements/manual', d);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('Om');
+    expect(await debt('g-goa', 'm-goa-yash', 'm-goa-om')).toBeDefined();
+  });
+
+  it('won’t let a third member mark someone else’s debt', async () => {
+    // Priya owes Aman (a ghost); Yash is neither of them.
+    const d = await debt('g-goa', 'm-goa-priya', 'm-goa-aman');
+    const res = await call('POST', '/groups/g-goa/settlements/manual', d);
+    expect(res.status).toBe(400);
+  });
+
+  it('lets the payee mark it, and the payer when the payee is a ghost', async () => {
+    const owedToYash = await debt('g-flat', 'm-flat-om', 'm-flat-yash');
+    expect((await call('POST', '/groups/g-flat/settlements/manual', owedToYash)).status).toBe(201);
+
+    const owedToGhost = await debt('g-goa', 'm-goa-yash', 'm-goa-aman');
+    expect((await call('POST', '/groups/g-goa/settlements/manual', owedToGhost)).status).toBe(201);
   });
 });
 
@@ -156,5 +202,14 @@ describe('payout address', () => {
 
     const ok = await call<Member>('PUT', '/members/m-goa-aman/payout-address', { address: 'Aman@WalletOfSatoshi.com' });
     expect(ok.body).toMatchObject({ lightningAddress: 'aman@walletofsatoshi.com', status: 'ghost' });
+  });
+
+  it('leaves a joined member’s address to them', async () => {
+    const theirs = await call<{ code: string }>('PUT', '/members/m-goa-om/payout-address', { address: 'yash@walletofsatoshi.com' });
+    expect(theirs.status).toBe(400);
+    expect(theirs.body.code).toBe('invalid_input');
+
+    const own = await call<Member>('PUT', '/members/m-goa-yash/payout-address', { address: 'yash@walletofsatoshi.com' });
+    expect(own.status).toBe(200);
   });
 });

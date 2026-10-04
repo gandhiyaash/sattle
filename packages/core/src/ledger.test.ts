@@ -112,6 +112,16 @@ describe('resolveSettlementOptions', () => {
     expect(o.blocked).toBeUndefined();
     expect(o.rails[0].rail).toBe('lightning_address');
   });
+
+  it('leaves marking it settled to a payee who has joined', () => {
+    const om: Member = { id: 'm-om', groupId: 'g', displayName: 'Om', status: 'joined', claimedByUserId: 'u-om' };
+    const manual = resolveSettlementOptions({ recipient: om, walletAvailable: true }).rails.find((r) => r.rail === 'manual');
+    expect(manual?.availability.available).toBe(false);
+    expect(manual?.detail).toContain('Om');
+
+    const ghostManual = resolveSettlementOptions({ recipient: ghost, walletAvailable: true }).rails.find((r) => r.rail === 'manual');
+    expect(ghostManual?.availability.available).toBe(true);
+  });
 });
 
 describe('formatFiat', () => {

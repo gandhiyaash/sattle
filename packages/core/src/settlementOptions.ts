@@ -7,7 +7,9 @@
  * produces a `blocked` result naming them, with remedies instead of rails.
  *
  * `manual` is present in every result. A ledger that can't record "paid in
- * cash" is punitive.
+ * cash" is punitive. But it's the payee's word to give: when they've joined,
+ * the payer sees it unavailable and is told to ask them. The server enforces
+ * the same rule (checkManualRecorder in apps/api).
  */
 
 import type { Member, Rail } from './types';
@@ -75,12 +77,21 @@ export function resolveSettlementOptions({
     });
   }
 
-  candidates.push({
-    rail: 'manual',
-    label: 'Mark as settled',
-    detail: 'Paid in cash, UPI, or forgiven.',
-    availability: { available: true },
-  });
+  candidates.push(
+    recipient.claimedByUserId
+      ? {
+          rail: 'manual',
+          label: 'Mark as settled',
+          detail: `Paid another way? Ask ${name} to mark it settled.`,
+          availability: { available: false, reason: `Only ${name} can confirm a payment made outside the app.` },
+        }
+      : {
+          rail: 'manual',
+          label: 'Mark as settled',
+          detail: 'Paid in cash, UPI, or forgiven.',
+          availability: { available: true },
+        }
+  );
 
   // Available rails first, preserving preference order within each group.
   const ordered = [
