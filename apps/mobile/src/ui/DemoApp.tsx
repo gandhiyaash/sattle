@@ -12,6 +12,7 @@
 
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, Member } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
@@ -24,6 +25,7 @@ import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
+import { AboveBottomBar } from './primitives';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
@@ -78,6 +80,7 @@ function Navigator({
   onAccountDeleted?: () => void;
 }) {
   const sheet = useSheet();
+  const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>(
     invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
   );
@@ -211,7 +214,7 @@ function Navigator({
 
   return (
     <View style={{ flex: 1 }}>
-      {body}
+      <AboveBottomBar>{body}</AboveBottomBar>
 
       <Modal
         visible={settling !== null}
@@ -220,7 +223,8 @@ function Navigator({
         onRequestClose={() => setSettling(null)}
       >
         <Pressable style={sheet.backdrop} onPress={() => setSettling(null)} />
-        <View style={sheet.container}>
+        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
+        <View style={[sheet.container, { paddingBottom: insets.bottom }]}>
           {settling && (
             <SettleUpSheet
               debt={settling.debt}
@@ -255,6 +259,7 @@ function DemoBar({
   onNavigate: (r: Route) => void;
 }) {
   const sheet = useSheet();
+  const insets = useSafeAreaInsets();
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
@@ -263,7 +268,8 @@ function DemoBar({
   ];
 
   return (
-    <View style={sheet.bar}>
+    // The labels stay above the home indicator; the bar's colour runs under it to the edge.
+    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
       {tabs.map((tab) => (
         <Pressable
           key={tab.label}
@@ -364,7 +370,6 @@ const useSheet = makeStyles((color) => ({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.line,
     backgroundColor: color.surface,
-    paddingBottom: space.lg,
   },
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   tabText: { ...type.label, color: color.inkFaint },

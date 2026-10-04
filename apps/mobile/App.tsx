@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { SattleError } from '@sattle/core';
 
@@ -45,11 +46,12 @@ const inviteToken = () => tokenFromPath(JOIN_PATH);
 export default function App() {
   const mode = useColorMode();
   return (
-    <>
+    // Where the status bar, the notch and the home indicator are, so the screens can keep clear of them.
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {/* Dark icons on the light theme, light ones on the dark. */}
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Root />
-    </>
+    </SafeAreaProvider>
   );
 }
 
