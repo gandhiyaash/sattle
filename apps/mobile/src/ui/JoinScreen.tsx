@@ -14,7 +14,7 @@ import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, parseInviteToken, type InviteMember } from '@sattle/core';
-import { writeToken } from '../account/tokenStore';
+import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
@@ -67,15 +67,28 @@ export function JoinAsNewScreen({
   token: string;
   /**
    * `accountToken` is the new account's, already saved on this device.
-   * `groupId` is null when the account was made and the join then turned out to be impossible.
+   * `groupId` is null when the account was made, the connection dropped, and they gave up on the invite.
    */
   onJoined: (accountToken: string, groupId: string | null) => void;
   /** The invite is no use to them, and they have no account yet. They start the app without it. */
   onSkip: () => void;
 }) {
-  // Kept if the join fails after the account was made, so a second try doesn't make another.
-  const account = useRef<string | null>(null);
+  // The account made for a join that hasn't gone through, and the name it was made under.
+  // It exists to be that member. If they can't be, or they pick someone else, it is deleted,
+  // so nobody ends up with an account named after a person they didn't join as.
+  const made = useRef<{ token: string; name: string } | null>(null);
   const keys = useActionKeys();
+
+  const forget = async () => {
+    const stale = made.current;
+    if (!stale) return;
+    made.current = null;
+    await clearToken();
+    // Best effort: an account whose token nobody holds can't do anything.
+    await buildClient(stale.token)
+      .deleteAccount()
+      .catch(() => {});
+  };
 
   return (
     <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
@@ -83,21 +96,27 @@ export function JoinAsNewScreen({
         token={token}
         note="Once you join, you can see everything in this group and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
         join={async (member) => {
-          if (!account.current) {
-            const made = await createAccount(API_URL, member.name);
-            await writeToken(made.token);
-            account.current = made.token;
+          if (made.current && made.current.name !== member.name) await forget();
+          if (!made.current) {
+            const account = await createAccount(API_URL, member.name);
+            await writeToken(account.token);
+            made.current = { token: account.token, name: member.name };
           }
-          const accountToken = account.current;
+          const accountToken = made.current.token;
           const input = { token, ref: member.ref };
-          const group = await keys.run('join', input, (k) =>
-            buildClient(accountToken).acceptInvite(input.token, input.ref, k)
-          );
+          const group = await keys
+            .run('join', input, (k) => buildClient(accountToken).acceptInvite(input.token, input.ref, k))
+            .catch(async (e) => {
+              // A lost connection is worth keeping the account for: the retry replays this join.
+              // Anything else means they can't be this person, so the account goes.
+              if (!(e instanceof SattleError && e.code === 'network')) await forget();
+              throw e;
+            });
           onJoined(accountToken, group.id);
         }}
         otherwise={{
           label: 'Start without it',
-          onPress: () => (account.current ? onJoined(account.current, null) : onSkip()),
+          onPress: () => (made.current ? onJoined(made.current.token, null) : onSkip()),
         }}
       />
     </Screen>

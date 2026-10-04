@@ -46,7 +46,7 @@ module.exports = function withIosSceneLifecycle(config) {
     // Left in, React Native would start twice: here, and again in the scene's window.
     swift = patch(
       swift,
-      /#if os\(iOS\) \|\| os\(tvOS\)\n\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\n\s*factory\.startReactNative\([^)]*\)\n#endif\n\n?/,
+      /#if os\(iOS\) \|\| os\(tvOS\)\r?\n\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\r?\n\s*factory\.startReactNative\([^)]*\)\r?\n#endif\r?\n(\r?\n)?/,
       '',
       'the window setup in didFinishLaunchingWithOptions',
     );
