@@ -1,0 +1,22 @@
+// A local Expo module: autolinking finds it under apps/mobile/modules/, so it survives
+// `expo prebuild` regenerating android/. The JS side is src/updates/.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.chanakya.sattle'
+version = '0.1.0'
+
+android {
+  namespace "com.chanakya.sattle.updates"
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+
+dependencies {
+  // Google Play In-App Updates.
+  implementation 'com.google.android.play:app-update:2.1.0'
+}

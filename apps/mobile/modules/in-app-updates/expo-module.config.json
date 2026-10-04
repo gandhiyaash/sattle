@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.chanakya.sattle.updates.InAppUpdatesModule"]
+  }
+}

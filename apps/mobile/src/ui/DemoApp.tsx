@@ -22,6 +22,7 @@ import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { NewGroupScreen } from './NewGroupScreen';
 import { SettleUpSheet } from './SettleUpSheet';
+import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
 import { color, radius, space, type } from './theme';
 
@@ -141,6 +142,7 @@ function Navigator() {
         </View>
       </Modal>
 
+      <UpdateBanner />
       <DemoBar route={route} onNavigate={setRoute} />
     </View>
   );
