@@ -118,7 +118,13 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
   r.put('/members/:id/payout-address', async (c) => {
     const member = repo.member(c.req.param('id'));
     if (!member) throw new SattleError('not_found', 'That member doesn’t exist.');
-    repo.groupForUser(member.groupId, c.get('user').id);
+    const user = c.get('user');
+    repo.groupForUser(member.groupId, user.id);
+    // Anyone in the group can give a ghost an address; someone who has joined
+    // sets their own, or a groupmate could redirect what they're paid.
+    if (member.claimedByUserId && member.claimedByUserId !== user.id) {
+      throw new SattleError('invalid_input', `Only ${member.displayName} can change where they get paid.`);
+    }
 
     const { address } = parse(AddressBody, await c.req.json(), 'invalid_address');
     const parsed = parseLightningAddress(address);

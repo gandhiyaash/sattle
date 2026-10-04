@@ -7,7 +7,7 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
-import { checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
+import { checkManualRecorder, checkPayer, checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
 
 const SettlementBody = z.object({
   fromMemberId: z.string(),
@@ -37,7 +37,8 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
   });
 
   r.post('/groups/:id/settlements', once, async (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     const body = parse(SettlementBody, await c.req.json());
     if (body.rail === 'manual') {
       throw new SattleError('invalid_input', 'Use /settlements/manual for manual settlements.');
@@ -45,6 +46,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
 
     const settlement = transaction(db, () => {
       const payee = checkSettlement(repo, g, body);
+      checkPayer(repo, body, user.id);
       if (!canReceive(payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
@@ -58,11 +60,14 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
     return c.json(settlement, 201);
   });
 
+  /** The payee records it; the payer only when the payee is a ghost. See checkManualRecorder. */
   r.post('/groups/:id/settlements/manual', once, async (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     const body = parse(ManualBody, await c.req.json());
     const settlement = transaction(db, () => {
       checkSettlement(repo, g, body);
+      checkManualRecorder(repo, body, user.id);
       return repo.insertSettlement({
         ...newSettlement(g, body, 'manual', 'manually_confirmed'),
         note: body.note,

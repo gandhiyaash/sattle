@@ -123,6 +123,21 @@ export class MockClient implements SattleClient {
     return g;
   }
 
+  /** Same rules as the server's checkPayer and checkManualRecorder. */
+  private checkCaller(input: { fromMemberId: string; toMemberId: string }, as: 'payer' | 'manual') {
+    const me = fixtures.currentUser.id;
+    const payer = this.members.find((m) => m.id === input.fromMemberId);
+    const payee = this.members.find((m) => m.id === input.toMemberId);
+    if (!payer || !payee) throw new SattleError('not_found', 'That member isn’t in this group.');
+    if (as === 'payer' && payer.claimedByUserId !== me) {
+      throw new SattleError('invalid_input', `Only ${payer.displayName} can pay this.`);
+    }
+    if (as === 'manual' && payee.claimedByUserId !== me && (payee.claimedByUserId || payer.claimedByUserId !== me)) {
+      const who = payee.claimedByUserId ? payee : payer;
+      throw new SattleError('invalid_input', `Only ${who.displayName} can mark this as settled.`);
+    }
+  }
+
   private findSettlement(id: string) {
     const s = this.settlements.find((x) => x.id === id);
     if (!s) throw new SattleError('not_found', 'That payment doesn’t exist.');
@@ -259,6 +274,9 @@ export class MockClient implements SattleClient {
       if (!parsed.ok) throw new SattleError('invalid_address', parsed.reason);
       const m = this.members.find((x) => x.id === memberId);
       if (!m) throw new SattleError('not_found', 'That member doesn’t exist.');
+      if (m.claimedByUserId && m.claimedByUserId !== fixtures.currentUser.id) {
+        throw new SattleError('invalid_input', `Only ${m.displayName} can change where they get paid.`);
+      }
       m.lightningAddress = parsed.address; // status stays as-is: payable, not joined
       return m;
     });
@@ -267,6 +285,7 @@ export class MockClient implements SattleClient {
   markSettledManually(input: Omit<CreateSettlementInput, 'rail'> & { note?: string }, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
+      this.checkCaller(input, 'manual');
       const s: Settlement = {
         id: this.id('s'),
         groupId: input.groupId,
@@ -291,6 +310,7 @@ export class MockClient implements SattleClient {
         throw new SattleError('invalid_expense', 'Use markSettledManually for manual settlements.');
       }
       const g = this.findGroup(input.groupId);
+      this.checkCaller(input, 'payer');
       const to = this.members.find((m) => m.id === input.toMemberId);
       if (!to) throw new SattleError('not_found', 'That member doesn’t exist.');
       if (!canReceive(to)) {

@@ -177,6 +177,9 @@ export function GroupDetailScreen({
                       currency={data.currency}
                     />
                   )}
+                  {!owedByMe && (
+                    <MarkSettled debt={debt} payerName={nameOf(other)} onSettled={refresh} />
+                  )}
                   {cannotReceive && (
                     <Text style={s.blockedNote}>
                       {nameOf(other)} hasn't joined — you can still pay them an address.
@@ -424,6 +427,45 @@ function SendPayLink({
 }
 
 /**
+ * The payee's side of "paid in cash". Only they can record it for someone
+ * who has joined, so this is where it lives; the payer's sheet tells them to
+ * ask. Two taps, since nothing undoes it.
+ */
+function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: string; onSettled: () => void }) {
+  const client = useClient();
+  const keys = useActionKeys();
+  const [state, setState] = useState<'idle' | 'confirming' | 'busy' | { failed: string }>('idle');
+
+  const confirm = async () => {
+    setState('busy');
+    const input = {
+      groupId: debt.groupId,
+      fromMemberId: debt.fromMemberId,
+      toMemberId: debt.toMemberId,
+      amount: debt.amount,
+      note: 'Settled outside the app',
+    };
+    try {
+      await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k));
+      onSettled();
+    } catch (e) {
+      setState({ failed: e instanceof Error ? e.message : 'Couldn’t mark it settled. Try again.' });
+    }
+  };
+
+  return (
+    <View style={s.linkBlock}>
+      {state === 'confirming' || state === 'busy' ? (
+        <Button label={`Yes, ${payerName} paid me`} busy={state === 'busy'} onPress={confirm} />
+      ) : (
+        <Button label="Mark as settled" variant="quiet" hint="Paid in cash, UPI, or forgiven." onPress={() => setState('confirming')} />
+      )}
+      {typeof state === 'object' && <Text style={s.linkError}>{state.failed}</Text>}
+    </View>
+  );
+}
+
+/**
  * The group's ledger on Nostr: how much of it is out on relays, and the key
  * that reads it back. The key decrypts the whole group, so it's copied, not
  * shared to a chat by default.
@@ -436,14 +478,15 @@ function LedgerBackupCard({ groupId, version }: { groupId: string; version: numb
   if (!data) return null;
 
   const relays = `${data.relays.length} relay${data.relays.length === 1 ? '' : 's'}`;
+  const entries = `${data.entries} ${data.entries === 1 ? 'entry' : 'entries'}`;
   const status =
     data.entries === 0
       ? 'Nothing to back up yet.'
       : data.relays.length === 0
-        ? `${data.entries} entries signed. This server isn’t publishing them to relays yet.`
+        ? `${entries} signed. This server isn’t publishing to relays yet.`
         : data.published < data.entries
-          ? `${data.published} of ${data.entries} entries on ${relays}. The rest go out shortly.`
-          : `All ${data.entries} entries on ${relays}.`;
+          ? `${data.published} of ${entries} on ${relays}. The rest go out shortly.`
+          : `${data.entries === 1 ? 'The entry is' : `All ${entries}`} on ${relays}.`;
 
   const copy = async () => {
     if (Platform.OS === 'web') {
