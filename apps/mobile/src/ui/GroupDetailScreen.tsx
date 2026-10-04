@@ -17,6 +17,7 @@ import {
   canReceive,
   computeBalances,
   formatFiat,
+  groupLinkPath,
   invitePath,
   payLinkPath,
   simplifyDebts,
@@ -201,6 +202,8 @@ export function GroupDetailScreen({
         </View>
       )}
 
+      <ShareGroupLink groupId={groupId} groupName={data.name} />
+
       <View>
         <SectionLabel>Members</SectionLabel>
         <Card style={{ padding: 0 }}>
@@ -380,6 +383,62 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
 }
 
 /**
+ * One link for the whole group, for the chat everyone is already in. Whoever
+ * opens it sees the spends and who owes whom, and pays what they owe; they
+ * can't change anything. There is no link until this is tapped, which is why
+ * it says what the link shows first. Replacing it and turning it off are
+ * under Manage.
+ */
+function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const client = useClient();
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
+
+  const send = async () => {
+    setState({ kind: 'busy' });
+    let url: string;
+    try {
+      // Looking first is what makes a retry safe: a link made by an attempt whose reply was
+      // lost is found here. So making one takes a fresh request key every time, and can never
+      // be answered with a saved reply naming a link that has since been turned off.
+      const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
+      url = `${APP_URL}${groupLinkPath(link.token)}`;
+    } catch (e) {
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      return;
+    }
+    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it from any Lightning wallet, no app needed: ${url}`;
+    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until someone in the group turns it off.') });
+  };
+
+  return (
+    <View>
+      <SectionLabel>Group link</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <Text style={s.linkIntro}>
+          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe from
+          any Lightning wallet. They can’t change anything.
+        </Text>
+        <Button
+          label={state.kind === 'sent' ? 'Share it again' : 'Share the group link'}
+          busy={state.kind === 'busy'}
+          onPress={send}
+        />
+        {state.kind === 'sent' && (
+          <>
+            <Text style={s.linkNote}>{state.note}</Text>
+            <Text style={s.linkUrl} selectable numberOfLines={1}>
+              {state.url}
+            </Text>
+          </>
+        )}
+        {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
+        <Text style={s.linkNote}>Replace it or turn it off under Manage.</Text>
+      </Card>
+    </View>
+  );
+}
+
+/**
  * Only on debts owed to you: mints a pay link and hands it to the share
  * sheet. The URL stays on screen afterwards, so it can be copied by hand.
  */
@@ -550,6 +609,7 @@ const s = StyleSheet.create({
   },
   linkBlock: { marginTop: space.sm, marginLeft: 48, gap: space.xs },
   linkNote: { ...type.caption, color: color.inkMuted },
+  linkIntro: { ...type.body, color: color.inkMuted },
   linkUrl: { ...type.amountSm, color: color.inkFaint },
   linkError: { ...type.caption, color: color.danger },
   memberRow: {

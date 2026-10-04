@@ -19,6 +19,8 @@ import type {
   Expense,
   ExpenseInput,
   Group,
+  GroupGuestView,
+  GroupLink,
   GuestView,
   Invite,
   InviteView,
@@ -94,6 +96,30 @@ export interface SattleClient {
   getInvite(token: string): Promise<InviteView>;
   /** The signed-in user becomes the invite's member. Returns the group they're now in. */
   acceptInvite(token: string, idempotencyKey?: string): Promise<Group>;
+
+  // -- group links ----------------------------------------------------------
+  //
+  // One link for the whole group: whoever holds it sees the spends and who
+  // owes whom, and can pay a debt. It can't change anything.
+
+  /** The group's link, or null when it has none. */
+  getGroupLink(groupId: string): Promise<GroupLink | null>;
+  /**
+   * Makes the group's link; anyone in the group can. If there was one, it
+   * stops working. Share `${APP_URL}${groupLinkPath(token)}`.
+   */
+  createGroupLink(groupId: string, idempotencyKey?: string): Promise<GroupLink>;
+  /** Turns the group's link off. */
+  removeGroupLink(groupId: string, idempotencyKey?: string): Promise<void>;
+  /** Public. What the group page shows. Throws `not_found` for a link that was replaced or turned off. */
+  getGroupGuestView(token: string): Promise<GroupGuestView>;
+  /**
+   * Public. Someone on the group page chose the debt `ref` to pay. Returns the
+   * token of a pay link for it; open that like any pay link. Throws
+   * `link_expired` if the debt is gone, `member_cannot_receive` if the person
+   * owed has nowhere to receive.
+   */
+  payFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<{ token: string }>;
 
   // -- changing and removing ------------------------------------------------
   //

@@ -6,10 +6,13 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  LEDGER_STATUSES,
   SattleError,
   TERMINAL_STATUSES,
   type Expense,
+  type Debt,
   type Group,
+  type GroupLink,
   type Invite,
   type Member,
   type PayLink,
@@ -73,6 +76,12 @@ const toPayLink = (r: Row): PayLink => ({
   fromMemberId: r.from_member_id as string,
   toMemberId: r.to_member_id as string,
   amount: r.amount as number,
+  createdAt: r.created_at as string,
+});
+
+const toGroupLink = (r: Row): GroupLink => ({
+  token: r.token as string,
+  groupId: r.group_id as string,
   createdAt: r.created_at as string,
 });
 
@@ -161,6 +170,23 @@ export function createRepo(db: Db) {
        VALUES (?, ?, ?, ?, ?, ?)`
     ),
     deleteInvitesFor: db.prepare('DELETE FROM invites WHERE member_id = ?'),
+    groupLinkByToken: db.prepare('SELECT * FROM group_links WHERE token = ?'),
+    groupLinkByGroup: db.prepare('SELECT * FROM group_links WHERE group_id = ?'),
+    insertGroupLink: db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)'),
+    deleteGroupLink: db.prepare('DELETE FROM group_links WHERE group_id = ?'),
+    // A link that has been paid is spent: opening it shows "Paid" for good and mints nothing.
+    payLinkFor: db.prepare(
+      `SELECT l.* FROM pay_links l
+       WHERE l.group_id = ? AND l.from_member_id = ? AND l.to_member_id = ? AND l.amount = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM settlements s
+           WHERE s.pay_link_token = l.token AND s.status IN (${LEDGER_STATUSES.map((st) => `'${st}'`).join(', ')})
+         )
+       ORDER BY l.created_at DESC, l.rowid DESC LIMIT 1`
+    ),
+    firstAccountIn: db.prepare(
+      'SELECT claimed_by_user_id AS id FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL ORDER BY position LIMIT 1'
+    ),
   };
 
   // Everything a group owns, in an order the foreign keys allow.
@@ -168,6 +194,7 @@ export function createRepo(db: Db) {
     'DELETE FROM settlements WHERE group_id = ?',
     'DELETE FROM pay_links WHERE group_id = ?',
     'DELETE FROM invites WHERE group_id = ?',
+    'DELETE FROM group_links WHERE group_id = ?',
     'DELETE FROM expenses WHERE group_id = ?',
     'DELETE FROM expense_changes WHERE group_id = ?',
     'DELETE FROM ledger_entries WHERE group_id = ?',
@@ -373,6 +400,36 @@ export function createRepo(db: Db) {
       const r = q.latestForPayLink.get(token) as Row | undefined;
       return r && toSettlement(r);
     },
+
+    /**
+     * The newest pay link for exactly this debt and amount that can still be
+     * paid, whoever made it. One that was already paid doesn't count: the same
+     * two people can owe the same amount again, and that is a new debt.
+     */
+    payLinkFor: (d: Pick<Debt, 'groupId' | 'fromMemberId' | 'toMemberId' | 'amount'>) => {
+      const r = q.payLinkFor.get(d.groupId, d.fromMemberId, d.toMemberId, d.amount) as Row | undefined;
+      return r && toPayLink(r);
+    },
+
+    groupLink: (token: string) => {
+      const r = q.groupLinkByToken.get(token) as Row | undefined;
+      return r && toGroupLink(r);
+    },
+    groupLinkFor: (groupId: string) => {
+      const r = q.groupLinkByGroup.get(groupId) as Row | undefined;
+      return r && toGroupLink(r);
+    },
+    /** A group has one link at a time: this one takes the place of any before it. */
+    replaceGroupLink(link: GroupLink) {
+      q.deleteGroupLink.run(link.groupId);
+      q.insertGroupLink.run(link.token, link.groupId, link.createdAt);
+      return link;
+    },
+    deleteGroupLink(groupId: string) {
+      q.deleteGroupLink.run(groupId);
+    },
+    /** The account of the first member who has one. Every group has at least one. */
+    firstAccountIn: (groupId: string) => (q.firstAccountIn.get(groupId) as { id: string } | undefined)?.id,
 
     /** The invite, and who made it. */
     invite: (token: string) => {
