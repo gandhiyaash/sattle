@@ -247,7 +247,14 @@ function Navigator({
       </Modal>
 
       <UpdateBanner />
-      <DemoBar route={route} onNavigate={setRoute} />
+      <DemoBar
+        route={route}
+        onNavigate={(next) => {
+          // A tab is a way off the join screen too. Left set, the link would do nothing when tapped again.
+          if (route.name === 'join') onInviteDone?.();
+          setRoute(next);
+        }}
+      />
     </View>
   );
 }
