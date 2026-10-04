@@ -47,14 +47,21 @@ export interface DemoAppProps {
   invite?: string | null;
   /** The join screen is finished with that link, whether or not anyone joined. */
   onInviteDone?: () => void;
+  /** A group the person joined on their way in. It starts there. */
+  group?: string | null;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
 }
 
-export function DemoApp({ client, invite, onInviteDone, onAccountDeleted }: DemoAppProps) {
+export function DemoApp({ client, invite, onInviteDone, group, onAccountDeleted }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
-      <Navigator invite={invite ?? null} onInviteDone={onInviteDone} onAccountDeleted={onAccountDeleted} />
+      <Navigator
+        invite={invite ?? null}
+        onInviteDone={onInviteDone}
+        group={group ?? null}
+        onAccountDeleted={onAccountDeleted}
+      />
     </SattleProvider>
   );
 }
@@ -62,13 +69,17 @@ export function DemoApp({ client, invite, onInviteDone, onAccountDeleted }: Demo
 function Navigator({
   invite,
   onInviteDone,
+  group,
   onAccountDeleted,
 }: {
   invite: string | null;
   onInviteDone?: () => void;
+  group: string | null;
   onAccountDeleted?: () => void;
 }) {
-  const [route, setRoute] = useState<Route>(invite ? { name: 'join', token: invite } : { name: 'groups' });
+  const [route, setRoute] = useState<Route>(
+    invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
+  );
   const [settling, setSettling] = useState<{
     debt: Debt;
     members: Member[];
