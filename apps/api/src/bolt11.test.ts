@@ -4,27 +4,13 @@ import { bech32 } from '@scure/base';
 import { describe, expect, it } from 'vitest';
 
 import { Bolt11Error, decodeBolt11 } from './bolt11';
+import { buildInvoice as invoice, hashWords, intWords } from './testing/invoices';
 
 /** From the BOLT11 spec: "Please send $3 for a cup of coffee to the same peer, within one minute". */
 const SPEC_COFFEE =
   'lnbc2500u1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpu9qrsgquk0rl77nj30yxdy8j9vdx85fkpmdla2087ne0xh8nhedh8w27kyke0lp53ut353s06fv3qfegext0eh0ymjpf39tuven09sam30g4vgpfna3rh';
 
 const HASH = '0001020304050607080900010203040506070809000102030405060708090102';
-
-/** Builds an invoice from fields, with a dummy signature: the decoder doesn't check it. */
-function invoice(prefix: string, fields: [tag: number, data: number[]][], timestamp = 1_700_000_000) {
-  const ts: number[] = [];
-  for (let i = 6, t = timestamp; i >= 0; i--, t = Math.floor(t / 32)) ts[i] = t % 32;
-  const body = fields.flatMap(([tag, data]) => [tag, data.length >> 5, data.length & 31, ...data]);
-  return bech32.encode(prefix, [...ts, ...body, ...new Array(104).fill(0)], false);
-}
-const hashWords = (hex: string) => bech32.toWords(Buffer.from(hex, 'hex'));
-const intWords = (n: number) => {
-  const out: number[] = [];
-  do out.unshift(n % 32);
-  while ((n = Math.floor(n / 32)) > 0);
-  return out;
-};
 
 describe('decodeBolt11', () => {
   it('reads the spec’s example invoice', () => {
