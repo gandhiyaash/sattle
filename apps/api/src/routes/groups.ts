@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, parseLightningAddress, resolveParts, type Expense } from '@sattle/core';
+import { SattleError, parseLightningAddress, resolveParts, type Expense, type Group } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
 import { newId, nowIso } from '../repo';
+import { checkExpenseOwner, checkGroupCanGo, checkMemberCanGo, leaveGroup } from '../groupRules';
 import { debtsOf } from '../settlementRules';
 
 const ExpenseBody = z.object({
@@ -40,6 +41,8 @@ export const CreateGroupBody = z.object({
 });
 
 export const AddMemberBody = z.object({ displayName: z.string().trim().min(1).max(40) });
+
+export const RenameGroupBody = CreateGroupBody.pick({ name: true });
 
 const AddressBody = z.object({ address: z.string() });
 
@@ -74,6 +77,41 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
 
   r.get('/groups/:id', (c) => c.json(repo.groupForUser(c.req.param('id'), c.get('user').id)));
 
+  /** Anyone in the group can rename it. Returns the Group. */
+  r.put('/groups/:id', once, async (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    const { name } = parse(RenameGroupBody, await c.req.json());
+    repo.renameGroup(g.id, name);
+    return c.json(repo.groupForUser(g.id, user.id));
+  });
+
+  /**
+   * Deletes the group and everything in it, for everyone. Anyone in it can,
+   * but only once nothing is owed and no payment is under way (409 conflict
+   * otherwise), so deleting a group can't erase what someone is owed.
+   */
+  r.delete('/groups/:id', once, (c) => {
+    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    transaction(db, () => {
+      checkGroupCanGo(repo, g);
+      repo.deleteGroup(g.id);
+    });
+    return c.json({ ok: true });
+  });
+
+  /**
+   * The caller's member becomes a ghost again and they lose the group. Their
+   * name, history and balance stay; an invite can bring them back. 409 for
+   * the only person with an account, or while a payment to them is under way.
+   */
+  r.post('/groups/:id/leave', once, (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    transaction(db, () => leaveGroup(repo, g, user.id));
+    return c.json({ ok: true });
+  });
+
   r.get('/groups/:id/members', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
     return c.json(repo.members(g.id));
@@ -86,21 +124,46 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
     return c.json(repo.appendMember({ id: newId('m'), groupId: g.id, displayName, status: 'ghost' }), 201);
   });
 
+  /**
+   * Removes someone added by mistake: a ghost that no expense, payment or
+   * pay link names. Anyone else is part of the ledger and stays (409), and
+   * someone who has joined can only take themselves out (400).
+   */
+  r.delete('/groups/:id/members/:memberId', once, (c) => {
+    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    transaction(db, () => {
+      const member = repo.member(c.req.param('memberId'));
+      if (!member || member.groupId !== g.id) throw new SattleError('not_found', 'That member isn’t in this group.');
+      checkMemberCanGo(repo, g, member);
+      repo.deleteMember(member.id);
+    });
+    return c.json({ ok: true });
+  });
+
   r.get('/groups/:id/expenses', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
     return c.json(repo.expenses(g.id));
   });
 
-  r.post('/groups/:id/expenses', once, async (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    const body = parse(ExpenseBody, await c.req.json(), 'invalid_expense');
-
+  /** The body of an expense, checked against the group. */
+  const readExpense = (g: Group, json: unknown) => {
+    const body = parse(ExpenseBody, json, 'invalid_expense');
     const bad = [body.paidByMemberId, ...body.parts.map((p) => p.memberId)].find(
       (id) => !g.memberIds.includes(id)
     );
     if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
+    return { ...body, groupId: g.id };
+  };
 
-    const input = { ...body, groupId: g.id };
+  const findExpense = (g: Group, id: string) => {
+    const expense = repo.expense(id);
+    if (!expense || expense.groupId !== g.id) throw new SattleError('not_found', 'That expense doesn’t exist.');
+    return expense;
+  };
+
+  r.post('/groups/:id/expenses', once, async (c) => {
+    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const input = readExpense(g, await c.req.json());
     const expense: Expense = {
       id: newId('e'),
       ...input,
@@ -108,6 +171,37 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
       createdAt: nowIso(),
     };
     return c.json(repo.insertExpense(expense), 201);
+  });
+
+  /**
+   * Replaces what an expense says: what it was, how much, who paid, who it's
+   * split between. Only the person who paid may (400 invalid_input for anyone
+   * else), since it's their money the expense says is owed back; what a ghost
+   * paid, anyone in the group may change. Returns the Expense.
+   */
+  r.put('/groups/:id/expenses/:expenseId', once, async (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    const input = readExpense(g, await c.req.json());
+
+    const expense = transaction(db, () => {
+      const current = findExpense(g, c.req.param('expenseId'));
+      checkExpenseOwner(repo, current, user.id);
+      return repo.updateExpense({ ...current, ...input, parts: resolveParts(input) });
+    });
+    return c.json(expense);
+  });
+
+  /** Removes an expense. Same rule as changing it. */
+  r.delete('/groups/:id/expenses/:expenseId', once, (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    transaction(db, () => {
+      const current = findExpense(g, c.req.param('expenseId'));
+      checkExpenseOwner(repo, current, user.id);
+      repo.deleteExpense(current);
+    });
+    return c.json({ ok: true });
   });
 
   r.get('/groups/:id/debts', (c) => {
