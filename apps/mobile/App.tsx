@@ -111,6 +111,17 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
         />
       );
     case 'ready':
-      return <DemoApp client={account.client} invite={invite} onInviteDone={onInviteDone} />;
+      return (
+        <DemoApp
+          client={account.client}
+          invite={invite}
+          onInviteDone={onInviteDone}
+          // The server no longer knows the token, so the device shouldn't keep it.
+          onAccountDeleted={async () => {
+            await clearToken();
+            setAccount({ kind: 'none' });
+          }}
+        />
+      );
   }
 }

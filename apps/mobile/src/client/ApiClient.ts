@@ -61,7 +61,7 @@ export class ApiClient implements SattleClient {
   ) {}
 
   private async request<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
     idempotencyKey?: string
@@ -169,11 +169,45 @@ export class ApiClient implements SattleClient {
     return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
   }
 
+  updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Expense>('PUT', `/groups/${input.groupId}/expenses/${expenseId}`, input, idempotencyKey);
+  }
+  async deleteExpense(groupId: string, expenseId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/expenses/${expenseId}`, undefined, idempotencyKey);
+  }
+  renameGroup(groupId: string, name: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('PUT', `/groups/${groupId}`, { name }, idempotencyKey);
+  }
+  async deleteGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}`, undefined, idempotencyKey);
+  }
+  async removeMember(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/members/${memberId}`, undefined, idempotencyKey);
+  }
+  async leaveGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('POST', `/groups/${groupId}/leave`, undefined, idempotencyKey);
+  }
+
   connectWallet(nwcUri: string) {
     return this.request<WalletConnection>('PUT', '/me/wallet', { nwcUri });
   }
   getWalletConnection() {
     return this.request<WalletConnection>('GET', '/me/wallet');
+  }
+  disconnectWallet() {
+    return this.request<WalletConnection>('DELETE', '/me/wallet');
+  }
+
+  /**
+   * A retry after a lost response finds the token already dead. That 401
+   * means the first attempt worked, so it counts as done.
+   */
+  async deleteAccount() {
+    try {
+      await this.request('DELETE', '/me');
+    } catch (e) {
+      if (!(e instanceof SattleError && e.code === 'unauthorized')) throw e;
+    }
   }
 
   /**

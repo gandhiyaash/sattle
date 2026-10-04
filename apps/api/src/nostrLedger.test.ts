@@ -49,6 +49,66 @@ const addExpense = (groupId: string, id: string, amount: number) => {
   });
 };
 
+describe('expenses that change after they were written down', () => {
+  const read = async (groupId: string) => {
+    await ledger.tick();
+    return readLedger(relay.events, access(groupId));
+  };
+  const chai = (groupId: string) => createRepo(db).expense('e-chai')!;
+
+  it('reads an edited expense as it now stands, without breaking the chain', async () => {
+    addExpense('g-goa', 'e-chai', 200);
+    const before = await read('g-goa');
+    const repo = createRepo(db);
+    repo.updateExpense({ ...chai('g-goa'), description: 'Chai and samosa', amount: 500, parts: chai('g-goa').parts.map((p) => ({ ...p, amount: 250 })) });
+
+    const after = await read('g-goa');
+    expect(after.problems).toEqual([]);
+    expect(after.entries).toBe(before.entries + 1);
+    expect(after.expenses.filter((e) => e.id === 'e-chai')).toMatchObject([{ description: 'Chai and samosa', amount: 500 }]);
+    // Where it always was in the list: an edit doesn't move it to the end.
+    expect(after.expenses.map((e) => e.id)).toEqual(before.expenses.map((e) => e.id));
+    expect(computeBalances(repo.group('g-goa')!.memberIds, after.expenses, after.settlements)).toEqual(
+      computeBalances(repo.group('g-goa')!.memberIds, repo.expenses('g-goa'), repo.settlements('g-goa'))
+    );
+  });
+
+  it('drops a removed expense, and says so with an entry of its own', async () => {
+    addExpense('g-goa', 'e-chai', 200);
+    const before = await read('g-goa');
+    const repo = createRepo(db);
+    repo.deleteExpense(chai('g-goa'));
+
+    const after = await read('g-goa');
+    expect(after.problems).toEqual([]);
+    expect(after.entries).toBe(before.entries + 1);
+    expect(after.expenses.map((e) => e.id)).not.toContain('e-chai');
+    expect(after.expenses).toHaveLength(repo.expenses('g-goa').length);
+  });
+
+  it('keeps several changes made in the same instant in the order they happened', async () => {
+    addExpense('g-goa', 'e-chai', 200);
+    const repo = createRepo(db);
+    for (const amount of [300, 400, 500]) repo.updateExpense({ ...chai('g-goa'), amount });
+
+    const after = await read('g-goa');
+    expect(after.problems).toEqual([]);
+    expect(after.expenses.find((e) => e.id === 'e-chai')?.amount).toBe(500);
+  });
+
+  it('copes with an expense removed before it was ever written down', async () => {
+    await ledger.tick();
+    addExpense('g-goa', 'e-chai', 200);
+    const repo = createRepo(db);
+    repo.deleteExpense(chai('g-goa'));
+
+    const after = await read('g-goa');
+    expect(after.problems).toEqual([]);
+    expect(after.expenses.map((e) => e.id)).not.toContain('e-chai');
+    expect(ledger.sync()).toBe(0);
+  });
+});
+
 describe('sync', () => {
   it('signs one entry per expense and confirmed settlement, once', () => {
     const repo = createRepo(db);
