@@ -306,7 +306,7 @@ describe('confirming with the verify link', () => {
     now += UNREACHABLE_GIVE_UP_MS;
     expect(await closed(id)).toMatchObject({
       status: 'expired',
-      failureReason: 'We couldn’t reach Yash’s wallet to check this. If you paid it, ask Yash to mark it settled.',
+      failureReason: 'We couldn’t reach Yash’s wallet to check this. If you paid it, send your payment proof or ask Yash to mark it settled.',
     });
   });
 
@@ -354,7 +354,7 @@ describe('an address with no verify link', () => {
     now += EXPIRY_GRACE_MS;
     expect(await closed(id)).toMatchObject({
       status: 'expired',
-      failureReason: 'Yash’s wallet can’t tell us whether this was paid. If you paid it, ask Yash to mark it settled.',
+      failureReason: 'Yash’s wallet can’t tell us whether this was paid. If you paid it, send your payment proof or ask Yash to mark it settled.',
     });
     expect(verified).toEqual([]);
   });

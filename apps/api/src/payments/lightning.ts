@@ -383,7 +383,7 @@ export class LightningPayments implements PaymentBackend {
       if (this.now() >= w.untilMs + UNREACHABLE_GIVE_UP_MS) {
         this.finish(w.settlementId, {
           status: 'expired',
-          failureReason: `We couldn’t reach ${w.payeeName}’s wallet to check this. If you paid it, ask ${w.payeeName} to mark it settled.`,
+          failureReason: `We couldn’t reach ${w.payeeName}’s wallet to check this. If you paid it, send your payment proof or ask ${w.payeeName} to mark it settled.`,
         });
       }
       return;
@@ -397,7 +397,7 @@ export class LightningPayments implements PaymentBackend {
     if (now < w.untilMs + EXPIRY_GRACE_MS) return;
     this.finish(w.settlementId, {
       status: 'expired',
-      failureReason: `${w.payeeName}’s wallet can’t tell us whether this was paid. If you paid it, ask ${w.payeeName} to mark it settled.`,
+      failureReason: `${w.payeeName}’s wallet can’t tell us whether this was paid. If you paid it, send your payment proof or ask ${w.payeeName} to mark it settled.`,
     });
   }
 
