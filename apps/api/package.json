@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "nwc:smoke": "tsx --env-file-if-exists=.env src/scripts/nwcSmoke.ts",
-    "db:backup": "tsx --env-file-if-exists=.env src/scripts/backup.ts"
+    "db:backup": "tsx --env-file-if-exists=.env src/scripts/backup.ts",
+    "ledger:verify": "tsx src/scripts/ledgerVerify.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",

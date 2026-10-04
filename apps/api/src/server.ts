@@ -1,8 +1,10 @@
 import { serve } from '@hono/node-server';
+import { npubEncode } from 'nostr-tools/nip19';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
 import { productionProblems } from './env';
+import { NostrLedger } from './nostrLedger';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
 import { NwcPayments } from './payments/nwc';
@@ -44,8 +46,13 @@ db.prepare(
 let nwcPayments: NwcPayments | undefined;
 const rates = createRateService({ fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 9_000_000) } });
 
+// Unset or empty: entries are signed and kept, and go out once relays are set.
+const ledgerRelays = (env.LEDGER_RELAYS ?? '').split(',').map((r) => r.trim()).filter(Boolean);
+const ledger = new NostrLedger({ db, relays: ledgerRelays });
+
 const app = createApp({
   db,
+  ledger,
   demoUserId: env.DEMO_USER_ID || undefined,
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
   payments: (repo, wallets) =>
@@ -60,9 +67,15 @@ const app = createApp({
 });
 
 const resumed = nwcPayments?.resume() ?? 0;
+ledger.start();
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real NWC payments' : 'simulated payments'})`);
   if (resumed > 0) console.log(`  watching ${resumed} open invoice(s) from before the restart`);
+  console.log(
+    ledgerRelays.length > 0
+      ? `  ledger mirrored to ${ledgerRelays.length} relay(s) as ${npubEncode(ledger.pubkey)}`
+      : '  ledger signed but not published (LEDGER_RELAYS is unset)'
+  );
   if (env.DEMO_USER_ID) console.log(`  unauthenticated requests act as ${env.DEMO_USER_ID} (dev only)`);
 });

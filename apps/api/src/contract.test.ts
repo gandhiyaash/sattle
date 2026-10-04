@@ -45,6 +45,6 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql']);
   });
 });

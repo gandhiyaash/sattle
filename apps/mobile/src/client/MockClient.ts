@@ -8,6 +8,7 @@
  */
 
 import {
+  LEDGER_STATUSES,
   NWC_REQUIRED_METHODS,
   SattleError,
   TERMINAL_STATUSES,
@@ -28,6 +29,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type LedgerBackup,
   type Member,
   type PayLink,
   type Settlement,
@@ -213,6 +215,24 @@ export class MockClient implements SattleClient {
 
   getSettlement(settlementId: string) {
     return this.call(() => this.findSettlement(settlementId));
+  }
+
+  /** Looks like the server's, but nothing is signed or published. */
+  getLedgerBackup(groupId: string) {
+    return this.call((): LedgerBackup => {
+      this.findGroup(groupId);
+      const entries =
+        this.expenses.filter((e) => e.groupId === groupId).length +
+        this.settlements.filter((s) => s.groupId === groupId && LEDGER_STATUSES.includes(s.status)).length;
+      const relays = ['wss://relay.damus.io', 'wss://nos.lol'];
+      return {
+        uri: `sattle-ledger://${'d'.repeat(64)}?key=${'e'.repeat(64)}&${relays.map((r) => `relay=${encodeURIComponent(r)}`).join('&')}`,
+        npub: 'npub1demo0000000000000000000000000000000000000000000000000000',
+        relays,
+        entries,
+        published: entries,
+      };
+    });
   }
 
   getDebts(groupId: string) {
