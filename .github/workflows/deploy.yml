@@ -43,6 +43,9 @@ jobs:
             # it, this is a no-op rather than a step back.
             git merge --ff-only "$SHA"
             npm ci -w @sattle/api -w @sattle/core --include-workspace-root --no-audit --no-fund
+            # Copy the database before the restart, which is when migrations run and
+            # can't be undone. Named for the commit going out; keeps the last 20.
+            npm run db:backup -w @sattle/api -- deploy "$(git rev-parse --short HEAD)"
             # Clear a start-limit hit by earlier crashes, or systemd refuses the restart.
             sudo systemctl reset-failed sattle || true
             if ! sudo systemctl restart sattle; then

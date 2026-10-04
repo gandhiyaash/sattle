@@ -299,7 +299,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now sattle-backup.timer
 systemctl list-timers sattle-backup.timer    # next run
 ```
 
-Before a deploy that adds a migration, take one by hand (`npm run db:backup -w @sattle/api -- manual before-<what>`), because migrations run when the server restarts and can't be undone.
+Every deploy takes a `deploy` copy, named for the commit going out, just before it restarts the server, because that's when migrations run and they can't be undone. If the copy fails, the deploy stops there and the running server is left alone. To keep one past the last 20 deploys, take it by hand: `npm run db:backup -w @sattle/api -- manual before-<what>`.
 
 To restore one, stop the server, put the copy in place and drop the old WAL files:
 
