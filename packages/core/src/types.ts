@@ -234,6 +234,22 @@ export interface InviteView {
  * The payee's NWC connection, as the server sees it. The connection string
  * itself never comes back from the server.
  */
+/**
+ * A group's ledger, mirrored to Nostr. Every expense and confirmed settlement
+ * is signed by the server and encrypted with a key only members get. `uri`
+ * carries that key: with it, anyone in the group can rebuild the balances
+ * from the relays without this server.
+ */
+export interface LedgerBackup {
+  /** `sattle-ledger://<server pubkey>?key=<hex>&relay=wss://…`. A secret: it decrypts the group. */
+  uri: string;
+  /** The server's signing key, as npub. */
+  npub: string;
+  relays: string[];
+  entries: number;
+  published: number;
+}
+
 export interface WalletConnection {
   connected: boolean;
   /** NWC methods the wallet granted, from get_info. Ideally just make_invoice + lookup_invoice. */

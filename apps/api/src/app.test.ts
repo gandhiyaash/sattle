@@ -40,7 +40,7 @@ const waitFor = async <T>(fn: () => Promise<T>, ok: (v: T) => boolean) => {
 
 describe('reads', () => {
   it('only lists groups the user belongs to', async () => {
-    db.prepare("INSERT INTO expense_groups VALUES ('g-secret', 'Not yours', 'INR', '2026-01-01')").run();
+    db.prepare("INSERT INTO expense_groups (id, name, currency, created_at) VALUES ('g-secret', 'Not yours', 'INR', '2026-01-01')").run();
     const { body } = await call<{ id: string }[]>('GET', '/groups');
     expect(body.map((g) => g.id).sort()).toEqual(['g-flat', 'g-goa']);
     expect((await call('GET', '/groups/g-secret')).status).toBe(404);

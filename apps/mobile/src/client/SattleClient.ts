@@ -22,6 +22,7 @@ import type {
   GuestView,
   Invite,
   InviteView,
+  LedgerBackup,
   Member,
   PayLink,
   Settlement,
@@ -63,6 +64,9 @@ export interface SattleClient {
 
   /** Stores a payout address for a ghost. Their status stays `ghost`. */
   setMemberPayoutAddress(memberId: string, address: string): Promise<Member>;
+
+  /** The group's ledger on Nostr, and the key that reads it back without this server. Members only. */
+  getLedgerBackup(groupId: string): Promise<LedgerBackup>;
 
   // -- pay links ------------------------------------------------------------
 

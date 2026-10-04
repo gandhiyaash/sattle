@@ -56,6 +56,9 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `SEED` | `false` | `true` loads the demo fixtures into an empty database. Leave unset in production |
 | `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
 | `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
+| `PAYMENTS` | `sim` | `nwc` mints real invoices on payees' connected wallets; anything else simulates |
+| `LEDGER_RELAYS` | empty | comma-separated relays the group ledger is published to. Empty: entries are signed and kept, not sent. See [The ledger on Nostr](#the-ledger-on-nostr) |
+| `RATE_FALLBACK_INR_PER_BTC` | `9000000` | rate used if CoinGecko has never answered |
 | `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
 
 ## Layout
@@ -75,18 +78,22 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet, ledger.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
   db.ts                      Migration runner and seeding.
   migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
-  payments.ts                Payment seam. SimulatedPayments until NWC lands.
+  payments.ts                Payment seam, and SimulatedPayments for dev and demos.
+  payments/nwc.ts            Real payments: invoices on the payee's wallet over NWC, confirmed by lookup.
+  nwc.ts                     NIP-47 client: get_info, make_invoice, lookup_invoice.
+  nostrLedger.ts             The ledger on Nostr: signed, encrypted, chained entries, and reading them back.
+  scripts/ledgerVerify.ts    Rebuilds a group's balances from relays alone.
   app.test.ts                Route tests against an in-memory database.
-  contract.test.ts           Auth boundary, migrations, and the 501 stubs still open.
+  contract.test.ts           Auth boundary and migrations.
 
 apps/mobile/                 @sattle/mobile: Expo
-  App.tsx                    Renders DemoApp
+  App.tsx                    Routes /s/<token> to the guest page and /join/<token> to joining; otherwise the app.
   modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
   src/
     client/
@@ -186,7 +193,12 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 - A ghost with no payout address gets `409 member_cannot_receive`.
 - A repeated `idempotency-key` replays the first response instead of acting twice.
 
-Payments go through `PaymentBackend` in `payments.ts`. Today that's `SimulatedPayments`, which walks the same states as the mock with a fake preimage. The NWC backend replaces it without touching the routes.
+Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
+
+- `nwc` (`payments/nwc.ts`): real payments. For each settlement it pins a quote at the live rate, asks the payee's own wallet for an invoice over Nostr Wallet Connect, and polls that wallet (`lookup_invoice`) until it reports the invoice paid. The preimage is checked against the payment hash before it's stored. Open invoices are picked up again after a restart. The server never holds funds.
+- anything else: `SimulatedPayments`, which walks the same states as the mock with a fake preimage.
+
+One gap with real payments on: a ghost's Lightning address can't be paid yet, because the payee's wallet is how a payment is confirmed and a ghost hasn't connected one. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
 
 Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
@@ -314,14 +326,34 @@ Write `BreezWallet implements WalletProvider` against `breez-sdk-liquid`, then r
 
 Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that way a native user who hasn't finished wallet setup hits the same path as a web guest, which is the behaviour you want.
 
+## The ledger on Nostr
+
+The server keeps the ledger in SQLite, so if the server goes away, so would a group's history. To stop that, every expense and every confirmed settlement is also published to Nostr relays as one event (`nostrLedger.ts`):
+
+- **Signed** by the server's Nostr key (made on first start, kept in the database), so a relay can't forge or alter an entry.
+- **Encrypted** with NIP-44 under a random key per group. Relays and anyone else see ciphertext. Only members are given the key.
+- **Chained.** Each entry carries a sequence number and the id of the entry before it, so a missing or reordered entry shows up when the ledger is read back.
+
+Entries go through an outbox table, `ledger_entries`. Every few seconds the server signs an entry for anything new, then publishes whatever hasn't gone out. A relay outage or a restart only delays publishing. With `LEDGER_RELAYS` empty, entries are still signed and kept, and they go out once relays are set, history included.
+
+In the app, the group screen's **Backup on Nostr** card shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all:
+
+```bash
+npm run ledger:verify -w @sattle/api -- 'sattle-ledger://…'
+```
+
+fetches the group's entries from the relays, checks every signature and the chain, decrypts them, and prints the balances and who pays whom.
+
+What it doesn't fix: the server signs every entry, so the record proves what the server said, not what each member agreed to. Members signing their own entries needs Nostr identities, which come next. Relays can't read an entry, but they can see the server's pubkey, a per-group tag, and when each entry was made.
+
 ## Not in here yet
 
-- Real payments. The API's `SimulatedPayments` stands in until the NWC backend lands.
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
 - Removing a member or leaving a group. Joining can't be undone.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
-- Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
-- Nostr identity, on-chain rails, and QR rendering.
+- Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
+- Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
+- Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.
 
 The types already have room for all of these. None of them are implemented.

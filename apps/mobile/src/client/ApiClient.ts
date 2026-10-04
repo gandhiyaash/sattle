@@ -21,6 +21,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type LedgerBackup,
   type Member,
   type PayLink,
   type Settlement,
@@ -124,6 +125,9 @@ export class ApiClient implements SattleClient {
   }
   getSettlement(settlementId: string) {
     return this.request<Settlement>('GET', `/settlements/${settlementId}`);
+  }
+  getLedgerBackup(groupId: string) {
+    return this.request<LedgerBackup>('GET', `/groups/${groupId}/ledger`);
   }
   createSettlement(input: CreateSettlementInput, idempotencyKey = newIdempotencyKey()) {
     return this.request<Settlement>('POST', `/groups/${input.groupId}/settlements`, input, idempotencyKey);

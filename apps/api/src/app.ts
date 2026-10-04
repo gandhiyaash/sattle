@@ -10,6 +10,7 @@
  *   routes/invites.ts      /groups/:id/invites, the public /join/:token, and joining
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
+ *   routes/ledger.ts       the group's backup key for its ledger on Nostr
  */
 
 import { Hono } from 'hono';
@@ -21,6 +22,7 @@ import type { AppEnv, Ctx } from './context';
 import type { Db } from './db';
 import { STATUS } from './http';
 import { auth } from './middleware';
+import { NostrLedger } from './nostrLedger';
 import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
@@ -28,6 +30,7 @@ import { accountRoutes } from './routes/accounts';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
 import { inviteRoutes } from './routes/invites';
+import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
 import { walletRoutes } from './routes/wallet';
@@ -38,6 +41,8 @@ export interface AppDeps {
   payments: (repo: Repo, wallets: WalletStore) => PaymentBackend;
   /** Defaults to a real NwcClient over the URI's relays. */
   nwc?: (uri: string) => NwcApi;
+  /** Mirrors the ledger to Nostr. Defaults to one that signs entries but publishes nowhere. */
+  ledger?: NostrLedger;
   /** Stream timings; tests shorten them. */
   events?: EventOptions;
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
@@ -49,7 +54,8 @@ export function createApp(deps: AppDeps) {
   const repo = createRepo(deps.db);
   const wallets = createWalletStore(deps.db);
   const nwc = deps.nwc ?? ((uri: string) => new NwcClient(uri));
-  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, payments: deps.payments(repo, wallets) };
+  const ledger = deps.ledger ?? new NostrLedger({ db: deps.db, relays: [] });
+  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, payments: deps.payments(repo, wallets) };
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {
@@ -83,6 +89,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', inviteRoutes(ctx));
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
+  app.route('/', ledgerRoutes(ctx));
 
   return app;
 }

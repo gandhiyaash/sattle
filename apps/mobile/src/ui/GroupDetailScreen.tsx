@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   canReceive,
@@ -232,6 +232,8 @@ export function GroupDetailScreen({
         variant="primary"
         onPress={() => onAddExpense(data.members, data.currency)}
       />
+
+      <LedgerBackupCard groupId={groupId} version={data.expenses.length} />
     </Screen>
   );
 }
@@ -421,7 +423,67 @@ function SendPayLink({
   );
 }
 
+/**
+ * The group's ledger on Nostr: how much of it is out on relays, and the key
+ * that reads it back. The key decrypts the whole group, so it's copied, not
+ * shared to a chat by default.
+ */
+function LedgerBackupCard({ groupId, version }: { groupId: string; version: number }) {
+  const client = useClient();
+  const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId, version]);
+  const [note, setNote] = useState<string | null>(null);
+
+  if (!data) return null;
+
+  const relays = `${data.relays.length} relay${data.relays.length === 1 ? '' : 's'}`;
+  const status =
+    data.entries === 0
+      ? 'Nothing to back up yet.'
+      : data.relays.length === 0
+        ? `${data.entries} entries signed. This server isn’t publishing them to relays yet.`
+        : data.published < data.entries
+          ? `${data.published} of ${data.entries} entries on ${relays}. The rest go out shortly.`
+          : `All ${data.entries} entries on ${relays}.`;
+
+  const copy = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        await navigator.clipboard.writeText(data.uri);
+        setNote('Copied. It unlocks this group’s history, so only give it to people in the group.');
+      } catch {
+        setNote('Copy the key below by hand:');
+      }
+      return;
+    }
+    const r = await Share.share({ message: data.uri }).catch(() => null);
+    setNote(r?.action === Share.sharedAction ? 'Saved. Keep it somewhere only you can read.' : 'Here’s the key:');
+  };
+
+  return (
+    <View>
+      <SectionLabel>Backup on Nostr</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <Text style={s.backupBody}>
+          Every expense and payment is signed by Sattle and published, encrypted, to Nostr relays. With the backup
+          key, anyone in the group can rebuild these balances without us.
+        </Text>
+        <Text style={s.linkNote}>{status}</Text>
+        <Button label="Copy backup key" onPress={copy} />
+        {note && (
+          <>
+            <Text style={s.linkNote}>{note}</Text>
+            <Text style={s.linkUrl} selectable numberOfLines={2}>
+              {data.uri}
+            </Text>
+          </>
+        )}
+      </Card>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
+  backupBody: { ...type.body, color: color.inkMuted },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   debtText: { ...type.body, color: color.ink },
