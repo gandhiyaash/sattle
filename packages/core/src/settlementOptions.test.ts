@@ -111,8 +111,8 @@ describe('onlyRail', () => {
     expect(only(joinedWithAddress, 'real')).toBe('invoice');
   });
 
-  it('is UPI for someone who can only be paid that way', () => {
-    expect(only(member({ status: 'joined', claimedByUserId: 'u-aman', upi: true }), 'real')).toBe('upi');
+  it('is nothing for someone who can only be paid by UPI: the payer opens their UPI app themselves', () => {
+    expect(only(member({ status: 'joined', claimedByUserId: 'u-aman', upi: true }), 'real')).toBeNull();
   });
 
   it('is nothing when the payer has a choice', () => {
