@@ -50,3 +50,4 @@ apps/api/data/
 /apps/mobile/android
 /apps/mobile/ios
 *.keystore
+/dist-android
