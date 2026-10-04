@@ -111,8 +111,6 @@ export function seedIfEmpty(db: Db) {
       if (!creator) throw new Error(`Fixture pay link ${l.token}: the payee must be a claimed member.`);
       insPayLink.run(l.token, l.groupId, l.fromMemberId, l.toMemberId, l.amount, creator, l.createdAt);
     }
-    const insGroupLink = db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)');
-    for (const l of fixtures.groupLinks) insGroupLink.run(l.token, l.groupId, l.createdAt);
     const tagSettlement = db.prepare('UPDATE settlements SET pay_link_token = ? WHERE id = ?');
     for (const [token, settlementId] of Object.entries(fixtures.payLinkSettlements)) {
       tagSettlement.run(token, settlementId);

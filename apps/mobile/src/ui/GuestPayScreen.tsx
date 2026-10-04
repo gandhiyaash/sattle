@@ -22,7 +22,7 @@
  *   one we've called expired, since it may have been paid late.
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, formatFiat, formatRate, type GuestSettlement, type GuestView } from '@sattle/core';
@@ -36,23 +36,15 @@ import { makeStyles, radius, shadow, space, type, useColors } from './theme';
 export interface GuestPayScreenProps {
   /** From /s/<token>. The only thing the page knows on arrival. */
   token: string;
-  /** Reached by tapping Settle on the group page, so the reader has seen the group. */
-  fromGroup?: boolean;
 }
-
-const FromGroup = createContext(false);
 
 type Load =
   | { kind: 'loading' }
   | { kind: 'ready'; view: GuestView }
   | { kind: 'failed'; error: SattleError };
 
-export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps) {
-  return (
-    <FromGroup.Provider value={fromGroup}>
-      <GuestPay token={token} />
-    </FromGroup.Provider>
-  );
+export function GuestPayScreen({ token }: GuestPayScreenProps) {
+  return <GuestPay token={token} />;
 }
 
 function GuestPay({ token }: { token: string }) {
@@ -486,15 +478,7 @@ function Notice({ title, body }: { title: string; body: string }) {
 
 function Footer() {
   const s = useStyles();
-  // From the group page that last part would be wrong: they came here from the group.
-  const fromGroup = useContext(FromGroup);
-  return (
-    <Text style={s.footer}>
-      {fromGroup
-        ? 'No account needed. Pay from any Lightning wallet.'
-        : 'No account needed. This link only shows this one payment — not the group.'}
-    </Text>
-  );
+  return <Text style={s.footer}>No account needed. This link only shows this one payment — not the group.</Text>;
 }
 
 /** Whole seconds until `iso`, ticking once a second; null when there's no deadline. */

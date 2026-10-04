@@ -13,11 +13,9 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   computeBalances,
-  groupLinkPath,
   invitePath,
   isInProgress,
   simplifyDebts,
-  type GroupLink,
   type Invite,
   type Member,
 } from '@sattle/core';
@@ -54,8 +52,6 @@ interface Settings {
   settled: boolean;
   /** A payment in the group hasn't finished. The server won't delete the group until it has. */
   paying: boolean;
-  /** A read-only link from when the app handed those out, if the group still has one. */
-  link: GroupLink | null;
   /** The group's invite, if it has one that still works. */
   invite: Invite | null;
 }
@@ -66,13 +62,12 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
   const keys = useActionKeys();
 
   const { data, loading, error, reload } = useAsync<Settings>(async () => {
-    const [user, group, members, expenses, settlements, link, invite] = await Promise.all([
+    const [user, group, members, expenses, settlements, invite] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
-      client.getGroupLink(groupId),
       client.getGroupInvite(groupId),
     ]);
     const named = new Set<string>();
@@ -92,7 +87,6 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       accounts: members.filter((m) => m.claimedByUserId).length,
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
       paying: settlements.some(isInProgress),
-      link,
       invite,
     };
   }, [groupId]);
@@ -192,31 +186,6 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
           )}
         </Card>
       </View>
-
-      {/* The app shares one link now, the invite. One of these made earlier still works until it's turned off here. */}
-      {data.link && (
-        <View>
-          <SectionLabel>Read-only link</SectionLabel>
-          <Card style={{ gap: space.md }}>
-            <Text style={s.body}>
-              Shared earlier. Anyone holding it can see the group’s spends and who owes what, and pay a debt, without
-              joining. They can’t change anything.
-            </Text>
-            <Text style={s.url} selectable numberOfLines={1}>
-              {`${APP_URL}${groupLinkPath(data.link.token)}`}
-            </Text>
-            <ConfirmButton
-              label="Turn off the link"
-              confirmLabel="Yes, turn it off"
-              hint="It stops working for everyone who has it. The invite is then the group’s only link."
-              onConfirm={async () => {
-                await keys.run('remove-link', { groupId, old: data.link!.token }, (k) => client.removeGroupLink(groupId, k));
-                reload();
-              }}
-            />
-          </Card>
-        </View>
-      )}
 
       <View>
         <SectionLabel>Leave</SectionLabel>

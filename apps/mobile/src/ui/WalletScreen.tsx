@@ -438,8 +438,6 @@ function UpiIdCard() {
  *                       a ghost): settlementRules.ts checkManualRecorder
  *   Group data          migrations/001_init.sql: plain columns, no encryption
  *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
- *   Group links         routes/groupLinks.ts: no row in group_links until POST
- *                       /groups/:id/link, guestView, and nothing under /g/ that writes
  *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement;
  *                       only the payee's confirm makes one; walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
@@ -495,11 +493,6 @@ export function TrustModel() {
         <Row
           title="Pay links"
           body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
-        />
-        <Divider />
-        <Row
-          title="Group links"
-          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
         />
         <Divider />
         <Row

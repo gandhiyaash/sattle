@@ -75,7 +75,6 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
   invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
-  groupLinks.ts              The /g/<token> path.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
@@ -85,7 +84,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger, upi.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet, ledger, upi.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -109,7 +108,6 @@ apps/mobile/                 @sattle/mobile: Expo
       SattleClient.ts        The interface. The only seam.
       MockClient.ts          In-memory, with latency and failure injection.
       ApiClient.ts           HTTP client for apps/api.
-      joinedGroup.ts         The group behind an invite, for someone already in it.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
     updates/
@@ -132,7 +130,6 @@ apps/mobile/                 @sattle/mobile: Expo
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
-      GroupGuestScreen.tsx   The /g/<token> page: the whole group, read-only, with Settle on each debt.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
@@ -224,7 +221,7 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and the people in the group, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as. Someone already in the group on that device has nobody left to be, so for them the link opens the group (`joinedGroupFor`).
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is the group's one link, `/join/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and the people in the group, picks the one they are, and joins. They take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and joins as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they joined as. Someone already in the group on that device has nobody left to be, so for them the link opens the group.
 
 A name someone has joined as is marked on the page and can be picked again. An account lives on one device, and people have more than one: they join in a browser and install the app later, or get a new phone. Each device that picks the name gets its own account holding the same member, so all of them are that person in the group: one row, one balance, and the same say over what it paid and what it is owed. Money still needs one answer to where the member is paid, so the member is paid through one of its accounts: the first that has a wallet, a receive address or a UPI ID. It moves by itself when that changes, so someone who joined in a browser and connects a wallet in the app is paid there (`memberAccounts.ts`). Leaving on one device only takes that device out; the member is a ghost again when the last one leaves.
 
@@ -240,7 +237,7 @@ Joining is full membership. There are no roles, so the new member can read every
 
 What it does not do is check who is on the other end. Anyone holding the link can join as anyone in the group, including a name someone has already joined as, or add themselves, for as long as it works. From then on they act as that person there: they can change what that person paid, mark what that person is owed as settled, and, if that person has set up nowhere to be paid, be paid in their place. That is the price of one link for everyone and of a name that works on every device. A wrong pick is undone by leaving, and a link in the wrong hands by turning it off, which stops anyone new but does not remove a device that has already joined.
 
-`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person in it, with an opaque `ref` in place of an id and whether someone has joined as them. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
+`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person in it, with an opaque `ref` in place of an id and whether someone has joined as them. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET /invites/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 On an Android phone with the app installed, tapping the link opens the app on the join screen. Everywhere else it opens the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
 
@@ -268,23 +265,6 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 - UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
 
 `PUT`/`DELETE /me/upi` set and remove the ID. `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
-
-### Group links
-
-The app no longer hands these out: a group shares one link, its invite, so nobody has to choose between two. A group link made before that keeps working until someone turns it off under **Manage**, which lists it only for a group that has one. The routes below are unchanged.
-
-A pay link covers one debt. A group link covers the group: `/g/<token>`, posted in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Settle** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
-
-A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
-
-- There is no link until someone in the group makes one, and there is only ever one. Making another replaces it, and the old one stops working.
-- Anyone in the group can turn it off, under **Manage**. It doesn't expire by itself.
-- It only reads. Nothing under `/g/` changes the group; the one thing it can start is a payment, and that goes to the person owed like any other.
-- `GET /g/:token` returns names and amounts and no ids. Each debt carries an opaque `ref`, a hash tied to that link, which is what the page sends back to pay it.
-
-Settle appears on a debt when the person owed can receive, by the same rule the app uses (`canReceive`). A debt to someone with nowhere to receive is listed with "settle with them directly". The page can't tell who is looking, so every payable debt has the button: paying someone else's is allowed, and the money goes to the person owed either way.
-
-Opening the wallet is the phone's job, not ours. The button is a `lightning:` link: Android shows a chooser of the installed wallets, iOS opens one, and on a computer the QR code is scanned.
 
 ### Changing and removing
 

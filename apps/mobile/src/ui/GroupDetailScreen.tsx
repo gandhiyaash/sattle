@@ -94,8 +94,7 @@ export function GroupDetailScreen({
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
-      // A server from before UPI has no such route. The group still opens, with nothing waiting.
-      client.getUpiClaims(groupId).catch((): UpiClaim[] => []),
+      client.getUpiClaims(groupId),
     ]);
 
     const balances = computeBalances(group.memberIds, expenses, settlements);

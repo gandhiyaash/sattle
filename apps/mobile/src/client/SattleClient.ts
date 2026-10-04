@@ -20,8 +20,6 @@ import type {
   Expense,
   ExpenseInput,
   Group,
-  GroupGuestView,
-  GroupLink,
   GuestView,
   Invite,
   InviteView,
@@ -124,6 +122,13 @@ export interface SattleClient {
   /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
   getInvite(token: string): Promise<InviteView>;
   /**
+   * The group an invite is for, when the signed-in user is already in it; null
+   * when they aren't. The link is the one in the group's chat, so the people in
+   * the group open it too, and the join page has nobody to offer them: the app
+   * opens the group instead. Throws as `getInvite` does for a link that can't be used.
+   */
+  getJoinedGroup(token: string): Promise<Group | null>;
+  /**
    * The signed-in user joins the invite's group and gets it back. With a
    * `ref`, one of `getInvite`'s, they become that member; throws `conflict` if
    * someone else has joined as that person since. With a `displayName`, they
@@ -131,30 +136,6 @@ export interface SattleClient {
    * still waiting to be picked.
    */
   acceptInvite(token: string, as: JoinAs, idempotencyKey?: string): Promise<Group>;
-
-  // -- group links ----------------------------------------------------------
-  //
-  // One link for the whole group: whoever holds it sees the spends and who
-  // owes whom, and can pay a debt. It can't change anything.
-
-  /** The group's link, or null when it has none. */
-  getGroupLink(groupId: string): Promise<GroupLink | null>;
-  /**
-   * Makes the group's link; anyone in the group can. If there was one, it
-   * stops working. Share `${APP_URL}${groupLinkPath(token)}`.
-   */
-  createGroupLink(groupId: string, idempotencyKey?: string): Promise<GroupLink>;
-  /** Turns the group's link off. */
-  removeGroupLink(groupId: string, idempotencyKey?: string): Promise<void>;
-  /** Public. What the group page shows. Throws `not_found` for a link that was replaced or turned off. */
-  getGroupGuestView(token: string): Promise<GroupGuestView>;
-  /**
-   * Public. Someone on the group page chose the debt `ref` to pay. Returns the
-   * token of a pay link for it; open that like any pay link. Throws
-   * `link_expired` if the debt is gone, `member_cannot_receive` if the person
-   * owed has nowhere to receive.
-   */
-  payFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<{ token: string }>;
 
   // -- changing and removing ------------------------------------------------
   //

@@ -7,12 +7,11 @@ import type { Db } from './db';
 import { nowIso, type Repo } from './repo';
 
 /**
- * Reachable without signing in: the guest pay page under /s/, the group page
- * under /g/, reading an invite under /join/, and making an account. Accepting
- * an invite is not here: that needs an account, so it lives at POST
- * /groups/join. Making or removing a group link isn't either: /groups/:id/link.
+ * Reachable without signing in: the guest pay page under /s/, reading an
+ * invite under /join/, and making an account. Accepting an invite is not
+ * here: that needs an account, so it lives at POST /groups/join.
  */
-const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts'];
+const PUBLIC_PREFIXES = ['/health', '/s/', '/join/', '/accounts'];
 
 export const isPublic = (path: string) => PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p));
 

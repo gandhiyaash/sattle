@@ -31,7 +31,7 @@ export const CreatePayLinkBody = z.object({
 });
 
 /** 16 random bytes, base64url: 22 characters, unguessable. */
-export const newPayLinkToken = () => randomBytes(16).toString('base64url');
+const newPayLinkToken = () => randomBytes(16).toString('base64url');
 
 export function payLinkRoutes({ db, repo, payments }: Ctx) {
   const r = new Hono<AppEnv>();
