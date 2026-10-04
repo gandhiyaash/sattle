@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canReceive, resolveSettlementOptions } from './settlementOptions';
+import { canReceive, onlyRail, resolveSettlementOptions } from './settlementOptions';
 import type { Member } from './types';
 
 const member = (over: Partial<Member>): Member => ({
@@ -99,6 +99,38 @@ describe('resolveSettlementOptions and UPI', () => {
 
   it('never offers it for a ghost: there is nobody to confirm it arrived', () => {
     expect(options(member({ upi: true }), 'simulated', 'INR').rails.map((r) => r.rail)).not.toContain('upi');
+  });
+});
+
+describe('onlyRail', () => {
+  const only = (recipient: Member, mode: 'real' | 'simulated', walletAvailable = false) =>
+    onlyRail(resolveSettlementOptions({ recipient, walletAvailable, mode, currency: 'INR' }));
+
+  it('is Lightning for someone who gave no UPI ID: there is nothing to choose', () => {
+    expect(only(linked, 'real')).toBe('invoice');
+    expect(only(joinedWithAddress, 'real')).toBe('invoice');
+  });
+
+  it('is UPI for someone who can only be paid that way', () => {
+    expect(only(member({ status: 'joined', claimedByUserId: 'u-aman', upi: true }), 'real')).toBe('upi');
+  });
+
+  it('is nothing when the payer has a choice', () => {
+    // Lightning or UPI.
+    expect(only(member({ status: 'nwc_linked', claimedByUserId: 'u-aman', upi: true }), 'real')).toBeNull();
+    // The balance or an invoice.
+    expect(only(joined, 'simulated', true)).toBeNull();
+  });
+
+  it('is nothing for someone who can’t be paid', () => {
+    expect(only(joined, 'real')).toBeNull();
+    expect(only(ghost, 'real')).toBeNull();
+  });
+
+  it('never marks a debt settled: by hand is a choice even when it is the only one', () => {
+    const o = resolveSettlementOptions({ recipient: ghostWithAddress, walletAvailable: false, mode: 'simulated' });
+    expect(o.rails.filter((r) => r.availability.available).map((r) => r.rail)).toEqual(['manual']);
+    expect(onlyRail(o)).toBeNull();
   });
 });
 

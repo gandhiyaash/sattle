@@ -142,6 +142,22 @@ export function resolveSettlementOptions({
   return { rails };
 }
 
+/**
+ * The one way to pay, when there is nothing to choose between. The sheet opens
+ * on it instead of asking. Null when the payer has a choice, or is blocked.
+ *
+ * Only for a rail where starting moves nothing: an invoice waits to be paid,
+ * and a UPI app asks before it sends. Never `manual`, and never one that pays
+ * from the balance.
+ */
+export function onlyRail(options: SettlementOptions): Rail | null {
+  if (options.blocked) return null;
+  const available = options.rails.filter((r) => r.availability.available);
+  if (available.length !== 1) return null;
+  const { rail } = available[0];
+  return rail === 'invoice' || rail === 'upi' ? rail : null;
+}
+
 function blockedFor(recipient: Member, mode: PaymentMode): NonNullable<SettlementOptions['blocked']> {
   const name = recipient.displayName;
   if (mode === 'simulated') {

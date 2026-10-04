@@ -244,7 +244,11 @@ Android hands the app the link only when the site vouches for it. `apps/mobile/p
 
 ### Paying by UPI
 
-A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet. What happens next depends on the device, because only Android lets an app hear back from a UPI app:
+A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet.
+
+The payer is only asked when there is something to choose. **Pay by UPI** is offered only for someone who has added a UPI ID. Without one, **Pay** opens straight on the Lightning invoice, and for someone who takes UPI and has no wallet it opens straight on UPI (`onlyRail`). Neither is required of anyone: an account is only a name. Someone with neither can't be paid here yet, and whoever owes them is told so and can remind them. An invoice still out for the debt, from the sheet before it was closed or from a pay link, is picked up, not asked for a second time, since the server makes one at a time.
+
+What happens with UPI depends on the device, because only Android lets an app hear back from a UPI app:
 
 - **Android.** The app opens the `upi://pay` link as an activity that returns a result (`src/upi/launchUpi.android.ts`, over `expo-intent-launcher`). Android shows its chooser of UPI apps, the payer pays, and the UPI app hands back a status and a reference. On `SUCCESS` the app tells the person owed straight away. Anything else is left to the payer: try again, or say they paid.
 - **iPhone.** A UPI app says nothing back. The sheet opens one, shows the UPI ID, and asks the payer to come back and tap **I’ve paid**.
