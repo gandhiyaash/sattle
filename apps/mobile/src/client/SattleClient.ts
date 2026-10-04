@@ -15,6 +15,7 @@ import type {
   CreateGroupInput,
   CreatePayLinkInput,
   CreateSettlementInput,
+  CreateUpiClaimInput,
   Debt,
   Expense,
   ExpenseInput,
@@ -30,6 +31,9 @@ import type {
   PayLink,
   ReceiveAddress,
   Settlement,
+  UpiClaim,
+  UpiPayee,
+  UpiProfile,
   User,
   WalletConnection,
   PaymentMode,
@@ -202,6 +206,35 @@ export interface SattleClient {
    */
   setReceiveAddress(address: string): Promise<ReceiveAddress>;
   clearReceiveAddress(): Promise<ReceiveAddress>;
+
+  // -- UPI ------------------------------------------------------------------
+  //
+  // Settling a rupee debt outside Lightning. Sattle can't see a UPI payment,
+  // so the payer says they paid (a claim) and the person owed confirms it.
+
+  /** The user's own UPI ID, for every group they're in. */
+  getUpiId(): Promise<UpiProfile>;
+  /** Throws `invalid_input` when it isn't a UPI ID. */
+  setUpiId(upiId: string): Promise<UpiProfile>;
+  clearUpiId(): Promise<UpiProfile>;
+  /**
+   * Where to pay a member over UPI. Only for someone who owes them: throws
+   * `conflict` otherwise, and `member_cannot_receive` if they have no UPI ID.
+   */
+  getUpiPayee(groupId: string, memberId: string): Promise<UpiPayee>;
+  /** The claims the user is part of in a group: the ones they made, and the ones waiting on them. */
+  getUpiClaims(groupId: string): Promise<UpiClaim[]>;
+  /**
+   * The payer says they paid over UPI. Moves nothing, and takes the place of
+   * their last claim for the same debt.
+   */
+  createUpiClaim(input: CreateUpiClaimInput, idempotencyKey?: string): Promise<UpiClaim>;
+  /** The person owed says it arrived: the claim becomes a settlement. */
+  confirmUpiClaim(claimId: string, idempotencyKey?: string): Promise<Settlement>;
+  /** The person owed says it didn't arrive. The payer is shown that. */
+  declineUpiClaim(claimId: string, idempotencyKey?: string): Promise<UpiClaim>;
+  /** The payer takes their claim back. */
+  withdrawUpiClaim(claimId: string, idempotencyKey?: string): Promise<void>;
 
   // -- account --------------------------------------------------------------
 

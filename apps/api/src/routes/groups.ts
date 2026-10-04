@@ -11,6 +11,7 @@ import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
 import { checkExpenseOwner, checkGroupCanGo, checkMemberCanGo, leaveGroup } from '../groupRules';
 import { debtsOf } from '../settlementRules';
+import { takesUpi } from './upi';
 
 const ExpenseBody = z.object({
   description: z.string().trim().min(1).max(200),
@@ -115,8 +116,15 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
 
   r.get('/groups/:id/members', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    // With whether each can be paid now, which only the server can tell under real payments.
-    return c.json(repo.members(g.id).map((m) => ({ ...m, receivable: receivable(payments, m) })));
+    // With whether each can be paid now, which only the server can tell under real payments,
+    // and whether they take UPI. The UPI ID itself is only for someone who owes them.
+    return c.json(
+      repo.members(g.id).map((m) => ({
+        ...m,
+        receivable: receivable(payments, m),
+        ...(takesUpi(wallets, m) ? { upi: true } : {}),
+      }))
+    );
   });
 
   /** Appends a ghost after the existing members. */

@@ -79,6 +79,8 @@
   <ul>
     <li><strong>Settlements:</strong> who paid whom, the amount, the payment method, its status, the exchange rate used, the Lightning invoice and the payment proof, or a note when a payment is marked as settled by hand (for example cash).</li>
     <li><strong>Pay links:</strong> a random link token, the debt it is for, and who created it.</li>
+    <li><strong>Your UPI ID</strong>, if you add one so that people can pay you over UPI.</li>
+    <li><strong>UPI payments someone says they made:</strong> who says they paid whom, the amount, and the reference their UPI app gave, until the person owed confirms or declines it. The payment itself happens in the payer's UPI app, not in Sattle, and we are not told about it by any bank or app.</li>
     <li><strong>Your account key:</strong> a random key created when you first open the app, which this device sends to prove it's you. Your device keeps a copy (in the phone's secure storage, or the browser's local storage on the web). There is no password or recovery, so if your device loses the key, you lose access to the account.</li>
     <li><strong>Request keys</strong> that stop a repeated tap from making the same payment twice.</li>
   </ul>
@@ -102,11 +104,13 @@
     <li><strong>Anyone who has a group's link</strong>, if someone in the group has made one (or anyone they pass it on to), sees the group's name, every expense with its amount, who paid and each person's share, the members' names, and who owes whom. They can pay a debt but cannot change anything. A group has no such link until one of its members makes it, and any member can replace it or turn it off.</li>
     <li><strong>Anyone who has a group's invite</strong>, if someone in the group has made one (or anyone they pass it on to), sees the group's name, the name of the member who made the invite, and the names of the members who have not joined yet. They can join the group, as one of those members or by adding themselves under a new name, and from then on they see what its members see. An invite stops working a week after it is made, and any member can replace it or turn it off.</li>
     <li><strong>The person paying you</strong> sees the Lightning invoice, which includes the amount and a description containing your name and the group's name.</li>
+    <li><strong>Someone who owes you</strong>, in a group kept in rupees, is shown your UPI ID if you have added one, so they can pay it. A UPI ID often contains a phone number. Other members of the group see only that you take UPI, not the ID.</li>
   </ul>
 
   <h2>4. Service providers and third parties</h2>
   <ul>
     <li><strong>Your Lightning wallet provider.</strong> If you connect a wallet, our server sends requests to it over Nostr Wallet Connect to create invoices and check their status. Each request contains the amount and a description with your name and the group's name. Requests travel through the Nostr relay named in your connection string; the contents are encrypted, but the relay can see when messages are sent. Your wallet provider handles this data under its own privacy policy.</li>
+    <li><strong>UPI apps and banks.</strong> If you pay or are paid over UPI, that payment is handled by the UPI apps and banks involved, under their own terms. The app opens the payer's UPI app with the payee's UPI ID, name, the amount and a note naming the group.</li>
     <li><strong>The Lightning Network.</strong> When a payment is made, it is routed by Lightning nodes that are not run by us. Like any Bitcoin payment, it is handled by the payer's and payee's wallets and the nodes along the route.</li>
     <li><strong>Oracle Cloud</strong> hosts our server and database in India.</li>
     <li><strong>Cloudflare</strong> delivers and protects our website and server traffic.</li>

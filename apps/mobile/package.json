@@ -15,6 +15,7 @@
     "@expo/metro-runtime": "~57.0.16",
     "@sattle/core": "*",
     "expo": "~57.0.24",
+    "expo-intent-launcher": "~57.0.1",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "qrcode-generator": "^2.0.4",

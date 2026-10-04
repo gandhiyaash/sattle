@@ -14,6 +14,7 @@ import {
   type CreateGroupInput,
   type CreatePayLinkInput,
   type CreateSettlementInput,
+  type CreateUpiClaimInput,
   type Debt,
   type Expense,
   type ExpenseInput,
@@ -30,6 +31,9 @@ import {
   type PaymentMode,
   type ReceiveAddress,
   type Settlement,
+  type UpiClaim,
+  type UpiPayee,
+  type UpiProfile,
   type User,
   type WalletConnection,
 } from '@sattle/core';
@@ -254,6 +258,35 @@ export class ApiClient implements SattleClient {
   }
   clearReceiveAddress() {
     return this.request<ReceiveAddress>('DELETE', '/me/receive-address');
+  }
+
+  getUpiId() {
+    return this.request<UpiProfile>('GET', '/me/upi');
+  }
+  setUpiId(upiId: string) {
+    return this.request<UpiProfile>('PUT', '/me/upi', { upiId });
+  }
+  clearUpiId() {
+    return this.request<UpiProfile>('DELETE', '/me/upi');
+  }
+  getUpiPayee(groupId: string, memberId: string) {
+    return this.request<UpiPayee>('GET', `/groups/${groupId}/members/${memberId}/upi`);
+  }
+  getUpiClaims(groupId: string) {
+    return this.request<UpiClaim[]>('GET', `/groups/${groupId}/upi-claims`);
+  }
+  createUpiClaim(input: CreateUpiClaimInput, idempotencyKey = newIdempotencyKey()) {
+    const { groupId, ...body } = input;
+    return this.request<UpiClaim>('POST', `/groups/${groupId}/upi-claims`, body, idempotencyKey);
+  }
+  confirmUpiClaim(claimId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Settlement>('POST', `/upi-claims/${claimId}/confirm`, undefined, idempotencyKey);
+  }
+  declineUpiClaim(claimId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<UpiClaim>('POST', `/upi-claims/${claimId}/decline`, undefined, idempotencyKey);
+  }
+  async withdrawUpiClaim(claimId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/upi-claims/${claimId}`, undefined, idempotencyKey);
   }
   disconnectWallet() {
     return this.request<WalletConnection>('DELETE', '/me/wallet');

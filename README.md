@@ -78,13 +78,14 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   groupLinks.ts              The /g/<token> path.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
+  upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
 
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger, upi.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -112,6 +113,8 @@ apps/mobile/                 @sattle/mobile: Expo
     updates/
       updater.ts             When to ask about an update, and what the banner shows.
       nativeUpdates.ts       Native seam. Android talks to Play; iOS and web get null.
+    upi/
+      launchUpi.ts           Native seam. Android opens a UPI app and hears back; iOS and web get null.
     react/
       SattleProvider.tsx     Context, hooks, and the mock/real swap.
       useSettleFlow.ts       One settle attempt, from open to terminal.
@@ -122,7 +125,8 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
       AddExpenseScreen.tsx   Live split preview as you type.
-      SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
+      SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
+      UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
@@ -235,6 +239,25 @@ What it does not do is check who is on the other end. Anyone holding the link ca
 `GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person who hasn't joined, with an opaque `ref` in place of an id. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /groups/join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
 
 A link opens the web app. The installed app has no link handling yet, so there the link is pasted under **Join with a link** on the groups list.
+
+### Paying by UPI
+
+A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet. What happens next depends on the device, because only Android lets an app hear back from a UPI app:
+
+- **Android.** The app opens the `upi://pay` link as an activity that returns a result (`src/upi/launchUpi.android.ts`, over `expo-intent-launcher`). Android shows its chooser of UPI apps, the payer pays, and the UPI app hands back a status and a reference. On `SUCCESS` the app tells the person owed straight away. Anything else is left to the payer: try again, or say they paid.
+- **iPhone.** A UPI app says nothing back. The sheet opens one, shows the UPI ID, and asks the payer to come back and tap **I’ve paid**.
+- **Web.** The same link as a QR code to scan from a phone, then **I’ve paid**.
+
+Sattle never learns that the money moved. No bank or UPI app tells a third party that one person paid another, and what an Android UPI app hands back is the payer's own phone talking, so it is treated as a hint. The payer's word is therefore a **claim** (`upi_claims`), not a settlement, and it moves no balance. The person owed sees "Kabir says they paid you ₹500 by UPI", with the reference when there is one, and either confirms it, which makes it a settlement (`rail: upi`, `manually_confirmed`), or says it didn't arrive, which the payer is then shown. It is the same rule as marking a debt settled by hand: the person it costs if it's false is the one who says so.
+
+- A debt has at most one claim; claiming again replaces it. While one is pending, the payer's **Pay** button waits, so they don't pay twice.
+- The claim can't be for more than is owed, and confirming is refused if less than that is owed by then.
+- A UPI ID often contains a phone number, so it isn't in the member list. `GET /groups/:id/members` only says who takes UPI; `GET /groups/:id/members/:memberId/upi` gives the ID, and only to someone who owes that person right now.
+- Only a member who has joined can be paid this way. A ghost has no account to put a UPI ID on and nobody to confirm.
+- It is offered under real and simulated payments alike, and someone who can only be paid by UPI isn't shown as blocked.
+- UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
+
+`PUT`/`DELETE /me/upi` set and remove the ID. `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
 
 ### Group links
 
@@ -410,6 +433,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
+- Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.
 - Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.
 
 The types already have room for all of these. None of them are implemented.
