@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.chanakya.sattle",
+      "sha256_cert_fingerprints": [
+        "F7:7E:11:C0:8C:AB:28:E9:1F:1B:5D:83:9C:A2:EB:24:1D:88:E4:28:1B:5B:A8:BA:44:C5:E1:9E:66:9B:75:A2",
+        "F6:F9:7A:5D:F3:CC:A4:C1:C7:C1:7C:77:4A:FF:53:4C:F6:6A:0C:77:9C:9B:50:7E:20:57:7A:44:24:1B:A1:F2"
+      ]
+    }
+  }
+]

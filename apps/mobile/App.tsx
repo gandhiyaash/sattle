@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
-import { SattleError } from '@sattle/core';
+import { SattleError, parseInviteToken } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
@@ -39,17 +40,18 @@ function tokenFromPath(path: RegExp): string | null {
 const guestToken = () => tokenFromPath(GUEST_PATH);
 /** A group link: the whole group, to read and to pay from, for someone with no app. */
 const groupToken = () => tokenFromPath(GROUP_PATH);
-/** An invite: the app opens on the join screen, which makes an account if there isn't one. */
+/** An invite, on the web: the app opens on the join screen, which makes an account if there isn't one. */
 const inviteToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
   const mode = useColorMode();
   return (
-    <>
+    // Where the status bar, the notch and the home indicator are, so the screens can keep clear of them.
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {/* Dark icons on the light theme, light ones on the dark. */}
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Root />
-    </>
+    </SafeAreaProvider>
   );
 }
 
@@ -62,6 +64,21 @@ function Root() {
     setInvite(null);
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
   };
+  // Native: the invite link that opened the app, or one tapped while it was already open.
+  // The phone only hands the app the links app.json claims, and only once the site vouches
+  // for the app in public/.well-known.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const open = (url: string | null) => {
+      const found = url ? parseInviteToken(url) : null;
+      if (found) setInvite(found);
+    };
+    Linking.getInitialURL()
+      .then(open)
+      .catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => open(url));
+    return () => sub.remove();
+  }, []);
   // Android only: Play downloads a new version in the background. See updates/updater.ts.
   useEffect(watchForUpdates, []);
   if (token) {

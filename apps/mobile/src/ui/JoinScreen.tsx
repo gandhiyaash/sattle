@@ -98,6 +98,8 @@ export function JoinAsNewScreen({
   return (
     <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
       <WhoAreYou
+        // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
+        key={token}
         token={token}
         note="Once you join, you can see everything in this group and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
         join={async (as, name) => {

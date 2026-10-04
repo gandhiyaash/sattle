@@ -10,8 +10,9 @@
  * take props and callbacks.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, Member } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
@@ -24,6 +25,7 @@ import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
+import { AboveBottomBar } from './primitives';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
@@ -43,7 +45,7 @@ type Route =
 
 export interface DemoAppProps {
   client?: SattleClient;
-  /** The token from a /join/<token> link the app was opened with. It starts on the join screen. */
+  /** The token from a /join/<token> link. Opened with one, the app starts on the join screen; tapped later, it goes there. */
   invite?: string | null;
   /** The join screen is finished with that link, whether or not anyone joined. */
   onInviteDone?: () => void;
@@ -78,6 +80,7 @@ function Navigator({
   onAccountDeleted?: () => void;
 }) {
   const sheet = useSheet();
+  const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>(
     invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
   );
@@ -88,6 +91,10 @@ function Navigator({
     currency: string;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
+  // On a phone the link can arrive after the first screen is up, or while the app is in use.
+  useEffect(() => {
+    if (invite) setRoute({ name: 'join', token: invite });
+  }, [invite]);
 
   const refresh = () => setNonce((n) => n + 1);
 
@@ -107,6 +114,8 @@ function Navigator({
       case 'join':
         return (
           <JoinScreen
+            // A second link starts over, not on top of the first one's answers.
+            key={route.token}
             token={route.token}
             onBack={() => {
               onInviteDone?.();
@@ -211,7 +220,7 @@ function Navigator({
 
   return (
     <View style={{ flex: 1 }}>
-      {body}
+      <AboveBottomBar>{body}</AboveBottomBar>
 
       <Modal
         visible={settling !== null}
@@ -220,7 +229,8 @@ function Navigator({
         onRequestClose={() => setSettling(null)}
       >
         <Pressable style={sheet.backdrop} onPress={() => setSettling(null)} />
-        <View style={sheet.container}>
+        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
+        <View style={[sheet.container, { paddingBottom: insets.bottom }]}>
           {settling && (
             <SettleUpSheet
               debt={settling.debt}
@@ -237,7 +247,14 @@ function Navigator({
       </Modal>
 
       <UpdateBanner />
-      <DemoBar route={route} onNavigate={setRoute} />
+      <DemoBar
+        route={route}
+        onNavigate={(next) => {
+          // A tab is a way off the join screen too. Left set, the link would do nothing when tapped again.
+          if (route.name === 'join') onInviteDone?.();
+          setRoute(next);
+        }}
+      />
     </View>
   );
 }
@@ -255,6 +272,7 @@ function DemoBar({
   onNavigate: (r: Route) => void;
 }) {
   const sheet = useSheet();
+  const insets = useSafeAreaInsets();
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
@@ -263,7 +281,8 @@ function DemoBar({
   ];
 
   return (
-    <View style={sheet.bar}>
+    // The labels stay above the home indicator; the bar's colour runs under it to the edge.
+    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
       {tabs.map((tab) => (
         <Pressable
           key={tab.label}
@@ -364,7 +383,6 @@ const useSheet = makeStyles((color) => ({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.line,
     backgroundColor: color.surface,
-    paddingBottom: space.lg,
   },
   tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
   tabText: { ...type.label, color: color.inkFaint },

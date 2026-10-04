@@ -1,6 +1,9 @@
 /**
  * One settle attempt, from the sheet opening to a terminal state.
  *
+ *   opening ──one way to pay──▶ as if it had been chosen
+ *      │
+ *      ▼
  *   choosing ──choose(rail)──▶ paying ──confirmed──▶ done
  *      │   ▲                     │
  *      │   └──────failed─────────┘   (error shown, nothing moved)
@@ -15,12 +18,19 @@
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything.
+ *
+ * With one way to pay there is nothing to ask, so the sheet opens on it
+ * (onlyRail): Lightning for someone who gave no UPI ID. It does that once.
+ * After a failure or a step back the payer gets the button, and decides when
+ * to try again.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   invitePath,
+  liveInvoiceFor,
+  onlyRail,
   parseLightningAddress,
   resolveSettlementOptions,
   TERMINAL_STATUSES,
@@ -36,7 +46,7 @@ import {
 } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
 import { launchUpi } from '../upi/launchUpi';
-import { useActionKeys, useClient, usePaymentMode, useWallet } from './SattleProvider';
+import { useActionKeys, useClient, usePaymentModeAnswer, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_sent';
 
@@ -49,6 +59,8 @@ export interface UpiSession {
 
 export interface SettleFlow {
   step: SettleStep;
+  /** The sheet has just opened and isn't asking anything yet: there may be only one way to pay, which it starts. */
+  opening: boolean;
   options: SettlementOptions | null;
   settlement: Settlement | null;
   error: Error | null;
@@ -101,7 +113,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   // A retry after a network error reuses the attempt's key, so a payment
   // whose response was lost isn't started twice.
   const keys = useActionKeys();
-  const mode = usePaymentMode();
+  const { mode, pending } = usePaymentModeAnswer();
 
   const [recipient, setRecipient] = useState(() => members.find((m) => m.id === debt.toMemberId));
   const [step, setStep] = useState<SettleStep>('choosing');
@@ -111,8 +123,17 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   const [upi, setUpi] = useState<UpiSession | null>(null);
   const [upiClaim, setUpiClaim] = useState<UpiClaim | null>(null);
   const unsub = useRef<(() => void) | null>(null);
+  const [opening, setOpening] = useState(true);
+  const opened = useRef(false);
+  const live = useRef(true);
 
-  useEffect(() => () => unsub.current?.(), []);
+  useEffect(
+    () => () => {
+      live.current = false;
+      unsub.current?.();
+    },
+    []
+  );
 
   const options = useMemo(
     () =>
@@ -170,8 +191,54 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     if (outcome.status === 'success') await claimUpi(outcome.reference);
   };
 
+  const choose = (rail: Rail) =>
+    run(async () => {
+      if (rail === 'upi') {
+        const payee = await client.getUpiPayee(debt.groupId, debt.toMemberId);
+        const session: UpiSession = {
+          payee,
+          uri: upiPayUri({ upiId: payee.upiId, name: payee.name, amount: debt.amount, note: `Sattle ${groupName}` }),
+          outcome: null,
+        };
+        setUpi(session);
+        setStep('upi');
+        await openUpiApp(session);
+        return;
+      }
+      if (rail === 'manual') {
+        const input = { ...pick(debt), note: 'Settled outside the app' };
+        onUpdate(await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k)));
+        return;
+      }
+      const input = { ...pick(debt), rail };
+      // The server makes one invoice at a time for a debt. One still out, from this sheet
+      // before it was closed or from a pay link, is the one to pay.
+      const s =
+        (rail === 'invoice' ? liveInvoiceFor(await client.getSettlements(debt.groupId), debt) : undefined) ??
+        (await keys.run('settle', input, (k) => client.createSettlement(input, k)));
+      // The sheet was closed while that was on its way. Opened again, it picks the invoice up.
+      if (!live.current) return;
+      setStep('paying');
+      setSettlement(s);
+      unsub.current?.();
+      // In the real app, BreezWallet.pay(destination) is triggered here once
+      // the settlement reaches awaiting_payment on the in_app/address rails.
+      unsub.current = client.onSettlementUpdate(s.id, onUpdate);
+    });
+
+  // Once the server has said which payments it makes: start the one way to pay, or ask.
+  useEffect(() => {
+    if (pending || opened.current) return;
+    opened.current = true;
+    const only = options ? onlyRail(options) : null;
+    if (!only) return setOpening(false);
+    void choose(only).then(() => live.current && setOpening(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
+
   return {
     step,
+    opening,
     options,
     settlement,
     error,
@@ -186,34 +253,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
       setStep('choosing');
     },
 
-    choose: (rail) =>
-      run(async () => {
-        if (rail === 'upi') {
-          const payee = await client.getUpiPayee(debt.groupId, debt.toMemberId);
-          const session: UpiSession = {
-            payee,
-            uri: upiPayUri({ upiId: payee.upiId, name: payee.name, amount: debt.amount, note: `Sattle ${groupName}` }),
-            outcome: null,
-          };
-          setUpi(session);
-          setStep('upi');
-          await openUpiApp(session);
-          return;
-        }
-        if (rail === 'manual') {
-          const input = { ...pick(debt), note: 'Settled outside the app' };
-          onUpdate(await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k)));
-          return;
-        }
-        const input = { ...pick(debt), rail };
-        const s = await keys.run('settle', input, (k) => client.createSettlement(input, k));
-        setStep('paying');
-        setSettlement(s);
-        unsub.current?.();
-        // In the real app, BreezWallet.pay(destination) is triggered here once
-        // the settlement reaches awaiting_payment on the in_app/address rails.
-        unsub.current = client.onSettlementUpdate(s.id, onUpdate);
-      }),
+    choose,
 
     markManual: (note) =>
       run(async () => {

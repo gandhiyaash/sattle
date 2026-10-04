@@ -92,19 +92,30 @@ export const useWallet = () => useCtx().wallet;
  * payments that fail.
  */
 export function usePaymentMode(): PaymentMode {
+  return usePaymentModeAnswer().mode;
+}
+
+/**
+ * The same, and whether the server has still to answer. Something that acts on
+ * its own waits for that. If asking fails, the assumption stands.
+ */
+export function usePaymentModeAnswer(): { mode: PaymentMode; pending: boolean } {
   const client = useClient();
-  const [mode, setMode] = useState<PaymentMode>(() => (isMock() ? 'simulated' : 'real'));
+  const [answer, setAnswer] = useState<{ mode: PaymentMode; pending: boolean }>(() => ({
+    mode: isMock() ? 'simulated' : 'real',
+    pending: true,
+  }));
   useEffect(() => {
     let live = true;
     client
       .getPaymentMode()
-      .then((m) => live && setMode(m))
-      .catch(() => {});
+      .then((mode) => live && setAnswer({ mode, pending: false }))
+      .catch(() => live && setAnswer((a) => ({ ...a, pending: false })));
     return () => {
       live = false;
     };
   }, [client]);
-  return mode;
+  return answer;
 }
 
 /** Idempotency keys for the user actions on one screen. See ActionKeys. */

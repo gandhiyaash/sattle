@@ -3,6 +3,7 @@
  *
  * Three screens in one sheet, chosen by flow.step:
  *
+ *   opening           nothing asked yet; with one way to pay, it starts on its own
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
@@ -254,6 +255,19 @@ export function SettleUpSheet({
           onPress={() => flow.savePayoutAddress(draft)}
         />
         <Button label="Back" variant="quiet" onPress={flow.cancelAddressEntry} />
+      </View>
+    );
+  }
+
+  // -- opening: one way to pay starts itself, so there's nothing to tap yet --
+
+  if (flow.opening) {
+    return (
+      <View style={s.sheet}>
+        <Text style={s.title}>Pay {recipient.displayName} {amount}</Text>
+        <View style={s.waiting}>
+          <ActivityIndicator color={color.accent} />
+        </View>
       </View>
     );
   }

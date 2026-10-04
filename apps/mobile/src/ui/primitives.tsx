@@ -8,19 +8,18 @@
  * wifi will see all three.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Platform,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   View,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { describeRateSource, formatFiat, formatRate, type Quote } from '@sattle/core';
 import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
@@ -54,9 +53,11 @@ export function Screen({
 }) {
   const s = useStyles();
   const mode = useColorMode();
+  const insets = useSafeAreaInsets();
   return (
     <View style={s.screen}>
-      <View style={s.header}>
+      {/* The app draws under the status bar and the notch, so the header starts below them. */}
+      <View style={[s.header, { paddingTop: Math.max(insets.top + space.md, space.xl) }]}>
         {onBack && (
           <Pressable onPress={onBack} hitSlop={12} style={s.back}>
             <Text style={s.backText}>‹</Text>
@@ -81,13 +82,23 @@ export function Screen({
         {right}
       </View>
       <ScrollView
-        contentContainerStyle={s.scrollBody}
+        contentContainerStyle={[s.scrollBody, { paddingBottom: space.xxl + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         {children}
       </ScrollView>
     </View>
   );
+}
+
+/**
+ * For whatever sits above a bar that already clears the bottom of the display, like
+ * the tab bar. The screens inside don't leave room for the home indicator a second time.
+ */
+export function AboveBottomBar({ children }: { children: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
+  const value = useMemo(() => ({ ...insets, bottom: 0 }), [insets]);
+  return <SafeAreaInsetsContext.Provider value={value}>{children}</SafeAreaInsetsContext.Provider>;
 }
 
 export function Card({
@@ -367,12 +378,6 @@ export function EmptyState({
   );
 }
 
-// Android draws the app under the status bar, so the header starts below it.
-// Used if currentHeight is unavailable; 24dp is the stock Android status bar height.
-const ANDROID_STATUS_BAR_FALLBACK = 24;
-const HEADER_TOP =
-  Platform.OS === 'android' ? (StatusBar.currentHeight ?? ANDROID_STATUS_BAR_FALLBACK) + space.md : space.xl;
-
 const useStyles = makeStyles((color) => ({
   screen: { flex: 1, backgroundColor: color.paper },
   header: {
@@ -380,7 +385,6 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.lg,
-    paddingTop: HEADER_TOP,
     paddingBottom: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.line,
@@ -390,7 +394,7 @@ const useStyles = makeStyles((color) => ({
   headerTitle: { ...type.title, color: color.ink },
   logo: { height: 30, width: 30 * LOGO_ASPECT },
   headerSubtitle: { ...type.caption, color: color.inkFaint, marginTop: 1 },
-  scrollBody: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
+  scrollBody: { padding: space.lg, gap: space.lg },
 
   card: {
     backgroundColor: color.surface,
