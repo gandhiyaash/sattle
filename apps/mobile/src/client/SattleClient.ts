@@ -124,6 +124,13 @@ export interface SattleClient {
   /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
   getInvite(token: string): Promise<InviteView>;
   /**
+   * The group an invite is for, when the signed-in user is already in it; null
+   * when they aren't. The link is the one in the group's chat, so the people in
+   * the group open it too, and the join page has nobody to offer them: the app
+   * opens the group instead. Throws as `getInvite` does for a link that can't be used.
+   */
+  getJoinedGroup(token: string): Promise<Group | null>;
+  /**
    * The signed-in user joins the invite's group and gets it back. With a
    * `ref`, one of `getInvite`'s, they become that member; throws `conflict` if
    * someone else has joined as that person since. With a `displayName`, they

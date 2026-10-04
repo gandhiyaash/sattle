@@ -39,6 +39,16 @@ describe('MockClient invites', () => {
     await expect(c.getInvite(invite.token)).rejects.toMatchObject({ code: 'not_found' });
   });
 
+  it('names the group behind an invite for its one user, who is in it', async () => {
+    const c = client();
+    const invite = await c.createInvite('g-goa');
+    expect((await c.getJoinedGroup(invite.token))?.id).toBe('g-goa');
+
+    await c.leaveGroup('g-goa');
+    expect(await c.getJoinedGroup(invite.token)).toBeNull();
+    await expect(c.getJoinedGroup('nope')).rejects.toMatchObject({ code: 'not_found' });
+  });
+
   it('won’t let its one user join a group they’re already in', async () => {
     const c = client();
     const invite = await c.createInvite('g-goa');

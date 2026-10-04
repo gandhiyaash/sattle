@@ -200,6 +200,9 @@ export class ApiClient implements SattleClient {
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
+  getJoinedGroup(token: string) {
+    return this.request<Group | null>('GET', `/invites/${encodeURIComponent(token)}/group`);
+  }
   acceptInvite(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
     return this.request<Group>('POST', '/groups/join', { token, ...as }, idempotencyKey);
   }

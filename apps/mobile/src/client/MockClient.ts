@@ -591,6 +591,14 @@ export class MockClient implements SattleClient {
     });
   }
 
+  getJoinedGroup(token: string) {
+    return this.call((): Group | null => {
+      const invite = this.liveInvite(token);
+      const mine = this.members.some((m) => m.groupId === invite.groupId && m.claimedByUserId === fixtures.currentUser.id);
+      return mine ? this.findGroup(invite.groupId) : null;
+    });
+  }
+
   /**
    * The mock has one user, who is already in every group, so this always
    * ends in "already in this group". The join itself needs the real API.

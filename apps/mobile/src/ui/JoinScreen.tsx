@@ -22,7 +22,6 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SattleError, parseInviteToken, type JoinAs } from '@sattle/core';
 import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
-import { joinedGroupFor } from '../client/joinedGroup';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -45,7 +44,13 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
   // The link is the one in the group's chat, so the people in the group tap it too. Not being
   // able to tell is no reason to stop anyone joining, so a failure reads as not being in it.
   const mine = useAsync(
-    () => (active ? joinedGroupFor(client, active).catch(() => null) : Promise.resolve(null)),
+    () =>
+      active
+        ? client.getJoinedGroup(active).then(
+            (group) => group?.id ?? null,
+            () => null
+          )
+        : Promise.resolve(null),
     [client, active]
   );
   const already = active ? mine.data : null;
@@ -236,8 +241,7 @@ function WhoAreYou({
     );
   }
 
-  // A server from before the page named them sends none.
-  const joined = data.joined ?? [];
+  const { joined } = data;
   const listed = data.members.length + joined.length;
   // With nobody on the list at all, adding yourself is the only thing to do.
   const adding = picked === NEW || listed === 0;

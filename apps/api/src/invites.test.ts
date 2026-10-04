@@ -175,6 +175,31 @@ describe('GET /join/:token', () => {
   });
 });
 
+describe('GET /invites/:token/group', () => {
+  it('is the group for someone already in it, and null for someone who isn’t', async () => {
+    const { call, signUp, invite, joinAs, group, riya } = await setup();
+    const { token } = (await invite()).body;
+    const path = `/invites/${token}/group`;
+
+    expect((await call<Group>('GET', path, undefined, riya.token)).body).toMatchObject({ id: group.id, name: 'Manali' });
+
+    const k = await signUp('Kabir');
+    expect(await call('GET', path, undefined, k.token)).toEqual({ status: 200, body: null });
+    await joinAs('Kabir', token, k.token);
+    expect((await call<Group>('GET', path, undefined, k.token)).body.id).toBe(group.id);
+  });
+
+  it('needs an account, and a link that still works', async () => {
+    const { db, call, invite, riya } = await setup();
+    const { token } = (await invite()).body;
+    expect((await call('GET', `/invites/${token}/group`)).status).toBe(401);
+    expect((await call('GET', '/invites/nope/group', undefined, riya.token)).status).toBe(404);
+
+    db.prepare('UPDATE invites SET expires_at = ? WHERE token = ?').run(new Date(Date.now() - 1000).toISOString(), token);
+    expect((await call('GET', `/invites/${token}/group`, undefined, riya.token)).status).toBe(410);
+  });
+});
+
 describe('POST /groups/join', () => {
   it('makes the person the ghost they picked: a member who can read the group and add to it', async () => {
     const { call, signUp, invite, joinAs, members, group, base, kabir, aman, riya } = await setup();

@@ -118,6 +118,21 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
   });
 
   /**
+   * Authed. The invite's group, when the caller is already in it; null when
+   * they aren't. The link is the one in the group's chat, so the people in
+   * the group open it too, and the join page has nobody to offer them: the
+   * app opens the group instead. Only someone in the group is told which
+   * group it is. It isn't under /join/, which answers without an account.
+   *   invite not usable   → as `live` above
+   */
+  r.get('/invites/:token/group', (c) => {
+    const invite = live(c.req.param('token'));
+    const user = c.get('user');
+    const mine = repo.memberForUser(invite.groupId, user.id);
+    return c.json(mine ? repo.groupForUser(invite.groupId, user.id) : null);
+  });
+
+  /**
    * Authed. The signed-in user joins the invite's group and gets the Group back.
    *
    * With a `ref`, they become the ghost they picked on the join page, with the
