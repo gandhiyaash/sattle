@@ -252,13 +252,13 @@ describe('POST /groups/join', () => {
   });
 
   it('drops the address a groupmate typed, so the member chooses where they get paid', async () => {
-    const { call, signUp, invite, join, members, riya, kabir } = await setup();
+    const { call, signUp, invite, joinAs, members, riya, kabir } = await setup();
     // Riya could type her own address for Kabir. Once he has joined, a
     // payment proven to that address must not count as paying him.
     expect((await call('PUT', `/members/${kabir}/payout-address`, { address: 'riya@getalby.com' }, riya.token)).status).toBe(200);
-    const { token } = (await invite(kabir)).body;
+    const { token } = (await invite()).body;
     const k = await signUp('Kabir');
-    expect((await join(token, k.token)).status).toBe(200);
+    expect((await joinAs('Kabir', token, k.token)).status).toBe(200);
     expect((await members()).find((m) => m.id === kabir)?.lightningAddress).toBeUndefined();
 
     // Only he can set one now.
