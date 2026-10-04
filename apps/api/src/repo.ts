@@ -9,6 +9,7 @@ import {
   SattleError,
   type Expense,
   type Group,
+  type Invite,
   type Member,
   type PayLink,
   type Settlement,
@@ -74,6 +75,14 @@ const toPayLink = (r: Row): PayLink => ({
   createdAt: r.created_at as string,
 });
 
+const toInvite = (r: Row): Invite => ({
+  token: r.token as string,
+  groupId: r.group_id as string,
+  memberId: r.member_id as string,
+  createdAt: r.created_at as string,
+  expiresAt: r.expires_at as string,
+});
+
 export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
@@ -87,6 +96,7 @@ export function createRepo(db: Db) {
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
     insertGroup: db.prepare('INSERT INTO expense_groups (id, name, currency, created_at) VALUES (?, ?, ?, ?)'),
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
+    memberForUser: db.prepare('SELECT * FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
     memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
     // group_id is bound twice: once for the row, once for the position subquery.
@@ -95,6 +105,10 @@ export function createRepo(db: Db) {
        VALUES (?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM members WHERE group_id = ?), ?, ?, ?)`
     ),
     setAddress: db.prepare('UPDATE members SET lightning_address = ? WHERE id = ?'),
+    // Only ever claims a ghost: the WHERE is what keeps two people off one member.
+    claimMember: db.prepare(
+      'UPDATE members SET claimed_by_user_id = ?, status = ? WHERE id = ? AND claimed_by_user_id IS NULL'
+    ),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
       `INSERT INTO expenses (id, group_id, description, amount, paid_by_member_id, split_mode, parts, created_at)
@@ -116,6 +130,12 @@ export function createRepo(db: Db) {
     latestForPayLink: db.prepare(
       'SELECT * FROM settlements WHERE pay_link_token = ? ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ),
+    inviteByToken: db.prepare('SELECT * FROM invites WHERE token = ?'),
+    insertInvite: db.prepare(
+      `INSERT INTO invites (token, group_id, member_id, created_by_user_id, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ),
+    deleteInvitesFor: db.prepare('DELETE FROM invites WHERE member_id = ?'),
   };
 
   const repo = {
@@ -182,6 +202,15 @@ export function createRepo(db: Db) {
       q.setAddress.run(address, id);
       return repo.member(id)!;
     },
+    /** The member this user is in the group, if they're in it. */
+    memberForUser: (groupId: string, userId: string) => {
+      const r = q.memberForUser.get(groupId, userId) as Row | undefined;
+      return r && toMember(r);
+    },
+    /** Hands a ghost to a user. False if someone already has it. */
+    claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
+      return q.claimMember.run(userId, status, id).changes === 1;
+    },
 
     expenses: (groupId: string) => (q.expensesOfGroup.all(groupId) as Row[]).map(toExpense),
     insertExpense(e: Expense) {
@@ -239,6 +268,18 @@ export function createRepo(db: Db) {
     latestForPayLink: (token: string) => {
       const r = q.latestForPayLink.get(token) as Row | undefined;
       return r && toSettlement(r);
+    },
+
+    /** The invite, and who made it. */
+    invite: (token: string) => {
+      const r = q.inviteByToken.get(token) as Row | undefined;
+      return r && { ...toInvite(r), createdByUserId: r.created_by_user_id as string };
+    },
+    /** Replaces any earlier invite for the same member, so only the newest link works. */
+    insertInvite(invite: Invite, createdByUserId: string) {
+      q.deleteInvitesFor.run(invite.memberId);
+      q.insertInvite.run(invite.token, invite.groupId, invite.memberId, createdByUserId, invite.createdAt, invite.expiresAt);
+      return invite;
     },
   };
 

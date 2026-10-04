@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  invitePath,
   parseLightningAddress,
   resolveSettlementOptions,
   TERMINAL_STATUSES,
@@ -39,7 +40,8 @@ export interface SettleFlow {
   cancelAddressEntry: () => void;
   savePayoutAddress: (raw: string) => Promise<void>;
   clearError: () => void;
-  buildInvite: (groupName: string) => { url: string; message: string } | null;
+  /** Makes an invite for the recipient. Throws if it can't; nothing else in the flow changes. */
+  createInvite: (groupName: string) => Promise<{ url: string; message: string }>;
 }
 
 /** Base for every link the app hands out: invites and pay links. */
@@ -146,9 +148,11 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
 
     clearError: () => setError(null),
 
-    buildInvite: (groupName) => {
-      if (!recipient) return null;
-      const url = `${APP_URL}/join/${debt.groupId}?member=${recipient.id}`;
+    createInvite: async (groupName) => {
+      if (!recipient) throw new Error('There’s nobody to invite.');
+      const input = { groupId: debt.groupId, memberId: recipient.id };
+      const invite = await keys.run('invite', input, (k) => client.createInvite(input.groupId, input.memberId, k));
+      const url = `${APP_URL}${invitePath(invite.token)}`;
       return {
         url,
         message: `${recipient.displayName}, join "${groupName}" on Sattle so I can pay you back: ${url}`,

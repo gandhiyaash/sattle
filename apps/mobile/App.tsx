@@ -9,19 +9,19 @@ import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider'
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
+import { InviteSummary } from './src/ui/JoinScreen';
 import { Loading, Screen } from './src/ui/primitives';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** The path payLinkPath() builds: /s/<token>. */
 const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
+/** The path invitePath() builds: /join/<token>. */
+const JOIN_PATH = /^\/join\/([^/]+)\/?$/;
 
-/**
- * The token when this page was opened from a pay link. Web only: that's
- * where a guest with no app lands. Everything else gets the app.
- */
-function guestToken(): string | null {
+/** The token when this page was opened from a link of that shape. Web only: native has no path. */
+function tokenFromPath(path: RegExp): string | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
-  const m = GUEST_PATH.exec(window.location.pathname);
+  const m = path.exec(window.location.pathname);
   if (!m) return null;
   try {
     return decodeURIComponent(m[1]);
@@ -30,8 +30,19 @@ function guestToken(): string | null {
   }
 }
 
+/** A pay link: that's where a guest with no app lands. Everything else gets the app. */
+const guestToken = () => tokenFromPath(GUEST_PATH);
+/** An invite: the app opens on the join screen, after making an account if there isn't one. */
+const inviteToken = () => tokenFromPath(JOIN_PATH);
+
 export default function App() {
   const [token] = useState(guestToken);
+  const [invite, setInvite] = useState(inviteToken);
+  // Off the address bar too, so a reload opens the app instead of a used link.
+  const inviteDone = () => {
+    setInvite(null);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
+  };
   // Android only: Play downloads a new version in the background. See updates/updater.ts.
   useEffect(watchForUpdates, []);
   if (token) {
@@ -42,8 +53,8 @@ export default function App() {
       </SattleProvider>
     );
   }
-  if (isMock()) return <DemoApp />;
-  return <AccountGate />;
+  if (isMock()) return <DemoApp invite={invite} onInviteDone={inviteDone} />;
+  return <AccountGate invite={invite} onInviteDone={inviteDone} />;
 }
 
 type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client: SattleClient };
@@ -54,7 +65,7 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client:
  * again. Any other failure, like being offline, keeps the token: the screens
  * show their own errors and retry.
  */
-function AccountGate() {
+function AccountGate({ invite, onInviteDone }: { invite: string | null; onInviteDone: () => void }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
 
   useEffect(() => {
@@ -86,8 +97,20 @@ function AccountGate() {
         </Screen>
       );
     case 'none':
-      return <WelcomeScreen onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })} />;
+      return (
+        <WelcomeScreen
+          // Reading an invite needs no account, so it can say who's asking before the name does.
+          intro={
+            invite ? (
+              <SattleProvider>
+                <InviteSummary token={invite} />
+              </SattleProvider>
+            ) : undefined
+          }
+          onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
+        />
+      );
     case 'ready':
-      return <DemoApp client={account.client} />;
+      return <DemoApp client={account.client} invite={invite} onInviteDone={onInviteDone} />;
   }
 }

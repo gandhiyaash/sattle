@@ -67,6 +67,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   settlementOptions.ts       Resolves what's possible BEFORE the user taps.
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
+  invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
@@ -74,7 +75,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, wallet.
+  routes/                    One module per owner: groups, settlements, payLinks, invites, wallet.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
@@ -110,6 +111,7 @@ apps/mobile/                 @sattle/mobile: Expo
       SettleUpSheet.tsx      Rails, the blocked screen, and address entry.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
+      JoinScreen.tsx         The /join/<token> page: who invited you to what, and Join.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -170,7 +172,7 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 `resolveSettlementOptions()` decides first. When the recipient cannot receive, it returns `blocked` with three remedies in place of rails:
 
 1. **Add their Lightning address.** The route most people miss. Any wallet gives Aman an address, and paying it needs nothing from him — no install, no signup, no device awake. `setMemberPayoutAddress` stores it and leaves his status as `ghost`, because he is payable, not joined.
-2. **Invite them.** Shares the claim link. Best long-term, slowest right now.
+2. **Invite them.** Shares a link that lets Aman take over his own row; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
 3. **Mark as settled.** Cash, UPI, forgiven. Present on every screen, never removable.
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
@@ -187,6 +189,22 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 Payments go through `PaymentBackend` in `payments.ts`. Today that's `SimulatedPayments`, which walks the same states as the mock with a fake preimage. The NWC backend replaces it without touching the routes.
 
 Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
+
+### Joining a group
+
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns one ghost into a member. Anyone already in the group taps **Invite** on a ghost's row and sends the link, `/join/<token>`. Whoever opens it sees who invited them to what, makes an account if they don't have one, and joins. They take over that row as it is: same name, same history, same balance.
+
+Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own, and nothing in the app takes that back. The link is therefore treated as a key:
+
+- It is 128 random bits, and only a member of the group can make one.
+- It works once. After someone joins with it, it answers `410 link_expired`.
+- It lasts a week.
+- Making a new one for the same ghost kills the last, so a link sent to the wrong chat can be cancelled by inviting again.
+- One person can hold only one member of a group.
+
+`GET /join/:token` is public, like the pay page, and returns three names and nothing else: the group, the ghost, and the inviter. Accepting is `POST /groups/join` and needs an account.
+
+A link opens the web app. The installed app has no link handling yet, so there the link is pasted under **Join with a link** on the groups list.
 
 ### Deploying
 
@@ -276,7 +294,8 @@ Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that w
 
 - Real payments. The API's `SimulatedPayments` stands in until the NWC backend lands.
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
-- Invites and claims. Groups and members can be created, but a ghost has no way to become a user yet.
+- Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
+- Removing a member or leaving a group. Joining can't be undone.
 - `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
 - Real routing for the guest page (`/s/[token]`). `DemoApp` fakes it with a tab.
 - Nostr identity, on-chain rails, and QR rendering.

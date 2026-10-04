@@ -19,6 +19,8 @@ import {
   type ExpenseInput,
   type Group,
   type GuestView,
+  type Invite,
+  type InviteView,
   type Member,
   type PayLink,
   type Settlement,
@@ -151,6 +153,16 @@ export class ApiClient implements SattleClient {
   }
   getGuestView(token: string) {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);
+  }
+
+  createInvite(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Invite>('POST', `/groups/${groupId}/invites`, { memberId }, idempotencyKey);
+  }
+  getInvite(token: string) {
+    return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
+  }
+  acceptInvite(token: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
   }
 
   connectWallet(nwcUri: string) {

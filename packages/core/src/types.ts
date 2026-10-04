@@ -205,6 +205,29 @@ export interface GuestView {
   settlement?: GuestSettlement;
 }
 
+// -- invites ---------------------------------------------------------------
+
+/**
+ * A shareable link that lets one person take over one ghost: whoever opens
+ * /join/<token> with an account becomes that member. Unlike a pay link this
+ * grants the whole group, to read and to write, so it works once and expires.
+ */
+export interface Invite {
+  token: string;
+  groupId: string;
+  memberId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** Only what the join page may show before someone accepts. Names, no ids. */
+export interface InviteView {
+  groupName: string;
+  /** The member they would become. */
+  memberName: string;
+  invitedBy: string;
+}
+
 // -- wallet connection -----------------------------------------------------
 
 /**

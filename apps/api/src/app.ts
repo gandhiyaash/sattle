@@ -7,6 +7,7 @@
  *   routes/groups.ts       groups, members, expenses, debts
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
+ *   routes/invites.ts      /groups/:id/invites, the public /join/:token, and joining
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
  */
@@ -26,6 +27,7 @@ import { createRepo, type Repo } from './repo';
 import { accountRoutes } from './routes/accounts';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
+import { inviteRoutes } from './routes/invites';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
 import { walletRoutes } from './routes/wallet';
@@ -78,6 +80,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', groupRoutes(ctx));
   app.route('/', settlementRoutes(ctx));
   app.route('/', payLinkRoutes(ctx));
+  app.route('/', inviteRoutes(ctx));
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
 
