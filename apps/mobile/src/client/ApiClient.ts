@@ -23,6 +23,7 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinAs,
   type LedgerBackup,
   type Member,
   type PayLink,
@@ -168,14 +169,20 @@ export class ApiClient implements SattleClient {
     return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/proof`, { preimage }, idempotencyKey);
   }
 
-  createInvite(groupId: string, memberId: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Invite>('POST', `/groups/${groupId}/invites`, { memberId }, idempotencyKey);
+  getGroupInvite(groupId: string) {
+    return this.request<Invite | null>('GET', `/groups/${groupId}/invites`);
+  }
+  createInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Invite>('POST', `/groups/${groupId}/invites`, undefined, idempotencyKey);
+  }
+  async removeInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/groups/${groupId}/invites`, undefined, idempotencyKey);
   }
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  acceptInvite(token: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Group>('POST', '/groups/join', { token }, idempotencyKey);
+  acceptInvite(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('POST', '/groups/join', { token, ...as }, idempotencyKey);
   }
 
   getGroupLink(groupId: string) {
