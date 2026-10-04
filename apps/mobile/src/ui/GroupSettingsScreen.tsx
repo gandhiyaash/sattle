@@ -65,7 +65,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
   const client = useClient();
   const keys = useActionKeys();
 
-  const { data, loading, error, reload } = useAsync<Settings>(async () => {
+  const { data, loading, error, reload } = useAsync<Settings>(async (client) => {
     const [user, group, members, expenses, settlements, link, invite] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),

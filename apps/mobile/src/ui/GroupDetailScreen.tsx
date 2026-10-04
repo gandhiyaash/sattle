@@ -78,10 +78,9 @@ export function GroupDetailScreen({
 }: GroupDetailScreenProps) {
   const color = useColors();
   const s = useStyles();
-  const client = useClient();
   const mode = usePaymentMode();
 
-  const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
+  const { data, loading, error, reload, refresh } = useAsync<GroupView>(async (client) => {
     const [user, group, members, expenses, settlements, claims] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
@@ -707,8 +706,7 @@ function UpiClaimNote({
  */
 function LedgerBackupCard({ groupId, version }: { groupId: string; version: number }) {
   const s = useStyles();
-  const client = useClient();
-  const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId, version]);
+  const { data } = useAsync((client) => client.getLedgerBackup(groupId), [groupId, version]);
   const [note, setNote] = useState<string | null>(null);
 
   if (!data) return null;

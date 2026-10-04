@@ -23,7 +23,7 @@ export interface AccountScreenProps {
 export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
   const s = useStyles();
   const client = useClient();
-  const { data, loading, error, reload } = useAsync(() => client.getCurrentUser(), []);
+  const { data, loading, error, reload } = useAsync((client) => client.getCurrentUser(), []);
 
   return (
     <Screen title="Account" onBack={onBack}>

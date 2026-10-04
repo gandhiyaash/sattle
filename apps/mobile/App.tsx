@@ -7,7 +7,7 @@ import { SattleError, parseInviteToken } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
-import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
+import { SattleProvider, buildClient, isMock, savedReads } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
 import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
@@ -107,7 +107,8 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client:
  * The app proper needs a device account. A stored token the server no longer
  * knows (the database was reset, say) is dropped, and the person starts
  * again. Any other failure, like being offline, keeps the token: the screens
- * show their own errors and retry.
+ * open on what this device saved, and show their own errors where it has
+ * nothing.
  */
 function AccountGate({ invite, onInviteDone }: { invite: string | null; onInviteDone: () => void }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
@@ -120,20 +121,34 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
       const token = await readToken();
       if (!token) return live && setAccount({ kind: 'none' });
       const client = buildClient(token);
-      try {
-        await client.getCurrentUser();
-      } catch (e) {
-        if (e instanceof SattleError && e.code === 'unauthorized') {
+      const known = client
+        .getCurrentUser()
+        .then(() => true)
+        .catch(async (e) => {
+          if (!(e instanceof SattleError && e.code === 'unauthorized')) return true;
           await clearToken();
-          return live && setAccount({ kind: 'none' });
-        }
-      }
-      if (live) setAccount({ kind: 'ready', client });
+          if (live) setAccount({ kind: 'none' });
+          return false;
+        });
+      // Opened on this device before: go straight to what it saved, and let the check finish behind it.
+      const opened = savedReads.get('/me') !== undefined;
+      if ((opened || (await known)) && live) setAccount({ kind: 'ready', client });
     })();
     return () => {
       live = false;
     };
   }, []);
+
+  // No account on this device, so nothing saved of one belongs on it either.
+  useEffect(() => {
+    if (account.kind === 'none') savedReads.clear();
+  }, [account.kind]);
+
+  /** A new account starts with nothing saved, whatever a request still in the air for the last one left. */
+  const begin = (token: string) => {
+    savedReads.clear();
+    setAccount({ kind: 'ready', client: buildClient(token) });
+  };
 
   switch (account.kind) {
     case 'loading':
@@ -152,14 +167,14 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
               onJoined={(token, groupId) => {
                 setJoined(groupId);
                 onInviteDone();
-                setAccount({ kind: 'ready', client: buildClient(token) });
+                begin(token);
               }}
               onSkip={onInviteDone}
             />
           </SattleProvider>
         );
       }
-      return <WelcomeScreen onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })} />;
+      return <WelcomeScreen onReady={begin} />;
     case 'ready':
       return (
         <DemoApp

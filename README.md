@@ -108,6 +108,8 @@ apps/mobile/                 @sattle/mobile: Expo
       SattleClient.ts        The interface. The only seam.
       MockClient.ts          In-memory, with latency and failure injection.
       ApiClient.ts           HTTP client for apps/api.
+      SavedReads.ts          The server's last answers, kept on the device for when it can't be reached.
+      Reach.ts               Whether the server is answering, and asking until it does.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
     updates/
@@ -134,6 +136,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
+      OfflineBanner.tsx      Offline, and when what's on screen was saved.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
 
@@ -185,6 +188,26 @@ new MockClient({ alwaysFailSettlement: true })    // payment failure screen
 new MockClient({ settleDelayMs: 12000 })          // the long wait
 new MockClient({ latencyMs: 0 })                  // tests
 ```
+
+## Without a connection
+
+The app opens on what it showed last time. Each answer the server gives to a read the main screens are built from (who you are, your groups, their members, expenses and settlements, where you get paid) is kept on the device by `SavedReads`: a file in the app's own storage on a phone, `localStorage` on the web. `useAsync` runs a screen's loader twice, first against that copy and then against the server, whose answer replaces it. If the server can't be reached the copy stays up, and a line above the tab bar says when it is from.
+
+So a loader reads through the client `useAsync` hands it, not one from `useClient()`:
+
+```ts
+const { data } = useAsync((client) => client.getExpenses(groupId), [groupId]);
+```
+
+`Reach` is how the app knows it's back. It doesn't ask the phone whether it has a connection, because Wi-Fi with no internet has one. It goes by whether requests get answered, and while they don't, it asks `/health` every five seconds and each time the app returns to the front. Once one is answered, every screen that is up fetches again.
+
+Three rules:
+
+- Invites, group links and the ledger's backup key are never saved. The copy sits in ordinary storage and the account token doesn't, so nothing that works as a key goes in it.
+- The copy is deleted with the account, and when the server no longer knows the token.
+- After a change made on the device, the copy isn't shown first until the server has answered again. Otherwise the screen would step back to how things were before the change.
+
+Changes still need the server; see [Not in here yet](#not-in-here-yet).
 
 ## The ghost path
 
@@ -436,6 +459,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
+- Adding or changing anything without a connection. What was saved can be read; an expense added offline isn't held and sent later.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).

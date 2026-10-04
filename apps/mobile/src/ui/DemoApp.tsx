@@ -25,6 +25,7 @@ import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
+import { OfflineBanner } from './OfflineBanner';
 import { AboveBottomBar } from './primitives';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
@@ -246,6 +247,7 @@ function Navigator({
         </View>
       </Modal>
 
+      <OfflineBanner />
       <UpdateBanner />
       <DemoBar
         route={route}

@@ -10,7 +10,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { computeBalances, type Group } from '@sattle/core';
-import { useAsync, useClient } from '../react/SattleProvider';
+import { useAsync } from '../react/SattleProvider';
 import {
   Amount,
   Avatar,
@@ -49,9 +49,8 @@ export function GroupsListScreen({
 }: GroupsListScreenProps) {
   const color = useColors();
   const s = useStyles();
-  const client = useClient();
 
-  const { data, loading, error, reload } = useAsync<GroupRow[]>(async () => {
+  const { data, loading, error, reload } = useAsync<GroupRow[]>(async (client) => {
     const [user, groups] = await Promise.all([
       client.getCurrentUser(),
       client.getGroups(),

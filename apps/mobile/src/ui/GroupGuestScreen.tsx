@@ -30,7 +30,7 @@ const REFRESH_MS = 4000;
 export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   const s = useStyles();
   const client = useClient();
-  const { data, loading, error, reload, refresh } = useAsync(() => client.getGroupGuestView(token), [token]);
+  const { data, loading, error, reload, refresh } = useAsync((client) => client.getGroupGuestView(token), [token]);
   /** The pay link for the debt being paid. While set, the pay page is up. */
   const [paying, setPaying] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);

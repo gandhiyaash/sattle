@@ -122,7 +122,7 @@ function ConnectWallet() {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getWalletConnection(), []);
+  const current = useAsync((client) => client.getWalletConnection(), []);
   const [connection, setConnection] = useState<WalletConnection | null>(null);
   const [replacing, setReplacing] = useState(false);
   const [uri, setUri] = useState('');
@@ -232,7 +232,7 @@ function ReceiveAtAddress() {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getReceiveAddress(), []);
+  const current = useAsync((client) => client.getReceiveAddress(), []);
   const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
@@ -328,7 +328,7 @@ function UpiIdCard() {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getUpiId(), []);
+  const current = useAsync((client) => client.getUpiId(), []);
   const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');

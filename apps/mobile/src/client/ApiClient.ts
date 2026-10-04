@@ -6,6 +6,11 @@
  * server must honour it: a retried settlement that mints a second invoice is
  * a double payment. The key comes from the caller when it's retrying a user
  * action (see ActionKeys); otherwise each call mints its own.
+ *
+ * Given somewhere to save them, the client also keeps the answers to its
+ * reads (see SavedReads), and `saved` answers the same reads from that copy.
+ * `reach` says whether the server is answering at all. Together they are
+ * what lets the app open and be read with no connection.
  */
 
 import {
@@ -37,9 +42,25 @@ import {
   type User,
   type WalletConnection,
 } from '@sattle/core';
+import { Reach } from './Reach';
+import type { SavedReads } from './SavedReads';
 import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;
+
+/**
+ * How long a read may go unanswered. Without a limit, a connection that is
+ * up but going nowhere would leave a screen waiting on it for good.
+ */
+const READ_TIMEOUT_MS = 15_000;
+
+/** The same reads, answered from the device instead of by the server. */
+export interface SavedViews {
+  /** Only what no change made from this device has outdated. */
+  current: SattleClient;
+  /** Everything saved. For when the server is out of reach, and an older answer beats none. */
+  any: SattleClient;
+}
 
 /**
  * Makes a device account. Not on SattleClient, because nobody is signed in
@@ -65,13 +86,33 @@ export async function createAccount(baseUrl: string, displayName: string): Promi
 
 export class ApiClient implements SattleClient {
   private paymentMode?: Promise<PaymentMode>;
+  private views?: SavedViews;
+
+  /** Whether the server is answering. Asking `/health` is how it finds out when it's back. */
+  readonly reach = new Reach(() => this.request('GET', '/health'));
 
   constructor(
     private readonly baseUrl: string,
-    private readonly getToken: () => string | null = () => null
+    private readonly getToken: () => string | null = () => null,
+    /** Where the answers to reads are kept for when the server can't be reached. Without it, none are. */
+    private readonly savedReads?: SavedReads
   ) {}
 
-  private async request<T>(
+  /** Null when this client keeps nothing. */
+  get saved(): SavedViews | null {
+    if (!this.savedReads) return null;
+    return (this.views ??= {
+      current: new SavedClient(this.savedReads, true),
+      any: new SavedClient(this.savedReads, false),
+    });
+  }
+
+  /** When the server last answered a read that was saved. */
+  get savedAt(): number | null {
+    return this.savedReads?.at ?? null;
+  }
+
+  protected async request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
@@ -83,16 +124,27 @@ export class ApiClient implements SattleClient {
     const token = this.getToken();
     if (token) headers.authorization = `Bearer ${token}`;
 
+    // Only reads are given up on. Giving up on a write wouldn't stop the server carrying it out.
+    const abort = new AbortController();
+    const timer = method === 'GET' ? setTimeout(() => abort.abort(), READ_TIMEOUT_MS) : undefined;
+
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: abort.signal,
       });
     } catch {
+      this.reach.lost();
       throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
+    } finally {
+      clearTimeout(timer);
     }
+    // A gateway answering for a server that is down is no more use than no answer.
+    if (res.status >= 502 && res.status <= 504) this.reach.lost();
+    else this.reach.found();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
@@ -101,7 +153,10 @@ export class ApiClient implements SattleClient {
         err.message ?? `Request failed (${res.status}).`
       );
     }
-    return res.json() as Promise<T>;
+    if (method !== 'GET') this.savedReads?.outdate();
+    const answer = (await res.json()) as T;
+    if (method === 'GET') this.savedReads?.keep(path, answer);
+    return answer;
   }
 
   getCurrentUser() {
@@ -323,6 +378,30 @@ export class ApiClient implements SattleClient {
       cb,
       (v) => Boolean(v.settlement && TERMINAL_STATUSES.includes(v.settlement.status))
     );
+  }
+}
+
+/** ApiClient's reads, answered from what the device saved. Nothing here reaches the server. */
+class SavedClient extends ApiClient {
+  constructor(
+    private readonly reads: SavedReads,
+    private readonly current: boolean
+  ) {
+    super('');
+  }
+
+  protected override async request<T>(method: string, path: string): Promise<T> {
+    const answer = method === 'GET' ? this.reads.get<T>(path, this.current) : undefined;
+    if (answer === undefined) throw new SattleError('network', 'That isn’t saved on this device.');
+    return answer;
+  }
+
+  override onSettlementUpdate() {
+    return () => {};
+  }
+
+  override onGuestViewUpdate() {
+    return () => {};
   }
 }
 

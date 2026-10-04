@@ -36,7 +36,7 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
   const keys = useActionKeys();
   const [active, setActive] = useState(token ?? null);
   // What they're already called, for the name field if they add themselves.
-  const me = useAsync(() => client.getCurrentUser(), [client]);
+  const me = useAsync((client) => client.getCurrentUser(), [client]);
 
   return (
     <Screen title="Join a group" onBack={onBack}>
@@ -196,8 +196,7 @@ function WhoAreYou({
 }) {
   const color = useColors();
   const s = useStyles();
-  const client = useClient();
-  const { data, loading, error, reload, refresh } = useAsync(() => client.getInvite(token), [token]);
+  const { data, loading, error, reload, refresh } = useAsync((client) => client.getInvite(token), [token]);
   const [picked, setPicked] = useState<string | null>(null);
   // Null until they type, so a name that arrives late still fills the field.
   const [typed, setTyped] = useState<string | null>(null);
