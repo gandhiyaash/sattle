@@ -7,10 +7,11 @@
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
  *
- * The blocked screen is not an error state. It offers three routes to the
- * same outcome, ordered by how likely they are to actually work: get an
- * address (fastest, no install), invite them (best long-term), or record
- * that it was handled outside the app.
+ * The blocked screen is not an error state. It offers the routes to the
+ * same outcome that can work here, ordered by how likely they are to: get an
+ * address (fastest, no install), invite them (best long-term), remind them to
+ * connect a wallet, or record that it was handled outside the app. Which ones
+ * apply comes from resolveSettlementOptions.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -21,7 +22,7 @@ import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
 import { Button, Card, ErrorState, SatLine } from './primitives';
 import { share } from './share';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface SettleUpSheetProps {
   debt: Debt;
@@ -38,6 +39,8 @@ export function SettleUpSheet({
   currency = 'INR',
   onClose,
 }: SettleUpSheetProps) {
+  const color = useColors();
+  const s = useStyles();
   const flow = useSettleFlow(debt, members, groupName);
   const [draft, setDraft] = useState('');
   // The quote ran out on screen before the server marked the invoice expired.
@@ -59,6 +62,13 @@ export function SettleUpSheet({
 
   const recipient = members.find((m) => m.id === debt.toMemberId);
   const amount = formatFiat(debt.amount, currency);
+  const [reminder, setReminder] = useState<string | null>(null);
+
+  const sendReminder = async () => {
+    if (!recipient) return;
+    const message = `${recipient.displayName}, I want to pay you ${amount} for ${groupName} on Sattle. Set up receiving from Wallet in the app, with a wallet or your Lightning address, so it has somewhere to land.`;
+    setReminder(await share(message, 'Sent.'));
+  };
 
   if (!recipient || !flow.options) return null;
 
@@ -190,40 +200,65 @@ export function SettleUpSheet({
   // -- blocked: recipient has nowhere to receive ---------------------------
 
   if (flow.options.blocked) {
+    const { message, remedies } = flow.options.blocked;
+    const first = remedies[0];
     return (
       <View style={s.sheet}>
         <Text style={s.title}>You owe {recipient.displayName} {amount}</Text>
-        <Text style={s.body}>{flow.options.blocked.message}</Text>
+        <Text style={s.body}>{message}</Text>
 
-        <Button
-          label="Add their Lightning address"
-          variant="primary"
-          hint="Fastest route. Works with any wallet they already have."
-          onPress={flow.startAddressEntry}
-        />
-
-        <Button
-          label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
-          hint="They see the group and can get paid here from then on."
-          busy={invite.kind === 'busy'}
-          onPress={sendInvite}
-        />
-        {invite.kind === 'sent' && (
-          <View style={s.inviteResult}>
-            <Text style={s.inviteNote}>{invite.note}</Text>
-            <Text style={s.inviteUrl} selectable numberOfLines={1}>
-              {invite.url}
-            </Text>
-          </View>
+        {remedies.includes('add_address') && (
+          <Button
+            label="Add their Lightning address"
+            variant={first === 'add_address' ? 'primary' : 'secondary'}
+            hint="Fastest route. Works with any wallet they already have."
+            onPress={flow.startAddressEntry}
+          />
         )}
-        {invite.kind === 'failed' && <Text style={s.error}>{invite.message}</Text>}
 
-        <Button
-          label="Mark as settled"
-          hint="Paid in cash, or forgiven."
-          busy={flow.busy}
-          onPress={() => flow.markManual('Settled outside the app')}
-        />
+        {remedies.includes('remind') && (
+          <>
+            <Button
+              label={reminder ? `Remind ${recipient.displayName} again` : `Remind ${recipient.displayName}`}
+              variant={first === 'remind' ? 'primary' : 'secondary'}
+              hint="Sends them a note to set up receiving."
+              onPress={sendReminder}
+            />
+            {reminder && <Text style={s.inviteNote}>{reminder}</Text>}
+          </>
+        )}
+
+        {remedies.includes('invite') && (
+          <>
+            <Button
+              label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
+              variant={first === 'invite' ? 'primary' : 'secondary'}
+              hint="They see the group and can get paid here from then on."
+              busy={invite.kind === 'busy'}
+              onPress={sendInvite}
+            />
+            {invite.kind === 'sent' && (
+              <View style={s.inviteResult}>
+                <Text style={s.inviteNote}>{invite.note}</Text>
+                <Text style={s.inviteUrl} selectable numberOfLines={1}>
+                  {invite.url}
+                </Text>
+              </View>
+            )}
+            {invite.kind === 'failed' && <Text style={s.error}>{invite.message}</Text>}
+          </>
+        )}
+
+        {remedies.includes('mark_settled') && (
+          <Button
+            label="Mark as settled"
+            hint="Paid in cash, or forgiven."
+            busy={flow.busy}
+            onPress={() => flow.markManual('Settled outside the app')}
+          />
+        )}
+
+        <Button label="Close" variant="quiet" onPress={onClose} />
       </View>
     );
   }
@@ -251,7 +286,7 @@ export function SettleUpSheet({
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   sheet: { padding: space.xl, gap: space.sm, backgroundColor: color.surface },
   title: { ...type.title, color: color.ink, marginBottom: space.xs },
   body: { ...type.body, color: color.inkMuted, marginBottom: space.md },
@@ -288,4 +323,4 @@ const s = StyleSheet.create({
   },
   receiptLabel: { ...type.caption, color: color.inkFaint },
   receiptValue: { ...type.amountSm, color: color.inkMuted },
-});
+}));

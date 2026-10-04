@@ -8,9 +8,10 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppUpdate } from '../react/useAppUpdate';
-import { color, space, type } from './theme';
+import { makeStyles, space, type } from './theme';
 
 export function UpdateBanner() {
+  const s = useStyles();
   const { phase, progress, update, restart } = useAppUpdate();
   if (phase === 'idle') return null;
 
@@ -40,7 +41,7 @@ export function UpdateBanner() {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -53,4 +54,4 @@ const s = StyleSheet.create({
   },
   text: { ...type.label, flex: 1, color: color.inkMuted },
   action: { ...type.label, color: color.accent },
-});
+}));

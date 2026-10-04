@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, canReceive } from '@sattle/core';
+import { SattleError } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
+import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, ProofBody, readPreimage } from '../proof';
 import { checkManualRecorder, checkPayer, checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
@@ -48,7 +49,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
     const settlement = transaction(db, () => {
       const payee = checkSettlement(repo, g, body);
       checkPayer(repo, body, user.id);
-      if (!canReceive(payee)) {
+      if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
       if (inProgressFor(repo, g, body)) {

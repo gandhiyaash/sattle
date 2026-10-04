@@ -86,7 +86,8 @@ export function createApp(deps: AppDeps) {
   );
   app.use('*', auth(repo, deps.demoUserId));
 
-  app.get('/health', (c) => c.json({ ok: true }));
+  // Public, so the app knows who it can offer to pay before anyone signs in.
+  app.get('/health', (c) => c.json({ ok: true, payments: ctx.payments.mode ?? 'simulated' }));
   app.route('/', accountRoutes(ctx));
   app.route('/', groupRoutes(ctx));
   app.route('/', settlementRoutes(ctx));

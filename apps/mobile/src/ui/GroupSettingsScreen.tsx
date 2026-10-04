@@ -34,7 +34,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface GroupSettingsScreenProps {
   groupId: string;
@@ -61,6 +61,7 @@ interface Settings {
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
 
@@ -278,6 +279,8 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
 }
 
 function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; onRenamed: () => void }) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
   const [draft, setDraft] = useState(name);
@@ -321,7 +324,7 @@ function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; o
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   body: { ...type.body, color: color.inkMuted },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
   error: { ...type.caption, color: color.danger },
@@ -342,4 +345,4 @@ const s = StyleSheet.create({
     color: color.ink,
     backgroundColor: color.paper,
   },
-});
+}));

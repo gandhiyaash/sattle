@@ -10,11 +10,19 @@
  * Deliberately no orange gradients, no neon, no dark-mode-by-default. The
  * brief is that Bitcoin's UX is bad marketing for Bitcoin; the way to avoid
  * adding to that is to look like something a person already trusts.
+ *
+ * Dark mode follows the system setting unless the person picks light or
+ * dark on the Wallet screen. It keeps the same register: a warm
+ * near-black ground rather than pure black, and the same amber, lifted a
+ * little so it still reads as the thing to press.
  */
 
-import { Platform } from 'react-native';
+import { useSyncExternalStore } from 'react';
+import { Appearance as NativeAppearance, Platform, StyleSheet, useColorScheme } from 'react-native';
 
-export const color = {
+import { readAppearance, writeAppearance } from './appearanceStore';
+
+const light = {
   // Ground
   paper: '#FAF8F5',
   surface: '#FFFFFF',
@@ -43,7 +51,108 @@ export const color = {
   // States
   danger: '#B4412E',
   dangerWash: '#FBECE9',
-} as const;
+
+  // Dims the screen behind a sheet
+  scrim: '#1A171466',
+};
+
+export type Palette = typeof light;
+
+const dark: Palette = {
+  paper: '#151311',
+  surface: '#1F1C19',
+  surfaceSunken: '#2A2622',
+
+  ink: '#F2EDE6',
+  inkMuted: '#B0A79C',
+  inkFaint: '#7F776E',
+
+  line: '#332E29',
+  lineStrong: '#48413A',
+
+  accent: '#D9772F',
+  accentPressed: '#C2621C',
+  accentWash: '#3A2616',
+  onAccent: '#FFFFFF',
+
+  owed: '#4FB985',
+  owe: '#E8786A',
+  settled: '#7F776E',
+
+  danger: '#E8786A',
+  dangerWash: '#3A1F1B',
+
+  scrim: '#000000A6',
+};
+
+/** Follow the system, or always use one mode. */
+export type Appearance = 'system' | 'light' | 'dark';
+
+const APPEARANCES: readonly Appearance[] = ['system', 'light', 'dark'];
+
+let appearance: Appearance = 'system';
+const listeners = new Set<() => void>();
+
+function apply(next: Appearance) {
+  appearance = next;
+  // Native-drawn chrome (keyboard, alerts) follows along. The web has no such override.
+  if (Platform.OS !== 'web') NativeAppearance.setColorScheme(next === 'system' ? 'unspecified' : next);
+  listeners.forEach((l) => l());
+}
+
+export function setAppearance(next: Appearance) {
+  apply(next);
+  void writeAppearance(next);
+}
+
+// The saved choice arrives a moment after launch; until then the system's mode shows.
+readAppearance()
+  .then((saved) => {
+    const valid = APPEARANCES.find((a) => a === saved);
+    if (valid) apply(valid);
+  })
+  .catch(() => {});
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function useAppearance(): Appearance {
+  return useSyncExternalStore(subscribe, () => appearance);
+}
+
+export function useColorMode(): 'light' | 'dark' {
+  const choice = useAppearance();
+  const system = useColorScheme() === 'dark' ? 'dark' : 'light';
+  return choice === 'system' ? system : choice;
+}
+
+/** The palette for the system's current light or dark setting. */
+export function useColors(): Palette {
+  return useColorMode() === 'dark' ? dark : light;
+}
+
+/**
+ * A stylesheet built from the palette, as a hook. Each mode's sheet is
+ * built once, the first time it's asked for.
+ */
+export function makeStyles<T extends StyleSheet.NamedStyles<T>>(
+  build: (color: Palette) => T & StyleSheet.NamedStyles<any>
+): () => T {
+  const sheets = new Map<Palette, T>();
+  return function useStyles() {
+    const palette = useColors();
+    let sheet = sheets.get(palette);
+    if (!sheet) {
+      sheet = StyleSheet.create(build(palette));
+      sheets.set(palette, sheet);
+    }
+    return sheet;
+  };
+}
 
 export const space = {
   xs: 4,

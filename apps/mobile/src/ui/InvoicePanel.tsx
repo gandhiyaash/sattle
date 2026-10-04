@@ -13,7 +13,7 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from './primitives';
 import { QrCode } from './QrCode';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type } from './theme';
 
 export function InvoicePanel({
   invoice,
@@ -26,6 +26,7 @@ export function InvoicePanel({
   onExpired?: () => void;
   qrSize?: number;
 }) {
+  const s = useStyles();
   const left = useSecondsLeft(expiresAt);
 
   useEffect(() => {
@@ -67,11 +68,11 @@ export function useSecondsLeft(iso: string | undefined) {
 
 const formatClock = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   panel: { alignItems: 'stretch', gap: space.sm },
   hint: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
   // QR needs a light ground and a quiet zone; the code draws its own margin.
   qrFrame: { alignSelf: 'center', borderRadius: radius.md, overflow: 'hidden', backgroundColor: '#FFFFFF' },
   invoice: { ...type.amountSm, color: color.inkFaint, textAlign: 'center' },
   countdown: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
-});
+}));

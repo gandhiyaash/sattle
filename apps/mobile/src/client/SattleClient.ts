@@ -32,10 +32,13 @@ import type {
   Settlement,
   User,
   WalletConnection,
+  PaymentMode,
 } from '@sattle/core';
 
 export interface SattleClient {
   getCurrentUser(): Promise<User>;
+  /** Real money or a simulation. Decides who can be offered Pay; see canReceive. */
+  getPaymentMode(): Promise<PaymentMode>;
 
   getGroups(): Promise<Group[]>;
   getGroup(groupId: string): Promise<Group>;

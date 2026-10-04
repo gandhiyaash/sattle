@@ -11,6 +11,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -22,7 +23,14 @@ import {
 } from 'react-native';
 
 import { formatFiat } from '@sattle/core';
-import { color, radius, shadow, space, type } from './theme';
+import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+
+const LOGO = {
+  light: require('../../assets/logo-light.png'),
+  dark: require('../../assets/logo-dark.png'),
+};
+/** The logo's width over its height. */
+const LOGO_ASPECT = 326 / 120;
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -30,17 +38,22 @@ import { color, radius, shadow, space, type } from './theme';
 
 export function Screen({
   title,
+  brand,
   subtitle,
   onBack,
   right,
   children,
 }: {
   title: string;
+  /** Show the logo in place of the title. The title is still what screen readers say. */
+  brand?: boolean;
   subtitle?: string;
   onBack?: () => void;
   right?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const s = useStyles();
+  const mode = useColorMode();
   return (
     <View style={s.screen}>
       <View style={s.header}>
@@ -50,9 +63,19 @@ export function Screen({
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle} numberOfLines={1}>
-            {title}
-          </Text>
+          {brand ? (
+            <Image
+              source={LOGO[mode]}
+              style={s.logo}
+              resizeMode="contain"
+              accessibilityRole="header"
+              accessibilityLabel={title}
+            />
+          ) : (
+            <Text style={s.headerTitle} numberOfLines={1}>
+              {title}
+            </Text>
+          )}
           {subtitle && <Text style={s.headerSubtitle}>{subtitle}</Text>}
         </View>
         {right}
@@ -74,14 +97,17 @@ export function Card({
   children: React.ReactNode;
   style?: ViewStyle;
 }) {
+  const s = useStyles();
   return <View style={[s.card, style]}>{children}</View>;
 }
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
+  const s = useStyles();
   return <Text style={s.sectionLabel}>{children}</Text>;
 }
 
 export function Divider() {
+  const s = useStyles();
   return <View style={s.divider} />;
 }
 
@@ -107,6 +133,8 @@ export function Button({
   /** For something that can't be undone. */
   danger?: boolean;
 }) {
+  const color = useColors();
+  const s = useStyles();
   const isPrimary = variant === 'primary';
   return (
     <View>
@@ -152,6 +180,7 @@ export function ConfirmButton({
   hint?: string;
   onConfirm: () => Promise<void>;
 }) {
+  const color = useColors();
   const [state, setState] = useState<'idle' | 'confirming' | 'busy'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -182,6 +211,8 @@ export function ConfirmButton({
 }
 
 export function Avatar({ name, dim }: { name: string; dim?: boolean }) {
+  const color = useColors();
+  const s = useStyles();
   const initials = name
     .split(' ')
     .slice(0, 2)
@@ -195,6 +226,8 @@ export function Avatar({ name, dim }: { name: string; dim?: boolean }) {
 }
 
 export function Badge({ text, tone = 'neutral' }: { text: string; tone?: 'neutral' | 'accent' }) {
+  const color = useColors();
+  const s = useStyles();
   return (
     <View style={[s.badge, tone === 'accent' && { backgroundColor: color.accentWash }]}>
       <Text style={[s.badgeText, tone === 'accent' && { color: color.accent }]}>{text}</Text>
@@ -223,6 +256,7 @@ export function Amount({
   /** When true, colour and sign indicate direction. */
   net?: boolean;
 }) {
+  const color = useColors();
   const style = size === 'lg' ? type.amountLg : size === 'sm' ? type.amountSm : type.amountMd;
 
   if (net && minor === 0) {
@@ -243,6 +277,7 @@ export function Amount({
 }
 
 export function SatLine({ sats }: { sats: number }) {
+  const s = useStyles();
   return (
     <Text style={s.satLine}>
       ≈ {new Intl.NumberFormat('en-US').format(Math.round(sats))} sats
@@ -255,6 +290,7 @@ export function SatLine({ sats }: { sats: number }) {
 // ---------------------------------------------------------------------------
 
 export function Loading({ lines = 3 }: { lines?: number }) {
+  const s = useStyles();
   return (
     <View style={{ gap: space.sm }}>
       {Array.from({ length: lines }).map((_, i) => (
@@ -271,6 +307,7 @@ export function ErrorState({
   message: string;
   onRetry?: () => void;
 }) {
+  const color = useColors();
   return (
     <Card style={{ backgroundColor: color.dangerWash, borderColor: color.danger }}>
       <Text style={[type.body, { color: color.danger }]}>{message}</Text>
@@ -292,6 +329,8 @@ export function EmptyState({
   body: string;
   action?: React.ReactNode;
 }) {
+  const color = useColors();
+  const s = useStyles();
   return (
     <View style={s.empty}>
       <Text style={[type.heading, { color: color.ink }]}>{title}</Text>
@@ -307,7 +346,7 @@ const ANDROID_STATUS_BAR_FALLBACK = 24;
 const HEADER_TOP =
   Platform.OS === 'android' ? (StatusBar.currentHeight ?? ANDROID_STATUS_BAR_FALLBACK) + space.md : space.xl;
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   screen: { flex: 1, backgroundColor: color.paper },
   header: {
     flexDirection: 'row',
@@ -322,6 +361,7 @@ const s = StyleSheet.create({
   back: { paddingRight: space.xs },
   backText: { fontSize: 28, lineHeight: 30, color: color.inkMuted },
   headerTitle: { ...type.title, color: color.ink },
+  logo: { height: 30, width: 30 * LOGO_ASPECT },
   headerSubtitle: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   scrollBody: { padding: space.lg, gap: space.lg, paddingBottom: space.xxl },
 
@@ -390,4 +430,4 @@ const s = StyleSheet.create({
     backgroundColor: color.surfaceSunken,
   },
   empty: { alignItems: 'center', gap: space.sm, paddingVertical: space.xxl },
-});
+}));

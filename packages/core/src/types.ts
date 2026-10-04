@@ -32,6 +32,12 @@ export interface Member {
   claimedByUserId?: string;
   /** Payout address for a ghost. Stored without changing their status. */
   lightningAddress?: string;
+  /**
+   * The server's word on whether a payment to them can go through now. Under
+   * real payments only it can tell: their own receiving address is on their
+   * account, not here. Absent from the mock and older servers.
+   */
+  receivable?: boolean;
 }
 
 export interface Group {

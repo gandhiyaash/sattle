@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { QUOTE_TTL_MS, type Settlement } from '@sattle/core';
+import { QUOTE_TTL_MS, type Member, type Settlement } from '@sattle/core';
 
 import { createApp } from '../app';
 import { openDb, seedIfEmpty, type Db } from '../db';
@@ -206,10 +206,27 @@ describe('minting from an address', () => {
     expect(requested[0].address).toBe('yash@everywhere.example');
   });
 
-  it('has nowhere to mint when the server has no LNURL client', async () => {
+  it('tells the app who it can pay, counting an address on the account and not only a wallet', async () => {
+    const receivable = async () =>
+      Object.fromEntries(
+        (await call<Member[]>('u-om', 'GET', '/groups/g-flat/members')).body.map((m) => [m.id, m.receivable])
+      );
+    db.prepare(`UPDATE members SET lightning_address = NULL WHERE id = 'm-flat-yash'`).run();
+    expect((await receivable())['m-flat-yash']).toBe(false);
+    db.prepare(`UPDATE users SET receive_address = 'yash@everywhere.example' WHERE id = 'u-yash'`).run();
+    expect((await receivable())['m-flat-yash']).toBe(true);
+  });
+
+  it('has nowhere to mint when the server has no LNURL client, so refuses up front', async () => {
     backend = newBackend(false);
-    const s = await minted(await omPaysYash());
-    expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash hasn’t connected a wallet to receive yet. Nothing moved.' });
+    const res = await call<{ code: string }>('u-om', 'POST', '/groups/g-flat/settlements', {
+      fromMemberId: 'm-flat-om',
+      toMemberId: 'm-flat-yash',
+      amount: 120_000,
+      rail: 'invoice',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('member_cannot_receive');
   });
 
   it.each([

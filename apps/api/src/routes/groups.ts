@@ -7,6 +7,7 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
+import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
 import { checkExpenseOwner, checkGroupCanGo, checkMemberCanGo, leaveGroup } from '../groupRules';
 import { debtsOf } from '../settlementRules';
@@ -46,7 +47,7 @@ export const RenameGroupBody = CreateGroupBody.pick({ name: true });
 
 const AddressBody = z.object({ address: z.string() });
 
-export function groupRoutes({ db, repo, wallets }: Ctx) {
+export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
@@ -114,7 +115,8 @@ export function groupRoutes({ db, repo, wallets }: Ctx) {
 
   r.get('/groups/:id/members', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    return c.json(repo.members(g.id));
+    // With whether each can be paid now, which only the server can tell under real payments.
+    return c.json(repo.members(g.id).map((m) => ({ ...m, receivable: receivable(payments, m) })));
   });
 
   /** Appends a ghost after the existing members. */

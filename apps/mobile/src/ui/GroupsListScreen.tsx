@@ -23,7 +23,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
-import { color, space, type } from './theme';
+import { makeStyles, space, type, useColors } from './theme';
 
 export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
@@ -45,6 +45,8 @@ export function GroupsListScreen({
   onNewGroup,
   onJoin,
 }: GroupsListScreenProps) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
 
   const { data, loading, error, reload } = useAsync<GroupRow[]>(async () => {
@@ -76,6 +78,7 @@ export function GroupsListScreen({
   return (
     <Screen
       title="Sattle"
+      brand
       right={<Button label="Wallet" variant="quiet" onPress={onOpenWallet} />}
     >
       <Card>
@@ -138,7 +141,7 @@ export function GroupsListScreen({
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   overallLabel: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   row: {
     flexDirection: 'row',
@@ -149,4 +152,4 @@ const s = StyleSheet.create({
   rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.line },
   groupName: { ...type.body, fontWeight: '500', color: color.ink },
   groupMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
-});
+}));

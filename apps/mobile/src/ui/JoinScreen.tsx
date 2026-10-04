@@ -20,7 +20,7 @@ import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface JoinScreenProps {
   /** From the link. Without one, the screen asks for the link first. */
@@ -129,6 +129,8 @@ export function JoinAsNewScreen({
 }
 
 function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
+  const color = useColors();
+  const s = useStyles();
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -190,6 +192,8 @@ function WhoAreYou({
   /** The way on when this invite can't be used. */
   otherwise: { label: string; onPress: () => void };
 }) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getInvite(token), [token]);
   const [picked, setPicked] = useState<string | null>(null);
@@ -311,7 +315,7 @@ function WhoAreYou({
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted },
   group: { ...type.display, color: color.ink },
   hint: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
@@ -355,4 +359,4 @@ const s = StyleSheet.create({
     color: color.ink,
     backgroundColor: color.paper,
   },
-});
+}));

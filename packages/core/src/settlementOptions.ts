@@ -10,6 +10,13 @@
  * cash" is punitive. But it's the payee's word to give: when they've joined,
  * the payer sees it unavailable and is told to ask them. The server enforces
  * the same rule (checkManualRecorder in apps/api).
+ *
+ * What counts as "can receive" depends on the server's payment backend.
+ * Simulated payments take anyone who joined or has an address. Real payments
+ * get an invoice from the payee's own NWC wallet or their own Lightning
+ * address, both on their account, so the server says (`receivable`). A
+ * ghost's address was typed by someone else and proves nothing, so paying it
+ * isn't offered.
  */
 
 import type { Member, Rail } from './types';
@@ -23,7 +30,10 @@ export interface RailOption {
   availability: { available: true } | { available: false; reason: string };
 }
 
-export type Remedy = 'add_address' | 'invite' | 'mark_settled';
+export type Remedy = 'add_address' | 'invite' | 'remind' | 'mark_settled';
+
+/** Whether the server moves real money, or walks a simulation. */
+export type PaymentMode = 'real' | 'simulated';
 
 export interface SettlementOptions {
   rails: RailOption[];
@@ -31,7 +41,8 @@ export interface SettlementOptions {
 }
 
 /** Can this member be paid at all without something changing first? */
-export function canReceive(member: Member): boolean {
+export function canReceive(member: Member, mode: PaymentMode = 'simulated'): boolean {
+  if (mode === 'real') return member.receivable ?? member.status === 'nwc_linked';
   if (member.status === 'joined' || member.status === 'nwc_linked') return true;
   return Boolean(member.lightningAddress);
 }
@@ -39,14 +50,17 @@ export function canReceive(member: Member): boolean {
 export function resolveSettlementOptions({
   recipient,
   walletAvailable,
+  mode = 'simulated',
 }: {
   recipient: Member;
   walletAvailable: boolean;
+  mode?: PaymentMode;
 }): SettlementOptions {
+  const real = mode === 'real';
   const name = recipient.displayName;
   const candidates: Array<Omit<RailOption, 'rank'>> = [];
 
-  if (recipient.status === 'joined') {
+  if (recipient.status === 'joined' && !real) {
     candidates.push({
       rail: 'in_app',
       label: 'Pay from your balance',
@@ -57,7 +71,7 @@ export function resolveSettlementOptions({
     });
   }
 
-  if (recipient.status === 'joined' || recipient.status === 'nwc_linked') {
+  if (real ? canReceive(recipient, mode) : recipient.status !== 'ghost') {
     candidates.push({
       rail: 'invoice',
       label: 'Pay from another wallet',
@@ -66,7 +80,7 @@ export function resolveSettlementOptions({
     });
   }
 
-  if (recipient.status === 'ghost' && recipient.lightningAddress) {
+  if (recipient.status === 'ghost' && recipient.lightningAddress && !real) {
     candidates.push({
       rail: 'lightning_address',
       label: `Pay ${recipient.lightningAddress}`,
@@ -100,15 +114,30 @@ export function resolveSettlementOptions({
   ];
   const rails = ordered.map((c, i) => ({ ...c, rank: i + 1 }));
 
-  if (!canReceive(recipient)) {
-    return {
-      rails,
-      blocked: {
-        message: `${name} hasn't set up a way to get paid yet. Add their Lightning address, invite them, or mark it settled if you paid another way.`,
-        remedies: ['add_address', 'invite', 'mark_settled'],
-      },
-    };
+  if (!canReceive(recipient, mode)) {
+    return { rails, blocked: blockedFor(recipient, mode) };
   }
 
   return { rails };
+}
+
+function blockedFor(recipient: Member, mode: PaymentMode): NonNullable<SettlementOptions['blocked']> {
+  const name = recipient.displayName;
+  if (mode === 'simulated') {
+    return {
+      message: `${name} hasn't set up a way to get paid yet. Add their Lightning address, invite them, or mark it settled if you paid another way.`,
+      remedies: ['add_address', 'invite', 'mark_settled'],
+    };
+  }
+  // They have the app, so only they can connect a wallet or confirm a payment made another way.
+  if (recipient.claimedByUserId) {
+    return {
+      message: `${name} hasn't set up a way to get paid yet. Ask them to connect a wallet or add their Lightning address from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
+      remedies: ['remind'],
+    };
+  }
+  return {
+    message: `${name} isn't on Sattle yet, so there's nowhere to pay them. Invite them, and once they set up receiving you can pay here. Or mark it settled if you paid another way.`,
+    remedies: ['invite', 'mark_settled'],
+  };
 }

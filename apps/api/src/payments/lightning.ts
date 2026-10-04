@@ -35,7 +35,7 @@
  *                       groupmate, so a payment to it proves nothing
  */
 
-import { buildQuote, type Settlement } from '@sattle/core';
+import { buildQuote, type Member, type Settlement } from '@sattle/core';
 
 import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
@@ -104,6 +104,7 @@ export function verifyDelayMs(ageMs: number) {
 }
 
 export class LightningPayments implements PaymentBackend {
+  readonly mode = 'real';
   /** One client per connection string, kept open: each new one costs a relay handshake. */
   private readonly clients = new Map<string, NwcApi>();
   private readonly setHash;
@@ -407,6 +408,11 @@ export class LightningPayments implements PaymentBackend {
     const current = this.deps.repo.settlement(id);
     if (!current || (current.status !== 'awaiting_payment' && current.status !== 'in_flight')) return;
     this.deps.repo.updateSettlement(id, patch);
+  }
+
+  /** Somewhere to get an invoice from: their NWC wallet, or their own address. */
+  canReceive(member: Member) {
+    return Boolean(this.uriFor(member.id) ?? this.addressFor(member.id));
   }
 
   private uriFor(memberId: string) {

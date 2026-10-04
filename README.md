@@ -58,7 +58,8 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `SEED` | `false` | `true` loads the demo fixtures into an empty database. Leave unset in production |
 | `DEMO_USER_ID` | `u-yash` | requests without a bearer token act as this user. **Dev only** |
 | `CORS_ORIGIN` | `http://localhost:8081` | comma-separated, `*` when empty |
-| `PAYMENTS` | `sim` | `nwc` gets real invoices from payees' connected wallets or their own Lightning addresses; anything else simulates |
+| `PAYMENTS` | `sim` | `nwc` gets real invoices from payees' connected wallets or their own Lightning addresses; anything else simulates. A production server warns at startup without `nwc` |
+| `ALLOW_SIMULATED_PAYMENTS` | | `true` says a production server simulates on purpose, for a public demo, and silences that warning |
 | `LIGHTNING_NETWORK` | `bc` | network address invoices must be on: `bc` mainnet, `tbs` signet, `tb` testnet, `bcrt` regtest |
 | `LEDGER_RELAYS` | empty | comma-separated relays the group ledger is published to. Empty: entries are signed and kept, not sent. See [The ledger on Nostr](#the-ledger-on-nostr) |
 | `RATE_FALLBACK_INR_PER_BTC` | `9000000` | rate used if CoinGecko has never answered |
@@ -284,7 +285,7 @@ Both halves run on one Oracle VM behind nginx:
 
 Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
 
-The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. The server refuses to start with either set when `NODE_ENV=production`, which the systemd unit sets, and names the one to remove. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `PAYMENTS=nwc` so settling up moves real money. The server refuses to start when `NODE_ENV=production`, which the systemd unit sets, if `SEED` or `DEMO_USER_ID` is set, and names the one to remove. Without `PAYMENTS=nwc` it starts but logs a warning, since settling up would move balances and no money. A public demo server that should simulate payments sets `ALLOW_SIMULATED_PAYMENTS=true` to say so. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
 ### Backups
 

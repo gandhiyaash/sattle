@@ -11,19 +11,20 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { WalletConnection } from '@sattle/core';
 import { useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import { Badge, Button, Card, ConfirmButton, Divider, EmptyState, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { color, radius, space, type } from './theme';
+import { type Appearance, makeStyles, radius, setAppearance, space, type, useAppearance, useColors } from './theme';
 
 export interface WalletScreenProps {
   onBack: () => void;
 }
 
 export function WalletScreen({ onBack }: WalletScreenProps) {
+  const s = useStyles();
   const wallet = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
   const [address, setAddress] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
         />
         <ConnectWallet />
         <ReceiveAtAddress />
+        <AppearancePicker />
         <TrustModel />
       </Screen>
     );
@@ -87,6 +89,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       <ConnectWallet />
 
       <ReceiveAtAddress />
+      <AppearancePicker />
 
       <TrustModel />
     </Screen>
@@ -114,6 +117,8 @@ const methodName = (m: string) => METHOD_NAMES[m] ?? m.replaceAll('_', ' ');
  * connection grants is shown as a warning, because the server stores it.
  */
 function ConnectWallet() {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const current = useAsync(() => client.getWalletConnection(), []);
   const [connection, setConnection] = useState<WalletConnection | null>(null);
@@ -222,6 +227,8 @@ function ConnectWallet() {
  * address for every group. The server checks it answers before saving it.
  */
 function ReceiveAtAddress() {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const current = useAsync(() => client.getReceiveAddress(), []);
   const [saved, setSaved] = useState<string | null | undefined>(undefined);
@@ -340,6 +347,7 @@ function ReceiveAtAddress() {
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
  */
 export function TrustModel() {
+  const s = useStyles();
   return (
     <View>
       <SectionLabel>What you're trusting</SectionLabel>
@@ -409,7 +417,41 @@ export function TrustModel() {
   );
 }
 
+const APPEARANCE_OPTIONS: Array<{ value: Appearance; label: string }> = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** Light, dark, or whatever the phone is set to. Remembered on this device. */
+function AppearancePicker() {
+  const s = useStyles();
+  const current = useAppearance();
+  return (
+    <View>
+      <SectionLabel>Appearance</SectionLabel>
+      <View style={s.segments} accessibilityRole="radiogroup">
+        {APPEARANCE_OPTIONS.map((o) => {
+          const selected = o.value === current;
+          return (
+            <Pressable
+              key={o.value}
+              onPress={() => setAppearance(o.value)}
+              style={[s.segment, selected && s.segmentSelected]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[s.segmentLabel, selected && s.segmentLabelSelected]}>{o.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function Row({ title, body }: { title: string; body: string }) {
+  const s = useStyles();
   return (
     <View style={{ gap: 3 }}>
       <Text style={s.rowTitle}>{title}</Text>
@@ -418,7 +460,7 @@ function Row({ title, body }: { title: string; body: string }) {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   balance: { ...type.amountLg, color: color.ink },
   unit: { ...type.body, color: color.inkFaint },
@@ -443,4 +485,19 @@ const s = StyleSheet.create({
     backgroundColor: color.paper,
   },
   error: { ...type.caption, color: color.danger },
-});
+  segments: {
+    flexDirection: 'row',
+    gap: space.xs,
+    padding: space.xs,
+    borderRadius: radius.md,
+    backgroundColor: color.surfaceSunken,
+  },
+  segment: { flex: 1, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  segmentSelected: {
+    backgroundColor: color.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+  },
+  segmentLabel: { ...type.label, color: color.inkMuted },
+  segmentLabelSelected: { color: color.ink },
+}));

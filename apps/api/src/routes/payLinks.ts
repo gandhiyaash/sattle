@@ -13,11 +13,12 @@ import { randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, canReceive, toGuestSettlement, type GuestView, type PayLink, type Settlement } from '@sattle/core';
+import { SattleError, toGuestSettlement, type GuestView, type PayLink, type Settlement } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
+import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, hashOfPreimage, ProofBody, readPreimage } from '../proof';
 import { nowIso } from '../repo';
@@ -75,6 +76,13 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
       }
       checkSettlement(repo, g, body);
+      // A link that can't be paid would only fail once the guest opens it.
+      if (!receivable(payments, payee)) {
+        throw new SattleError(
+          'member_cannot_receive',
+          'Connect a wallet from Wallet first, so the payment has somewhere to land.'
+        );
+      }
       return repo.insertPayLink({ token: newPayLinkToken(), groupId: g.id, ...body, createdAt: nowIso() }, user.id);
     });
     return c.json(link, 201);
@@ -107,7 +115,7 @@ export function payLinkRoutes({ db, repo, payments }: Ctx) {
         throw new SattleError('link_expired', 'This has already been settled.');
       }
       const payee = repo.member(link.toMemberId)!;
-      if (!canReceive(payee)) {
+      if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
       if (inProgressFor(repo, g, link)) {

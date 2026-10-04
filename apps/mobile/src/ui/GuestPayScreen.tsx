@@ -29,7 +29,7 @@ import { SattleError, formatFiat, type GuestSettlement, type GuestView } from '@
 import { useClient } from '../react/SattleProvider';
 import { Button, ErrorState, SatLine } from './primitives';
 import { QrCode } from './QrCode';
-import { color, radius, shadow, space, type } from './theme';
+import { makeStyles, radius, shadow, space, type, useColors } from './theme';
 
 export interface GuestPayScreenProps {
   /** From /s/<token>. The only thing the page knows on arrival. */
@@ -54,6 +54,8 @@ export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps
 }
 
 function GuestPay({ token }: { token: string }) {
+  const color = useColors();
+  const s = useStyles();
   const client = useClient();
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   // Bumped to open the link again: after a failure, or once an invoice lapses.
@@ -192,6 +194,7 @@ function Invoice({
   proof: React.ReactNode;
   onPaidInBrowser: (preimage: string) => Promise<void>;
 }) {
+  const s = useStyles();
   const left = useSecondsLeft(settlement.quote?.expiresAt);
   // The server only marks it `expired` later; don't leave a dead QR up meanwhile.
   if (left === 0) return <Expired header={header} reason={reason} onRenew={onRenew} proof={proof} />;
@@ -248,6 +251,7 @@ function Expired({
   onRenew: () => void;
   proof: React.ReactNode;
 }) {
+  const s = useStyles();
   return (
     <Page>
       {header}
@@ -284,6 +288,7 @@ function browserWallet(): WebLN | undefined {
  * proof, which confirms the payment even when the payee's wallet can't.
  */
 function BrowserWalletPay({ invoice, onPaid }: { invoice: string; onPaid: (preimage: string) => Promise<void> }) {
+  const s = useStyles();
   const [webln] = useState(browserWallet);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +327,8 @@ function BrowserWalletPay({ invoice, onPaid }: { invoice: string; onPaid: (preim
 
 /** "Already paid?": paste the payment proof from your wallet. Collapsed until asked for. */
 function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void> }) {
+  const color = useColors();
+  const s = useStyles();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -369,6 +376,7 @@ function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void
 }
 
 function Paid({ payeeName, preimage }: { payeeName: string; preimage?: string }) {
+  const s = useStyles();
   return (
     <Page>
       <View style={s.tick}>
@@ -390,6 +398,7 @@ function Paid({ payeeName, preimage }: { payeeName: string; preimage?: string })
 
 /** The link itself couldn't be opened. Each code gets words a guest can act on. */
 function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void }) {
+  const s = useStyles();
   switch (error.code) {
     case 'not_found':
       return (
@@ -432,6 +441,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
 // ---------------------------------------------------------------------------
 
 function Page({ children }: { children: React.ReactNode }) {
+  const s = useStyles();
   return (
     <View style={s.page}>
       <View style={s.sheet}>{children}</View>
@@ -440,6 +450,7 @@ function Page({ children }: { children: React.ReactNode }) {
 }
 
 function AmountBlock({ settlement }: { settlement: GuestSettlement }) {
+  const s = useStyles();
   const { quote } = settlement;
   return (
     <View style={s.amountBlock}>
@@ -450,6 +461,7 @@ function AmountBlock({ settlement }: { settlement: GuestSettlement }) {
 }
 
 function Notice({ title, body }: { title: string; body: string }) {
+  const s = useStyles();
   return (
     <View style={s.notice}>
       <Text style={s.noticeTitle}>{title}</Text>
@@ -459,6 +471,7 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 function Footer() {
+  const s = useStyles();
   // From the group page that last part would be wrong: they came here from the group.
   const fromGroup = useContext(FromGroup);
   return (
@@ -489,7 +502,7 @@ function useSecondsLeft(iso: string | undefined) {
 
 const formatClock = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   page: {
     flex: 1,
     backgroundColor: color.paper,
@@ -583,4 +596,4 @@ const s = StyleSheet.create({
   },
   proofError: { ...type.caption, color: color.danger },
   receiptValue: { ...type.amountSm, color: color.inkMuted },
-});
+}));

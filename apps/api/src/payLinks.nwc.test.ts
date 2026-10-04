@@ -110,12 +110,9 @@ describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => 
     expect(db.prepare('SELECT status FROM settlements WHERE id = ?').get(first.settlement!.id)).toEqual({ status: 'expired' });
   });
 
-  it('payee without a wallet: the guest gets a failed payment (known gap — should be member_cannot_receive up front)', async () => {
-    const link = (await call<PayLink>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 })).body;
-    const opened = await call<GuestView>(undefined, 'POST', `/s/${link.token}/open`);
-    const v = await guestUntil(link.token, (g) => g.settlement?.status === 'failed');
-    // Today: 200 on open, then failed with a reason. Change both lines when the gap is fixed.
-    expect(opened.status).toBe(200);
-    expect(v.settlement?.failureReason).toContain('hasn’t connected a wallet');
+  it('payee without a wallet: refuses to make the link, rather than letting the guest find out', async () => {
+    const made = await call<{ code: string; message: string }>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 });
+    expect(made.status).toBe(409);
+    expect(made.body).toMatchObject({ code: 'member_cannot_receive', message: expect.stringContaining('Connect a wallet') });
   });
 });
