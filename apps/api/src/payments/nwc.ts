@@ -147,7 +147,7 @@ export class NwcPayments implements PaymentBackend {
     }
 
     // One payment hash, one settlement: otherwise a single payment would
-    // confirm both. The unique index (migration 010) backs this up.
+    // confirm both. The unique index (migration 011) backs this up.
     const fresh = transaction(this.deps.db, () => {
       if (this.hashTaken.get(invoice.paymentHash)) return false;
       this.setHash.run(invoice.paymentHash, s.id);
