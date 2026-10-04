@@ -11,7 +11,7 @@
  * gets the same button: paying someone else's is allowed and harmless.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { SattleError, formatFiat, type GroupGuestDebt, type GroupGuestExpense } from '@sattle/core';
@@ -33,6 +33,8 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   /** The pay link for the debt being paid. While set, the pay page is up. */
   const [paying, setPaying] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  // A ref as well as the state: two taps can land before the state has updated.
+  const settling = useRef(false);
   const [failed, setFailed] = useState<{ ref: string; message: string } | null>(null);
 
   // Someone else in the chat may pay while this is open. Keep the list current.
@@ -45,7 +47,10 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     return () => clearInterval(t);
   }, [refresh, paying]);
 
+  // One debt at a time: a second Settle while the first is starting would swap the pay page under the reader.
   const settle = async (ref: string) => {
+    if (settling.current) return;
+    settling.current = true;
     setStarting(ref);
     setFailed(null);
     try {
@@ -55,6 +60,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
       // Most likely it was just paid by someone else: show what's owed now.
       refresh();
     } finally {
+      settling.current = false;
       setStarting(null);
     }
   };
@@ -112,6 +118,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
                 debt={debt}
                 currency={data.currency}
                 busy={starting === debt.ref}
+                disabled={starting !== null && starting !== debt.ref}
                 error={failed?.ref === debt.ref ? failed.message : null}
                 onSettle={() => settle(debt.ref)}
               />
@@ -148,12 +155,15 @@ function DebtCard({
   debt,
   currency,
   busy,
+  disabled,
   error,
   onSettle,
 }: {
   debt: GroupGuestDebt;
   currency: string;
   busy: boolean;
+  /** Another debt's Settle is starting. */
+  disabled: boolean;
   error: string | null;
   onSettle: () => void;
 }) {
@@ -167,7 +177,7 @@ function DebtCard({
           </Text>
           <Amount minor={debt.amount} currency={currency} size="sm" />
         </View>
-        {debt.payable && <Button label="Settle" variant="primary" busy={busy} onPress={onSettle} />}
+        {debt.payable && <Button label="Settle" variant="primary" busy={busy} disabled={disabled} onPress={onSettle} />}
       </View>
       {!debt.payable && (
         <Text style={s.indented}>

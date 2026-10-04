@@ -189,6 +189,39 @@ describe('POST /g/:token/debts/:ref/pay-link', () => {
     expect(count('pay_links')).toBe(1);
   });
 
+  it('makes a new pay link when the same two people owe the same amount again', async () => {
+    const { db, call, share, view, addExpense, mRiya } = await setup();
+    const token = await share();
+    const path = (v: GroupGuestView) => `/g/${token}/debts/${kabirs(v).ref}/pay-link`;
+
+    // Kabir pays his ₹10 through the page.
+    const first = (await call<{ token: string }>('POST', path((await view(token)).body))).body.token;
+    await call('POST', `/s/${first}/open`);
+    db.prepare("UPDATE settlements SET status = 'confirmed' WHERE pay_link_token = ?").run(first);
+    expect((await view(token)).body.debts.map((d) => d.from)).toEqual(['Aman']);
+
+    // Another cab: he owes ₹10 again. The paid link would only say "Paid" and charge nothing.
+    await addExpense(mRiya, 3000, 'Cab back');
+    const again = (await view(token)).body;
+    expect(kabirs(again).amount).toBe(1000);
+    const second = (await call<{ token: string }>('POST', path(again))).body.token;
+    expect(second).not.toBe(first);
+
+    const opened = await call<GuestView>('POST', `/s/${second}/open`);
+    expect(opened.body.settlement?.status).not.toBe('confirmed');
+    expect(opened.body.settlement?.amount).toBe(1000);
+  });
+
+  it('still reuses a pay link whose payment failed or lapsed, since opening it mints a fresh invoice', async () => {
+    const { db, call, share, view } = await setup();
+    const token = await share();
+    const path = `/g/${token}/debts/${kabirs((await view(token)).body).ref}/pay-link`;
+    const first = (await call<{ token: string }>('POST', path)).body.token;
+    await call('POST', `/s/${first}/open`);
+    db.prepare("UPDATE settlements SET status = 'failed' WHERE pay_link_token = ?").run(first);
+    expect((await call<{ token: string }>('POST', path)).body.token).toBe(first);
+  });
+
   it('is refused once that debt has been settled, and the page stops listing it', async () => {
     const { call, base, riya, mRiya, mKabir, share, view } = await setup();
     const token = await share();

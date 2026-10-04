@@ -391,16 +391,16 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
  */
 function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: string }) {
   const client = useClient();
-  const keys = useActionKeys();
   const [state, setState] = useState<LinkState>({ kind: 'idle' });
 
   const send = async () => {
     setState({ kind: 'busy' });
     let url: string;
     try {
-      const link =
-        (await client.getGroupLink(groupId)) ??
-        (await keys.run('group-link', { groupId }, (k) => client.createGroupLink(groupId, k)));
+      // Looking first is what makes a retry safe: a link made by an attempt whose reply was
+      // lost is found here. So making one takes a fresh request key every time, and can never
+      // be answered with a saved reply naming a link that has since been turned off.
+      const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
       url = `${APP_URL}${groupLinkPath(link.token)}`;
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });

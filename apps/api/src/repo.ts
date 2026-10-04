@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  LEDGER_STATUSES,
   SattleError,
   TERMINAL_STATUSES,
   type Expense,
@@ -173,9 +174,15 @@ export function createRepo(db: Db) {
     groupLinkByGroup: db.prepare('SELECT * FROM group_links WHERE group_id = ?'),
     insertGroupLink: db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)'),
     deleteGroupLink: db.prepare('DELETE FROM group_links WHERE group_id = ?'),
+    // A link that has been paid is spent: opening it shows "Paid" for good and mints nothing.
     payLinkFor: db.prepare(
-      `SELECT * FROM pay_links WHERE group_id = ? AND from_member_id = ? AND to_member_id = ? AND amount = ?
-       ORDER BY created_at DESC, rowid DESC LIMIT 1`
+      `SELECT l.* FROM pay_links l
+       WHERE l.group_id = ? AND l.from_member_id = ? AND l.to_member_id = ? AND l.amount = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM settlements s
+           WHERE s.pay_link_token = l.token AND s.status IN (${LEDGER_STATUSES.map((st) => `'${st}'`).join(', ')})
+         )
+       ORDER BY l.created_at DESC, l.rowid DESC LIMIT 1`
     ),
     firstAccountIn: db.prepare(
       'SELECT claimed_by_user_id AS id FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL ORDER BY position LIMIT 1'
@@ -394,7 +401,11 @@ export function createRepo(db: Db) {
       return r && toSettlement(r);
     },
 
-    /** The newest pay link for exactly this debt and amount, whoever made it. */
+    /**
+     * The newest pay link for exactly this debt and amount that can still be
+     * paid, whoever made it. One that was already paid doesn't count: the same
+     * two people can owe the same amount again, and that is a new debt.
+     */
     payLinkFor: (d: Pick<Debt, 'groupId' | 'fromMemberId' | 'toMemberId' | 'amount'>) => {
       const r = q.payLinkFor.get(d.groupId, d.fromMemberId, d.toMemberId, d.amount) as Row | undefined;
       return r && toPayLink(r);

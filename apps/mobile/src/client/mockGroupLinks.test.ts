@@ -44,6 +44,39 @@ describe('MockClient group links', () => {
     expect(opened.settlement?.amount).toBe(debt.amount);
   });
 
+  it('makes a new pay link when the same two people owe the same amount again', async () => {
+    const c = new MockClient({ latencyMs: 0, settleDelayMs: 1 });
+    const link = await c.createGroupLink('g-goa');
+    const yash = (v: Awaited<ReturnType<typeof c.getGroupGuestView>>) => v.debts.find((d) => d.from === 'Yash' && d.to === 'Om')!;
+
+    const before = yash(await c.getGroupGuestView(link.token));
+    const first = (await c.payFromGroupLink(link.token, before.ref)).token;
+    await c.openPayLink(first);
+    // The mock's wallet pays on its own; wait for the page to say so.
+    await new Promise<void>((done) => {
+      const stop = c.onGuestViewUpdate(first, (v) => {
+        if (v.settlement?.status !== 'confirmed') return;
+        stop();
+        done();
+      });
+    });
+
+    // Om pays for something again, so Yash owes him the same amount as before.
+    await c.addExpense({
+      groupId: 'g-goa',
+      description: 'Same again',
+      amount: before.amount * 2,
+      paidByMemberId: 'm-goa-om',
+      splitMode: 'equal',
+      parts: [{ memberId: 'm-goa-om' }, { memberId: 'm-goa-yash' }],
+    });
+    const after = yash(await c.getGroupGuestView(link.token));
+    expect(after.amount).toBe(before.amount);
+    const second = (await c.payFromGroupLink(link.token, after.ref)).token;
+    expect(second).not.toBe(first);
+    expect((await c.openPayLink(second)).settlement?.status).not.toBe('confirmed');
+  });
+
   it('refuses a debt it never listed, and one whose payee can’t receive', async () => {
     const c = client();
     await expect(c.payFromGroupLink('demo-group', 'made-up')).rejects.toMatchObject({ code: 'link_expired' });

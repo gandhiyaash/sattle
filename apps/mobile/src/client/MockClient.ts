@@ -613,9 +613,14 @@ export class MockClient implements SattleClient {
       if (!canReceive(payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
+      // A link that has been paid is spent: the same two people can owe the same amount again.
+      const spent = (l: PayLink) => {
+        const sid = this.payLinkSettlements[l.token];
+        return Boolean(sid) && LEDGER_STATUSES.includes(this.findSettlement(sid).status);
+      };
       const same = (l: PayLink) =>
         l.groupId === debt.groupId && l.fromMemberId === debt.fromMemberId && l.toMemberId === debt.toMemberId && l.amount === debt.amount;
-      let payLink = this.payLinks.find(same);
+      let payLink = this.payLinks.find((l) => same(l) && !spent(l));
       if (!payLink) {
         payLink = {
           token: Math.random().toString(36).slice(2, 12),
