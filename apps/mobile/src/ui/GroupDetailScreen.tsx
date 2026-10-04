@@ -147,10 +147,20 @@ export function GroupDetailScreen({
       right={<Button label="Manage" variant="quiet" onPress={onManage} />}
     >
       <Card>
-        <Text style={s.label}>
-          {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
-        </Text>
-        <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+        {data.expenses.length === 0 ? (
+          // Zero because nothing has happened yet, not because it was paid off.
+          <>
+            <Text style={s.label}>No expenses yet</Text>
+            <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.label}>
+              {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
+            </Text>
+            <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+          </>
+        )}
       </Card>
 
       {myDebts.length > 0 && (
@@ -679,6 +689,7 @@ const useStyles = makeStyles((color) => ({
   },
   memberMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   noExpenses: { ...type.caption, color: color.inkFaint, marginBottom: space.sm },
+  nothingYet: { ...type.body, color: color.inkFaint },
   expenseRow: {
     flexDirection: 'row',
     alignItems: 'center',
