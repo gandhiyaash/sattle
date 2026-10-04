@@ -32,6 +32,7 @@ import {
   type LedgerBackup,
   type Member,
   type PayLink,
+  type ReceiveAddress,
   type Settlement,
   type WalletConnection,
 } from '@sattle/core';
@@ -64,6 +65,7 @@ export class MockClient implements SattleClient {
   private payLinkSettlements: Record<string, string>;
   private invites: Array<Invite & { invitedBy: string }> = [];
   private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
+  private receiveAddress: string | null = null;
   private listeners = new Map<string, Set<(s: Settlement) => void>>();
   /** idempotency key → the first reply, like the server's table. */
   private replies = new Map<string, unknown>();
@@ -590,6 +592,30 @@ export class MockClient implements SattleClient {
 
   getWalletConnection() {
     return this.call(() => this.wallet);
+  }
+
+  getReceiveAddress() {
+    return this.call((): ReceiveAddress => ({ address: this.receiveAddress }));
+  }
+
+  /** Mock only: an address at offline.example stands in for one that doesn't answer, so that error can be seen. */
+  setReceiveAddress(address: string) {
+    return this.call((): ReceiveAddress => {
+      const parsed = parseLightningAddress(address);
+      if (!parsed.ok) throw new SattleError('invalid_address', parsed.reason);
+      if (parsed.address.endsWith('@offline.example')) {
+        throw new SattleError('network', 'That address didn’t answer. Check it’s right, or try again in a minute.');
+      }
+      this.receiveAddress = parsed.address;
+      return { address: this.receiveAddress };
+    });
+  }
+
+  clearReceiveAddress() {
+    return this.call((): ReceiveAddress => {
+      this.receiveAddress = null;
+      return { address: null };
+    });
   }
 }
 

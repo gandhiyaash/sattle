@@ -54,9 +54,10 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       <Screen title="Wallet" onBack={onBack}>
         <EmptyState
           title="Use the wallet you already have"
-          body="Sattle doesn’t hold money. Connect your own Lightning wallet below and what people owe you lands there. To pay someone, scan their invoice with that wallet."
+          body="Sattle doesn’t hold money. Connect your own Lightning wallet below, or add your Lightning address, and what people owe you lands there. To pay someone, scan their invoice with that wallet."
         />
         <ConnectWallet />
+        <ReceiveAtAddress />
         <TrustModel />
       </Screen>
     );
@@ -94,6 +95,8 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       </View>
 
       <ConnectWallet />
+
+      <ReceiveAtAddress />
 
       <TrustModel />
     </Screen>
@@ -216,20 +219,119 @@ function ConnectWallet() {
 }
 
 /**
+ * Receiving at a Lightning address, for the wallets most people already have
+ * that can't do NWC (Wallet of Satoshi, Phoenix, Blink and so on). One
+ * address for every group. The server checks it answers before saving it.
+ */
+function ReceiveAtAddress() {
+  const client = useClient();
+  const current = useAsync(() => client.getReceiveAddress(), []);
+  const [saved, setSaved] = useState<string | null | undefined>(undefined);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const address = saved !== undefined ? saved : current.data?.address;
+
+  const run = async (fn: () => Promise<{ address: string | null }>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setSaved((await fn()).address);
+      setInput('');
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t save that address.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = () => input.trim() && run(() => client.setReceiveAddress(input.trim()));
+
+  return (
+    <View>
+      <SectionLabel>Or a Lightning address</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {current.loading && address === undefined && <Loading lines={2} />}
+        {current.error && address === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
+
+        {address && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Text style={s.label}>You receive at</Text>
+            <Text style={s.address}>{address}</Text>
+            <Text style={s.rowBody}>
+              In every group. If you also connect a wallet above, that’s used first.
+            </Text>
+          </View>
+        )}
+
+        {address === null && !editing && (
+          <Text style={s.rowBody}>
+            Wallet of Satoshi, Phoenix, Blink and most other wallets give you a Lightning address. It looks like an
+            email. Add yours and money people owe you is sent there.
+          </Text>
+        )}
+
+        {(address === null || editing) && (
+          <View style={{ gap: space.sm }}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={save}
+              placeholder="you@walletofsatoshi.com"
+              placeholderTextColor={color.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+            <Button label="Save" variant="primary" busy={busy} disabled={!input.trim()} onPress={save} />
+            {editing && <Button label="Cancel" variant="quiet" onPress={() => setEditing(false)} />}
+          </View>
+        )}
+
+        {address !== undefined && (
+          <Text style={s.rowBody}>
+            Some wallets tell Sattle when you’ve been paid. With the rest, the person paying sends the payment proof
+            their wallet gives them, or you mark it settled.
+          </Text>
+        )}
+
+        {error && <Text style={s.error}>{error}</Text>}
+
+        {address && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Button label="Change address" onPress={() => setEditing(true)} />
+            <Button label="Stop receiving here" variant="quiet" busy={busy} onPress={() => run(() => client.clearReceiveAddress())} />
+          </View>
+        )}
+      </Card>
+    </View>
+  );
+}
+
+/**
  * Deliberately not hidden behind a "learn more". A user deciding whether to
  * connect a wallet should read this without hunting for it.
  *
  * Every sentence states what the code does today, including the parts that
  * aren't flattering. Change the code and this has to change with it:
  *
- *   Your money          payments/nwc.ts mints on the payee's wallet; nothing spends
+ *   Your money          payments/lightning.ts gets the invoice from the payee's wallet
+ *                       or their own address (lnurl.ts); nothing spends
  *   Wallet connection   walletStore.ts keeps nwc_uri as plain text; nwc.ts only calls
  *                       get_info, make_invoice, lookup_invoice; there is no delete route
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
  *   Your account        routes/accounts.ts: a name in, a random token out, nothing
  *                       else; account/tokenStore keeps it on the device
- *   Is it paid          payments/nwc.ts confirms on the wallet's `settled`, and keeps
- *                       the preimage only if preimageMatches; the manual route lets
+ *   Lightning address   walletStore.ts receive_address, set only by its owner
+ *                       (routes/wallet.ts); lnurl.ts and safeFetch.ts only fetch
+ *   Is it paid          payments/lightning.ts confirms on the wallet's `settled`, and
+ *                       keeps the preimage only if preimageMatches; an address
+ *                       payment needs a matching preimage (lnurl.ts verify,
+ *                       proof.ts); the manual route lets
  *                       the payee settle a debt by hand (the payer, if the payee is
  *                       a ghost): settlementRules.ts checkManualRecorder
  *   Group data          migrations/001_init.sql: plain columns, no encryption
@@ -243,12 +345,17 @@ export function TrustModel() {
       <Card style={{ gap: space.md }}>
         <Row
           title="Your money"
-          body="Sattle never holds it. To collect a debt, the server asks the wallet of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
+          body="Sattle never holds it. To collect a debt, the server asks the wallet or Lightning address of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
         />
         <Divider />
         <Row
           title="Your wallet connection"
           body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. There is no disconnect button yet: to cut Sattle off, delete the connection in your wallet."
+        />
+        <Divider />
+        <Row
+          title="Your Lightning address"
+          body="If you add one, Sattle's server keeps it and asks it for invoices, the way any wallet paying you would. An address can only receive, so there is nothing to steal, but whoever runs it (your wallet's company) sees what you're paid. Only you can set yours."
         />
         <Divider />
         <Row
@@ -263,7 +370,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Is it really paid?"
-          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
+          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
         />
         <Divider />
         <Row
