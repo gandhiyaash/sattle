@@ -15,6 +15,12 @@ android *args:
 ios *args:
     cd {{mobile}} && npx expo run:ios {{args}}
 
+# Standalone install on a connected iPhone: a release build with the JS bundled in, so it
+# runs without Metro, against the URLs in apps/mobile/.env. Asks which device unless one is
+# named. A free Apple ID signs it for 7 days; run this again to renew.
+ios-install *args:
+    cd {{mobile}} && npx expo run:ios --configuration Release --no-bundler --device {{args}}
+
 # Signed release APK + AAB into dist-android/. KEYSTORE_BASE64="$(pbpaste)" just android-release
 android-release:
     scripts/android-release.sh
