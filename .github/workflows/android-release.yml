@@ -184,10 +184,20 @@ jobs:
         run: |
           # Branch and tag go together so neither lands alone. No rebase-and-retry: if the
           # branch moved during the build, the tag would point at code that wasn't built.
-          if ! git push --atomic origin "HEAD:$BRANCH" "refs/tags/v$NEW_VERSION"; then
-            echo "::error::$BRANCH moved while building v$NEW_VERSION. Re-run the workflow."
-            exit 1
+          # The output is kept so the error below can say why the push was refused.
+          if OUT=$(git push --atomic origin "HEAD:$BRANCH" "refs/tags/v$NEW_VERSION" 2>&1); then
+            echo "$OUT"
+            exit 0
           fi
+          echo "$OUT"
+          if grep -q 'GH013\|repository rule violations' <<<"$OUT"; then
+            echo "::error::The $BRANCH ruleset refused the push. Add GitHub Actions to the ruleset's bypass list (Settings → Rules → Rulesets), then re-run."
+          elif grep -q 'non-fast-forward\|fetch first' <<<"$OUT"; then
+            echo "::error::$BRANCH moved while building v$NEW_VERSION. Re-run the workflow."
+          else
+            echo "::error::Pushing v$NEW_VERSION to $BRANCH failed; see the git output above."
+          fi
+          exit 1
 
       - name: Extract Release Notes
         id: changelog
