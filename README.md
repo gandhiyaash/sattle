@@ -339,10 +339,12 @@ Entries go through an outbox table, `ledger_entries`. Every few seconds the serv
 In the app, the group screen's **Backup on Nostr** card shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all:
 
 ```bash
-npm run ledger:verify -w @sattle/api -- 'sattle-ledger://…'
+npm run ledger:verify -w @sattle/api
 ```
 
-fetches the group's entries from the relays, checks every signature and the chain, decrypts them, and prints the balances and who pays whom.
+asks for the key, fetches the group's entries from the relays, checks every signature and the chain, decrypts them, and prints the balances and who pays whom.
+
+The key decrypts the group's whole history, and the entries sit on public relays for good, so treat it like a password. The script reads it from a prompt that doesn't echo, never from the command line: npm prints the command line, and the shell keeps it in history. For scripts, pipe it in or set `SATTLE_LEDGER_BACKUP`.
 
 What it doesn't fix: the server signs every entry, so the record proves what the server said, not what each member agreed to. Members signing their own entries needs Nostr identities, which come next. Relays can't read an entry, but they can see the server's pubkey, a per-group tag, and when each entry was made.
 
