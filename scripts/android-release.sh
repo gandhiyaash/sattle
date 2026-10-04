@@ -9,7 +9,7 @@
 #   KEY_ALIAS      alias inside the keystore           (default: sattle)
 #   KEY_PASSWORD   key password                         (default: the keystore password)
 #   VERSION_CODE   Play build number, must keep rising  (default: 1)
-#   VERSION_NAME   shown to users                       (default: apps/mobile/package.json)
+#   VERSION_NAME   shown to users                       (default: the newest vX.Y.Z tag, else package.json)
 #   EXPO_PUBLIC_API_URL / EXPO_PUBLIC_APP_URL           (default: the deployed hosts)
 #
 # Output lands in dist-android/.
@@ -38,6 +38,9 @@ fi
 KEY_ALIAS="${KEY_ALIAS:-sattle}"
 KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
 VERSION_CODE="${VERSION_CODE:-1}"
+# Releases are tags only (see android-release.yml), so the newest tag is the current version.
+LATEST_TAG="$(git -C "$ROOT" tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+VERSION_NAME="${VERSION_NAME:-${LATEST_TAG#v}}"
 VERSION_NAME="${VERSION_NAME:-$(node -p "require('$MOBILE/package.json').version")}"
 [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || die "VERSION_CODE must be a number, got '$VERSION_CODE'"
 
