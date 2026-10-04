@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Settlement, User } from '@sattle/core';
+import type { Debt, GroupGuestView, Settlement, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -71,10 +71,13 @@ describe('Your wallet connection', () => {
     expect(row.nwc_uri).toBe(URI);
   });
 
-  it('"There is no disconnect button yet": the server has no route to remove one', async () => {
-    const { call } = setup();
-    await call('PUT', '/me/wallet', { nwcUri: URI });
-    expect((await call('DELETE', '/me/wallet')).status).toBe(404);
+  it('"Disconnect makes the server forget the string": the row is gone', async () => {
+    const { db, call } = setup();
+    const { token } = (await call<{ token: string }>('POST', '/accounts', { displayName: 'Riya' })).body;
+    const as = { authorization: `Bearer ${token}` };
+    await call('PUT', '/me/wallet', { nwcUri: URI }, as);
+    expect((await call('DELETE', '/me/wallet', undefined, as)).status).toBe(200);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM wallet_connections').get()).toEqual({ n: 0 });
   });
 });
 
@@ -120,5 +123,51 @@ describe('Is it really paid?', () => {
     )!;
     const res = await call<Settlement>('POST', '/groups/g-goa/settlements/manual', { ...debt, note: 'cash' });
     expect(res.status).toBe(201);
+  });
+});
+
+describe('Group links', () => {
+  it('"A group has no link until someone in it makes one"', async () => {
+    const { call } = setup();
+    expect((await call('GET', '/groups/g-goa/link')).body).toBeNull();
+    const made = await call<{ token: string }>('POST', '/groups/g-goa/link');
+    expect((await call('GET', `/g/${made.body.token}`)).status).toBe(200);
+  });
+
+  it('"sees every expense, each person’s share, everyone’s name and who owes whom"', async () => {
+    const { call } = setup();
+    const view = (await call<GroupGuestView>('GET', '/g/demo-group')).body;
+    expect(Object.keys(view).sort()).toEqual(['currency', 'debts', 'expenses', 'groupName']);
+    expect(Object.keys(view.expenses[0]).sort()).toEqual(['amount', 'createdAt', 'description', 'paidBy', 'shares']);
+    expect(Object.keys(view.debts[0]).sort()).toEqual(['amount', 'from', 'payable', 'ref', 'to']);
+    const names = new Set(view.expenses.flatMap((e) => e.shares.map((sh) => sh.name)));
+    expect([...names].sort()).toEqual(['Om', 'Priya', 'Yash']);
+  });
+
+  it('"and can pay a debt. They can’t change anything": the link reads, and starts a payment, nothing else', async () => {
+    const { db, call } = setup();
+    const before = JSON.stringify(db.prepare('SELECT * FROM expenses ORDER BY id').all());
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      expect((await call(method, '/g/demo-group', { name: 'Mine now' })).status).toBe(404);
+    }
+    expect((await call('POST', '/g/demo-group/expenses', { description: 'x', amount: 1 })).status).toBe(404);
+    expect(JSON.stringify(db.prepare('SELECT * FROM expenses ORDER BY id').all())).toBe(before);
+
+    const view = (await call<GroupGuestView>('GET', '/g/demo-group')).body;
+    const debt = view.debts.find((d) => d.from === 'Priya')!;
+    expect((await call('POST', `/g/demo-group/debts/${debt.ref}/pay-link`)).status).toBe(201);
+  });
+
+  it('"anyone in the group can replace it or turn it off"', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET token = 't-om' WHERE id = 'u-om'").run();
+    const asOm = { authorization: 'Bearer t-om' };
+
+    const replaced = await call<{ token: string }>('POST', '/groups/g-flat/link', undefined, asOm);
+    expect((await call('GET', '/g/demo-group')).status).toBe(404);
+    expect((await call('GET', `/g/${replaced.body.token}`)).status).toBe(200);
+
+    expect((await call('DELETE', '/groups/g-flat/link', undefined, asOm)).status).toBe(200);
+    expect((await call('GET', `/g/${replaced.body.token}`)).status).toBe(404);
   });
 });
