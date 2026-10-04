@@ -149,9 +149,13 @@ describe('sync', () => {
 
   it('keeps entries encrypted: no names or amounts on the relay', async () => {
     await ledger.tick();
-    const wire = JSON.stringify(relay.events);
+    // Names are looked for outside the content only: the content is base64, where
+    // "Goa" turns up by chance in about one run in fifty.
+    const wire = JSON.stringify(relay.events.map(({ content: _, ...rest }) => rest));
     expect(wire).not.toContain('Goa');
     expect(wire).not.toContain('Aman');
+    // And the content is ciphertext. A plaintext entry would be JSON, with braces and quotes.
+    for (const e of relay.events) expect(e.content).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
     expect(relay.events.every((e) => e.kind === LEDGER_KIND)).toBe(true);
   });
 });
