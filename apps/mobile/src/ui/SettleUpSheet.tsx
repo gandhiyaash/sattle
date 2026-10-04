@@ -50,8 +50,8 @@ export function SettleUpSheet({
   const sendInvite = async () => {
     setInvite({ kind: 'busy' });
     try {
-      const { url, message } = await flow.createInvite(groupName);
-      setInvite({ kind: 'sent', url, note: await share(message, 'Sent. It works once, for a week.') });
+      const { url, message, sentNote } = await flow.createInvite(groupName);
+      setInvite({ kind: 'sent', url, note: await share(message, sentNote) });
     } catch (e) {
       setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
     }

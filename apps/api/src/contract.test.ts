@@ -38,7 +38,8 @@ describe('auth boundary', () => {
     expect((await call('GET', '/join/nope')).status).toBe(404);
     expect((await call('GET', '/g/demo-group')).status).toBe(200);
     expect((await call('POST', '/groups/g-flat/link')).status).toBe(401);
-    expect((await call('POST', '/groups/join', { token: 'nope' })).status).toBe(401);
+    expect((await call('POST', '/groups/g-flat/invites')).status).toBe(401);
+    expect((await call('POST', '/groups/join', { token: 'nope', ref: 'nope' })).status).toBe(401);
     expect((await call('POST', '/accounts', { displayName: 'Riya' })).status).toBe(201);
   });
 });
@@ -47,7 +48,7 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '010_address_owner.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql']);
   });
 
   it('010 clears the addresses joined members inherited as ghosts, and keeps ghosts’ own', () => {
