@@ -9,7 +9,8 @@
     "db:reset": "rm -f data/sattle.db data/sattle.db-wal data/sattle.db-shm",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "nwc:smoke": "tsx --env-file-if-exists=.env src/scripts/nwcSmoke.ts"
+    "nwc:smoke": "tsx --env-file-if-exists=.env src/scripts/nwcSmoke.ts",
+    "db:backup": "tsx --env-file-if-exists=.env src/scripts/backup.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",

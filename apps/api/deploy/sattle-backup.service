@@ -1,0 +1,17 @@
+[Unit]
+Description=Sattle database backup (daily copy into apps/api/data/backups)
+# Started by sattle-backup.timer. See README "Backups".
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/sattle/apps/api
+ExecStart=/usr/local/bin/node --env-file-if-exists=.env --import tsx src/scripts/backup.ts daily
+
+# Same sandbox as sattle.service: it only writes under data/.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/sattle/apps/api/data
+PrivateTmp=true
+UMask=0077

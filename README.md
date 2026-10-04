@@ -222,6 +222,31 @@ Both can be run by hand from the Actions tab, which deploys `main` as it is. The
 
 The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
+### Backups
+
+The whole database is one SQLite file, `apps/api/data/sattle.db`. `npm run db:backup -w @sattle/api` copies it into `apps/api/data/backups/` with `VACUUM INTO`, which gives a consistent copy while the server keeps running and writing. Copies are named `sattle-<time>-<kind>[-<note>].db`, and each kind keeps its newest few: 14 `daily`, 20 `deploy`, 10 `manual`. A server with no database yet has nothing to copy, and that isn't an error.
+
+Daily copies come from a systemd timer, which is installed once on the VM:
+
+```sh
+sudo cp apps/api/deploy/sattle-backup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sattle-backup.timer
+systemctl list-timers sattle-backup.timer    # next run
+```
+
+Before a deploy that adds a migration, take one by hand (`npm run db:backup -w @sattle/api -- manual before-<what>`), because migrations run when the server restarts and can't be undone.
+
+To restore one, stop the server, put the copy in place and drop the old WAL files:
+
+```sh
+sudo systemctl stop sattle
+cd ~/sattle/apps/api
+cp data/backups/<file>.db data/sattle.db && rm -f data/sattle.db-wal data/sattle.db-shm
+sudo systemctl start sattle
+```
+
+The copies sit on the same disk as the database, so they cover a bad migration or a mistaken delete, not losing the VM. For that, copy `data/backups/` somewhere else too.
+
 ### Releasing the Android app
 
 A release is one run of the `Create Android Release (APK & AAB)` workflow (`.github/workflows/android-release.yml`). Merge what should ship into `main`, then start it from the Actions tab, or:

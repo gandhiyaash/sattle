@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Sattle database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# A day the VM was off still gets its copy once it's back.
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
