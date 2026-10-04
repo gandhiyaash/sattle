@@ -157,10 +157,20 @@ describe('LightningPayments', () => {
   });
 });
 
+describe('/health', () => {
+  it('tells the app payments are real', async () => {
+    expect((await call('u-om', 'GET', '/health')).body).toEqual({ ok: true, payments: 'real' });
+  });
+});
+
 describe('LightningPayments without a connected wallet', () => {
-  it('fails, naming who has to connect one', async () => {
-    const s = await settled((await omPaysYash()).body.id);
-    expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash hasn’t connected a wallet to receive yet. Nothing moved.' });
+  it('refuses up front, before any settlement exists', async () => {
+    const count = () => db.prepare('SELECT COUNT(*) AS n FROM settlements').get();
+    const before = count();
+    const res = await omPaysYash();
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'member_cannot_receive' });
+    expect(count()).toEqual(before);
   });
 });
 

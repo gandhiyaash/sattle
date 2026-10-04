@@ -3,7 +3,7 @@ import { npubEncode } from 'nostr-tools/nip19';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
-import { productionProblems } from './env';
+import { productionProblems, productionWarnings } from './env';
 import { NostrLedger } from './nostrLedger';
 import { LnurlClient } from './lnurl';
 import { NwcClient } from './nwc';
@@ -26,6 +26,7 @@ if (problems.length > 0) {
   );
   process.exit(1);
 }
+for (const warning of productionWarnings(env)) console.warn(`WARNING: ${warning}`);
 const port = num(env.PORT, 3000);
 const db = openDb(env.DATABASE_PATH ?? 'data/sattle.db');
 // Demo fixtures are opt-in, so a production database starts empty.

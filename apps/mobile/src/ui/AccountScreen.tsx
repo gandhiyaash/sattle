@@ -12,7 +12,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { useAsync, useClient } from '../react/SattleProvider';
 import { Card, ConfirmButton, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { color, space, type } from './theme';
+import { makeStyles, space, type } from './theme';
 
 export interface AccountScreenProps {
   onBack: () => void;
@@ -21,6 +21,7 @@ export interface AccountScreenProps {
 }
 
 export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
+  const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload } = useAsync(() => client.getCurrentUser(), []);
 
@@ -66,8 +67,8 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted },
   name: { ...type.title, color: color.ink },
   body: { ...type.body, color: color.inkMuted },
-});
+}));

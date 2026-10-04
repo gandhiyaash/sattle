@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 
 import { SattleError } from '@sattle/core';
 
@@ -12,6 +13,7 @@ import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
 import { JoinAsNewScreen } from './src/ui/JoinScreen';
 import { Loading, Screen } from './src/ui/primitives';
+import { useColorMode } from './src/ui/theme';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** The path payLinkPath() builds: /s/<token>. */
@@ -41,6 +43,17 @@ const groupToken = () => tokenFromPath(GROUP_PATH);
 const inviteToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
+  const mode = useColorMode();
+  return (
+    <>
+      {/* Dark icons on the light theme, light ones on the dark. */}
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <Root />
+    </>
+  );
+}
+
+function Root() {
   const [token] = useState(guestToken);
   const [group] = useState(groupToken);
   const [invite, setInvite] = useState(inviteToken);
@@ -108,7 +121,7 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
   switch (account.kind) {
     case 'loading':
       return (
-        <Screen title="Sattle">
+        <Screen title="Sattle" brand>
           <Loading lines={2} />
         </Screen>
       );

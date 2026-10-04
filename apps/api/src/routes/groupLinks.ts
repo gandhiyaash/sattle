@@ -16,11 +16,12 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import { SattleError, canReceive, type Debt, type GroupGuestView, type GroupLink } from '@sattle/core';
+import { SattleError, type Debt, type GroupGuestView, type GroupLink } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { idempotency } from '../middleware';
+import { receivable } from '../payments';
 import { nowIso } from '../repo';
 import { debtsOf } from '../settlementRules';
 import { newPayLinkToken } from './payLinks';
@@ -36,7 +37,7 @@ export const newGroupLinkToken = () => randomBytes(16).toString('base64url');
 const debtRef = (token: string, d: Pick<Debt, 'fromMemberId' | 'toMemberId'>) =>
   createHash('sha256').update(`${token}:${d.fromMemberId}:${d.toMemberId}`).digest('base64url').slice(0, 16);
 
-export function groupLinkRoutes({ db, repo }: Ctx) {
+export function groupLinkRoutes({ db, repo, payments }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
@@ -65,7 +66,7 @@ export function groupLinkRoutes({ db, repo }: Ctx) {
         from: name(d.fromMemberId),
         to: name(d.toMemberId),
         amount: d.amount,
-        payable: canReceive(members.get(d.toMemberId)!),
+        payable: receivable(payments, members.get(d.toMemberId)!),
       })),
     };
   };
@@ -118,7 +119,7 @@ export function groupLinkRoutes({ db, repo }: Ctx) {
       const debt = debtsOf(repo, g).find((d) => debtRef(link.token, d) === c.req.param('ref'));
       if (!debt) throw new SattleError('link_expired', 'This has already been settled.');
       const payee = repo.member(debt.toMemberId)!;
-      if (!canReceive(payee)) {
+      if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
       const existing = repo.payLinkFor(debt);

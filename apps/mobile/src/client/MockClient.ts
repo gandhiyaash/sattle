@@ -183,6 +183,10 @@ export class MockClient implements SattleClient {
 
   // -- reads ----------------------------------------------------------------
 
+  async getPaymentMode() {
+    return 'simulated' as const;
+  }
+
   getCurrentUser() {
     return this.call(() => fixtures.currentUser);
   }

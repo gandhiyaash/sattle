@@ -18,7 +18,7 @@ import { SattleError, formatFiat, type GroupGuestDebt, type GroupGuestExpense } 
 import { useAsync, useClient } from '../react/SattleProvider';
 import { GuestPayScreen } from './GuestPayScreen';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { color, space, type } from './theme';
+import { makeStyles, space, type, useColors } from './theme';
 
 export interface GroupGuestScreenProps {
   /** From /g/<token>. The only thing the page knows on arrival. */
@@ -28,6 +28,7 @@ export interface GroupGuestScreenProps {
 const REFRESH_MS = 4000;
 
 export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
+  const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getGroupGuestView(token), [token]);
   /** The pay link for the debt being paid. While set, the pay page is up. */
@@ -167,6 +168,8 @@ function DebtCard({
   error: string | null;
   onSettle: () => void;
 }) {
+  const color = useColors();
+  const s = useStyles();
   return (
     <Card style={{ padding: space.md, gap: space.sm }}>
       <View style={s.debtRow}>
@@ -190,6 +193,7 @@ function DebtCard({
 }
 
 function Spend({ expense, currency }: { expense: GroupGuestExpense; currency: string }) {
+  const s = useStyles();
   return (
     <View style={s.spend}>
       <View style={s.spendTop}>
@@ -206,7 +210,7 @@ function Spend({ expense, currency }: { expense: GroupGuestExpense; currency: st
   );
 }
 
-const s = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   payPage: { flex: 1, backgroundColor: color.paper },
   backBar: { padding: space.lg, paddingBottom: space.xl },
   body: { ...type.body, color: color.inkMuted },
@@ -220,4 +224,4 @@ const s = StyleSheet.create({
   spendName: { ...type.body, fontWeight: '500', color: color.ink },
   spendMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   shares: { ...type.amountSm, color: color.inkMuted, lineHeight: 20 },
-});
+}));

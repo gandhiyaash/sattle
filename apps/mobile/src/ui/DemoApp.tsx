@@ -27,7 +27,7 @@ import { NewGroupScreen } from './NewGroupScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
-import { color, radius, space, type } from './theme';
+import { makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
@@ -77,6 +77,7 @@ function Navigator({
   group: string | null;
   onAccountDeleted?: () => void;
 }) {
+  const sheet = useSheet();
   const [route, setRoute] = useState<Route>(
     invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
   );
@@ -251,6 +252,7 @@ function DemoBar({
   route: Route;
   onNavigate: (r: Route) => void;
 }) {
+  const sheet = useSheet();
   const tabs: Array<{ label: string; route: Route }> = [
     { label: 'Groups', route: { name: 'groups' } },
     { label: 'Wallet', route: { name: 'wallet' } },
@@ -287,6 +289,7 @@ function DemoBar({
  * used up. Set EXPO_PUBLIC_MOCK_ALWAYS_FAIL=true to see a fresh link fail.
  */
 function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
+  const sheet = useSheet();
   const client = useClient();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -343,8 +346,8 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   );
 }
 
-const sheet = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#1A171466' },
+const useSheet = makeStyles((color) => ({
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
   container: {
     position: 'absolute',
     left: 0,
@@ -384,4 +387,4 @@ const sheet = StyleSheet.create({
   },
   chipText: { ...type.caption, color: color.inkMuted },
   note: { ...type.caption, color: color.inkMuted, width: '100%', textAlign: 'center' },
-});
+}));

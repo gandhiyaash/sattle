@@ -25,7 +25,7 @@ import {
   type SettlementOptions,
 } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
-import { useActionKeys, useClient, useWallet } from './SattleProvider';
+import { useActionKeys, useClient, usePaymentMode, useWallet } from './SattleProvider';
 
 export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done';
 
@@ -73,6 +73,7 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
   // A retry after a network error reuses the attempt's key, so a payment
   // whose response was lost isn't started twice.
   const keys = useActionKeys();
+  const mode = usePaymentMode();
 
   const [recipient, setRecipient] = useState(() => members.find((m) => m.id === debt.toMemberId));
   const [step, setStep] = useState<SettleStep>('choosing');
@@ -85,8 +86,8 @@ export function useSettleFlow(debt: Debt, members: Member[], _groupName: string)
 
   const options = useMemo(
     () =>
-      recipient ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable }) : null,
-    [recipient, wallet.isAvailable]
+      recipient ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable, mode }) : null,
+    [recipient, wallet.isAvailable, mode]
   );
 
   const run = async (fn: () => Promise<void>) => {

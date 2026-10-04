@@ -265,7 +265,7 @@ describe('POST /groups/:id/leave', () => {
 
     expect((await call('POST', `${base}/leave`, undefined, kabir.token)).status).toBe(200);
     expect((await call('GET', base, undefined, kabir.token)).status).toBe(404);
-    expect((await members()).find((m) => m.id === mKabir)).toEqual({ id: mKabir, groupId: expect.any(String), displayName: 'Kabir', status: 'ghost' });
+    expect((await members()).find((m) => m.id === mKabir)).toEqual({ id: mKabir, groupId: expect.any(String), displayName: 'Kabir', status: 'ghost', receivable: false });
     expect(await debts()).toContainEqual(expect.objectContaining({ fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }));
   });
 

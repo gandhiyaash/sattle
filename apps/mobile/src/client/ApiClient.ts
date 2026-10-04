@@ -27,6 +27,7 @@ import {
   type LedgerBackup,
   type Member,
   type PayLink,
+  type PaymentMode,
   type ReceiveAddress,
   type Settlement,
   type User,
@@ -59,6 +60,8 @@ export async function createAccount(baseUrl: string, displayName: string): Promi
 }
 
 export class ApiClient implements SattleClient {
+  private paymentMode?: Promise<PaymentMode>;
+
   constructor(
     private readonly baseUrl: string,
     private readonly getToken: () => string | null = () => null
@@ -99,6 +102,18 @@ export class ApiClient implements SattleClient {
 
   getCurrentUser() {
     return this.request<User>('GET', '/me');
+  }
+  getPaymentMode() {
+    // Asked once: it only changes when the server restarts. A server too old
+    // to say is treated as real, so nobody is offered a payment it can't make.
+    this.paymentMode ??= this.request<{ payments?: PaymentMode }>('GET', '/health').then(
+      (h) => h.payments ?? 'real',
+      (e) => {
+        this.paymentMode = undefined;
+        throw e;
+      }
+    );
+    return this.paymentMode;
   }
   getGroups() {
     return this.request<Group[]>('GET', '/groups');
