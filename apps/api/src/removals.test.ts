@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Expense, Group, Invite, Member, User, WalletConnection } from '@sattle/core';
+import type { Debt, Expense, Group, Invite, InviteView, Member, User, WalletConnection } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -50,9 +50,13 @@ async function setup() {
   const kabir = await signUp('Kabir');
   const group = (await call<Group>('POST', '/groups', { name: 'Manali', memberNames: ['Kabir', 'Aman'] }, riya.token)).body;
   const [mRiya, mKabir, mAman] = group.memberIds;
-  const invite = async (memberId: string, as = riya.token) =>
-    (await call<Invite>('POST', `/groups/${group.id}/invites`, { memberId }, as)).body.token;
-  await call('POST', '/groups/join', { token: await invite(mKabir) }, kabir.token);
+  const invite = async (as = riya.token) =>
+    (await call<Invite>('POST', `/groups/${group.id}/invites`, undefined, as)).body.token;
+  /** Who the join page offers, by name. */
+  const offered = async (token: string) => (await call<InviteView>('GET', `/join/${token}`)).body.members;
+  const joinAs = async (name: string, token: string, as: string) =>
+    call('POST', '/groups/join', { token, ref: (await offered(token)).find((m) => m.name === name)!.ref }, as);
+  await joinAs('Kabir', await invite(), kabir.token);
 
   const base = `/groups/${group.id}`;
   const addExpense = async (paidByMemberId: string, amount: number, as = riya.token, description = 'Cab') =>
@@ -78,7 +82,7 @@ async function setup() {
   const count = (table: string, where = '1 = 1', ...args: string[]) =>
     (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`).get(...args) as { n: number }).n;
 
-  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, invite, addExpense, members, expenses, debts, openPayment, count };
+  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, invite, offered, joinAs, addExpense, members, expenses, debts, openPayment, count };
 }
 
 const equally = (ids: string[]) => ({ splitMode: 'equal', parts: ids.map((memberId) => ({ memberId })) });
@@ -199,9 +203,9 @@ describe('DELETE /groups/:id', () => {
   });
 
   it('takes the group and everything in it away from everyone, once it’s settled', async () => {
-    const { call, base, group, riya, kabir, mRiya, mAman, invite, addExpense, count } = await setup();
+    const { call, base, group, riya, kabir, mRiya, invite, addExpense, count } = await setup();
     const cab = await addExpense(mRiya, 3000);
-    await invite(mAman);
+    await invite();
     await call('DELETE', `${base}/expenses/${cab.id}`, undefined, riya.token);
 
     expect((await call('DELETE', base, undefined, kabir.token)).status).toBe(200);
@@ -220,13 +224,15 @@ describe('DELETE /groups/:id', () => {
 });
 
 describe('DELETE /groups/:id/members/:memberId', () => {
-  it('removes a ghost nobody has built anything on, and kills their invite', async () => {
-    const { call, base, kabir, mAman, invite, members } = await setup();
-    const token = await invite(mAman);
+  it('removes a ghost nobody has built anything on, and the invite stops offering them', async () => {
+    const { call, base, kabir, mAman, invite, offered, members } = await setup();
+    const token = await invite();
+    const aman = (await offered(token)).find((m) => m.name === 'Aman')!.ref;
 
     expect((await call('DELETE', `${base}/members/${mAman}`, undefined, kabir.token)).status).toBe(200);
     expect((await members()).map((m) => m.displayName)).toEqual(['Riya', 'Kabir']);
-    expect((await call('GET', `/join/${token}`)).status).toBe(404);
+    expect(await offered(token)).toEqual([]);
+    expect((await call('POST', '/groups/join', { token, ref: aman }, (await call<{ token: string }>('POST', '/accounts', { displayName: 'Aman' })).body.token)).status).toBe(404);
   });
 
   it('keeps anyone who is part of an expense', async () => {
@@ -264,9 +270,9 @@ describe('POST /groups/:id/leave', () => {
   });
 
   it('can be undone with a new invite', async () => {
-    const { call, base, kabir, mKabir, invite, members } = await setup();
+    const { call, base, kabir, mKabir, invite, joinAs, members } = await setup();
     await call('POST', `${base}/leave`, undefined, kabir.token);
-    expect((await call('POST', '/groups/join', { token: await invite(mKabir) }, kabir.token)).status).toBe(200);
+    expect((await joinAs('Kabir', await invite(), kabir.token)).status).toBe(200);
     expect((await members()).find((m) => m.id === mKabir)?.status).toBe('joined');
   });
 
@@ -340,9 +346,9 @@ describe('DELETE /me', () => {
   });
 
   it('ends the account: the token, the wallet connection, and the links it made', async () => {
-    const { call, kabir, mAman, invite, count } = await setup();
+    const { call, kabir, invite, count } = await setup();
     await call('PUT', '/me/wallet', { nwcUri: URI }, kabir.token);
-    const sent = await invite(mAman, kabir.token);
+    const sent = await invite(kabir.token);
 
     expect((await call('DELETE', '/me', undefined, kabir.token)).status).toBe(200);
     expect((await call('GET', '/me', undefined, kabir.token)).status).toBe(401);
