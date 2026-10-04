@@ -44,7 +44,7 @@ export function InvoicePanel({
       <Text style={s.invoice} numberOfLines={2} selectable>
         {invoice}
       </Text>
-      {left !== null && left > 0 && <Text style={s.countdown}>Invoice valid for {formatClock(left)}</Text>}
+      {left !== null && left > 0 && <Text style={s.countdown}>Rate and invoice locked for {formatClock(left)}</Text>}
     </View>
   );
 }

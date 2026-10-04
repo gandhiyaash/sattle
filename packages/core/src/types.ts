@@ -107,7 +107,26 @@ export interface Quote {
   /** Separate from amountSat: fees are added on top, never deducted. */
   feeSat: number;
   rateFiatPerBtc: number;
+  /** Absent on quotes made before the source was recorded. */
+  rateSource?: RateSource;
   expiresAt: string;
+}
+
+/**
+ * Where a quote's rate came from, shown to whoever pays so a market price is
+ * never confused with a made-up one.
+ *
+ * market    the provider's price, read within the last 30s
+ * stale     the provider is down; its last answer, from `fetchedAt`
+ * fallback  the provider has never answered; a configured rate
+ * demo      a fixed rate, because the payment itself is simulated
+ */
+export interface RateSource {
+  kind: 'market' | 'stale' | 'fallback' | 'demo';
+  /** Who gave the rate, e.g. "CoinGecko". Absent for a configured rate. */
+  provider?: string;
+  /** When the provider gave it. */
+  fetchedAt?: string;
 }
 
 export type Rail = 'in_app' | 'lightning_address' | 'invoice' | 'manual';

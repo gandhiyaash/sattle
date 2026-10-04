@@ -41,7 +41,7 @@ import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
 import { NwcError, preimageMatches, type NwcApi } from '../nwc';
 import type { PaymentBackend } from '../payments';
-import type { RateService } from '../rates';
+import { quoteRateSource, type RateService } from '../rates';
 import type { Repo } from '../repo';
 import type { WalletStore } from '../walletStore';
 
@@ -208,7 +208,7 @@ export class LightningPayments implements PaymentBackend {
     }
 
     const rate = await rates.rate(s.currency);
-    const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, this.now());
+    const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, quoteRateSource(rate), this.now());
 
     if (uri) return this.mintNwc(s, payee.displayName, uri, quote);
     return this.mintAddress(s, payee.displayName, address!, quote);

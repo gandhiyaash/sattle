@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createRateService } from './rates';
+import { createRateService, quoteRateSource } from './rates';
 
 const ok = (inr: number) => new Response(JSON.stringify({ bitcoin: { inr } }), { status: 200 });
 
@@ -55,5 +55,22 @@ describe('rates', () => {
   it('refuses a currency it has no fallback for, once the source fails', async () => {
     const { rates } = setup([new Error('offline')]);
     await expect(rates.rate('USD')).rejects.toThrow('No fallback rate configured for USD');
+  });
+});
+
+describe('quoteRateSource', () => {
+  it('tells the payer a cached rate is still the market', () => {
+    const fetchedAt = '2026-10-05T10:00:00.000Z';
+    expect(quoteRateSource({ currency: 'INR', rateFiatPerBtc: 1, source: 'live', fetchedAt })).toEqual({
+      kind: 'market',
+      provider: 'CoinGecko',
+      fetchedAt,
+    });
+    expect(quoteRateSource({ currency: 'INR', rateFiatPerBtc: 1, source: 'cache', fetchedAt }).kind).toBe('market');
+  });
+
+  it('never passes off a stale or fixed rate as live', () => {
+    expect(quoteRateSource({ currency: 'INR', rateFiatPerBtc: 1, source: 'stale' }).kind).toBe('stale');
+    expect(quoteRateSource({ currency: 'INR', rateFiatPerBtc: 1, source: 'fallback' })).toEqual({ kind: 'fallback' });
   });
 });

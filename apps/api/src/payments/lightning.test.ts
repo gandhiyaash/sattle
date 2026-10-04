@@ -122,7 +122,12 @@ describe('LightningPayments', () => {
     const s = await settled(created.body.id);
     expect(s).toMatchObject({ status: 'awaiting_payment', destination: 'lnbc1real' });
     // ₹1,200 at ₹80,00,000/BTC = 15,000 sats.
-    expect(s.quote).toMatchObject({ amountFiat: 120_000, amountSat: 15_000, rateFiatPerBtc: 8_000_000 });
+    expect(s.quote).toMatchObject({
+      amountFiat: 120_000,
+      amountSat: 15_000,
+      rateFiatPerBtc: 8_000_000,
+      rateSource: { kind: 'market', provider: 'CoinGecko' },
+    });
     expect(minted[0]).toMatchObject({ amountMsat: 15_000_000, description: 'Sattle: Yash, Flat 4B' });
 
     const row = db.prepare('SELECT payment_hash FROM settlements WHERE id = ?').get(s.id);
