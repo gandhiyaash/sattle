@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupGuestView, GroupLink, GuestView, Member, User } from '@sattle/core';
+import type { Expense, Group, GroupGuestView, GroupLink, GuestView, InviteView, Member, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -90,10 +90,11 @@ describe('the group’s link', () => {
   });
 
   it('never expires by itself, and survives the person who made it leaving', async () => {
-    const { db, call, base, riya, signUp, mKabir, share, view } = await setup();
+    const { db, call, base, riya, signUp, share, view } = await setup();
     const kabir = await signUp('Kabir');
-    const invite = (await call<{ token: string }>('POST', `${base}/invites`, { memberId: mKabir }, riya.token)).body.token;
-    await call('POST', '/groups/join', { token: invite }, kabir.token);
+    const invite = (await call<{ token: string }>('POST', `${base}/invites`, undefined, riya.token)).body.token;
+    const offered = (await call<InviteView>('GET', `/join/${invite}`)).body.members;
+    await call('POST', '/groups/join', { token: invite, ref: offered.find((m) => m.name === 'Kabir')!.ref }, kabir.token);
     const token = await share(kabir.token);
 
     db.prepare('UPDATE group_links SET created_at = ?').run('2020-01-01T00:00:00.000Z');
