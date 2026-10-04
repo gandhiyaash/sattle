@@ -1,7 +1,7 @@
 /**
  * An invoice someone has to pay from their own wallet: the button that
- * opens it, a QR code for paying from another device, the invoice text, and
- * how long it has left.
+ * opens it, a QR code for paying from another device, the invoice text with
+ * a way to copy it, and how long it has left.
  *
  * Calls `onExpired` once the quote lapses, so the screen can swap the dead
  * QR for a way to get a new one. The server only marks it expired a moment
@@ -9,10 +9,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { openAppLink } from './openLink';
 import { Button } from './primitives';
 import { QrCode } from './QrCode';
+import { copyText } from './share';
 import { makeStyles, radius, space, type } from './theme';
 
 export function InvoicePanel({
@@ -36,7 +38,7 @@ export function InvoicePanel({
 
   return (
     <View style={s.panel}>
-      <Button label="Open your wallet" variant="primary" onPress={() => Linking.openURL(`lightning:${invoice}`)} />
+      <Button label="Open your wallet" variant="primary" onPress={() => openAppLink(`lightning:${invoice}`).catch(() => {})} />
       <Text style={s.hint}>Or scan this from Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.</Text>
       <View style={s.qrFrame}>
         <QrCode value={`lightning:${invoice}`} size={qrSize} />
@@ -44,8 +46,27 @@ export function InvoicePanel({
       <Text style={s.invoice} numberOfLines={2} selectable>
         {invoice}
       </Text>
+      <CopyInvoice invoice={invoice} />
       {left !== null && left > 0 && <Text style={s.countdown}>Invoice valid for {formatClock(left)}</Text>}
     </View>
+  );
+}
+
+/**
+ * Copies the whole invoice, for a wallet that can't be opened from here or
+ * is on another device. The text on screen is cut to two lines, so selecting
+ * it by hand wouldn't get all of it.
+ */
+export function CopyInvoice({ invoice }: { invoice: string }) {
+  const s = useStyles();
+  const [note, setNote] = useState<string | null>(null);
+  // A new invoice hasn't been copied yet.
+  useEffect(() => setNote(null), [invoice]);
+  return (
+    <>
+      <Button label="Copy invoice" onPress={async () => setNote(await copyText(invoice))} />
+      {note && <Text style={s.hint}>{note}</Text>}
+    </>
   );
 }
 

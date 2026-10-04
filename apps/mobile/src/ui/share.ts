@@ -7,6 +7,44 @@
 
 import { Platform, Share } from 'react-native';
 
+/**
+ * Copies text, for pasting into another app. Returns a line saying what
+ * happened, for under the button.
+ *
+ * Native has no clipboard without another module, so there it opens the
+ * share sheet, which has Copy in it. On the web the clipboard API is tried
+ * first; the browsers inside chat apps often lack it, so a selected,
+ * off-screen field and the old copy command are the fallback.
+ */
+export async function copyText(text: string): Promise<string> {
+  if (Platform.OS !== 'web') {
+    const r = await Share.share({ message: text }).catch(() => null);
+    return r?.action === Share.sharedAction ? 'Done.' : 'Not copied.';
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'Copied.';
+  } catch {
+    // No clipboard API, or it refused: fall through.
+  }
+  try {
+    const field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', '');
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    document.body.appendChild(field);
+    field.select();
+    field.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(field);
+    if (ok) return 'Copied.';
+  } catch {
+    // Nothing left to try.
+  }
+  return 'Couldn’t copy it here. Select the text above and copy it by hand.';
+}
+
 export async function share(message: string, sentNote: string): Promise<string> {
   if (Platform.OS !== 'web') {
     const r = await Share.share({ message }).catch(() => null);

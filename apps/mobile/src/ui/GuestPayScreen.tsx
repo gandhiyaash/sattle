@@ -23,10 +23,12 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, formatFiat, type GuestSettlement, type GuestView } from '@sattle/core';
 import { useClient } from '../react/SattleProvider';
+import { CopyInvoice } from './InvoicePanel';
+import { openAppLink } from './openLink';
 import { Button, ErrorState, SatLine } from './primitives';
 import { QrCode } from './QrCode';
 import { makeStyles, radius, shadow, space, type, useColors } from './theme';
@@ -211,7 +213,7 @@ function Invoice({
           <Button
             label="Open your wallet"
             variant="primary"
-            onPress={() => Linking.openURL(`lightning:${destination}`)}
+            onPress={() => openAppLink(`lightning:${destination}`).catch(() => {})}
           />
           <Text style={s.hint}>
             Works with Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.
@@ -227,6 +229,7 @@ function Invoice({
             </Text>
             {left !== null && <Text style={s.countdown}>Invoice valid for {formatClock(left)}</Text>}
           </View>
+          <CopyInvoice invoice={destination} />
         </>
       )}
 
