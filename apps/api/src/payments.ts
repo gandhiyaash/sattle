@@ -59,7 +59,7 @@ export class SimulatedPayments implements PaymentBackend {
     await sleep(this.opts.stepMs);
     this.repo.updateSettlement(s.id, {
       status: 'awaiting_payment',
-      quote: buildQuote(s.amount, s.currency, this.opts.rateFiatPerBtc),
+      quote: buildQuote(s.amount, s.currency, this.opts.rateFiatPerBtc, { kind: 'demo' }),
       destination:
         s.rail === 'lightning_address' && payee.lightningAddress
           ? payee.lightningAddress
