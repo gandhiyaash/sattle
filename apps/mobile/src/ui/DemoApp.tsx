@@ -10,7 +10,7 @@
  * take props and callbacks.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,7 +45,7 @@ type Route =
 
 export interface DemoAppProps {
   client?: SattleClient;
-  /** The token from a /join/<token> link the app was opened with. It starts on the join screen. */
+  /** The token from a /join/<token> link. Opened with one, the app starts on the join screen; tapped later, it goes there. */
   invite?: string | null;
   /** The join screen is finished with that link, whether or not anyone joined. */
   onInviteDone?: () => void;
@@ -91,6 +91,10 @@ function Navigator({
     currency: string;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
+  // On a phone the link can arrive after the first screen is up, or while the app is in use.
+  useEffect(() => {
+    if (invite) setRoute({ name: 'join', token: invite });
+  }, [invite]);
 
   const refresh = () => setNonce((n) => n + 1);
 
@@ -110,6 +114,8 @@ function Navigator({
       case 'join':
         return (
           <JoinScreen
+            // A second link starts over, not on top of the first one's answers.
+            key={route.token}
             token={route.token}
             onBack={() => {
               onInviteDone?.();
