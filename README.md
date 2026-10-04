@@ -2,7 +2,9 @@
 
 Split expenses with friends and settle up over Bitcoin Lightning. Nobody else needs to install anything.
 
-A monorepo: an Expo (React Native) app for iOS, Android and web, a Node API on SQLite, and the domain package both of them share. The app runs against either an in-memory mock or the real API; one env var switches between them.
+Try it at [sattle.axiosiiitl.dev](https://sattle.axiosiiitl.dev). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
+
+A monorepo: an Expo (React Native) app for Android and web (iOS builds from the same code but hasn't been released), a Node API on SQLite, and the domain package both of them share. The app runs against either an in-memory mock or the real API; one env var switches between them.
 
 ## Quick start
 
@@ -153,7 +155,7 @@ const settlement = useSettlement(settlementId);
 
 ## Four decisions baked in
 
-**Members are not users.** A `Member` is a row in a group with a `status` of `ghost`, `joined`, or `nwc_linked`. Ghosts have never installed anything. They can pay by scanning, but they cannot receive — `createSettlement` throws `member_cannot_receive` if you try. Retrofitting this is miserable, which is why it is in the type from line one.
+**Members are not users.** A `Member` is a row in a group with a `status` of `ghost`, `joined`, or `nwc_linked`. Ghosts have never installed anything. They can pay by scanning, but they can't receive until someone adds their Lightning address. Until then `createSettlement` throws `member_cannot_receive`. Retrofitting this is miserable, which is why it is in the type from line one.
 
 **Debt is denominated in fiat.** `amount` is always minor units (paise). Sats appear only inside a `Quote`, pinned at quote time with a 90-second TTL. There is deliberately no per-group setting for this — one invariant, not a knob users have to understand.
 
@@ -322,7 +324,7 @@ Play only answers for a copy it installed. A debug build or the APK from a GitHu
 
 ## Wiring the wallet
 
-Write `BreezWallet implements WalletProvider` against `breez-sdk-liquid`, then return it from `buildWallet()` in the provider instead of `MockWallet`. Web keeps `UnavailableWallet`, because the SDK ships Rust bindings and will not run in a browser.
+Write `BreezWallet implements WalletProvider` against `breez-sdk-liquid`, then return it from `buildWallet()` in the provider instead of `UnavailableWallet`. `MockWallet`, with its made-up balance, is only for demo mode on native. Web keeps `UnavailableWallet`, because the SDK ships Rust bindings and will not run in a browser.
 
 Screens should branch on `wallet.isAvailable`, never on `Platform.OS` — that way a native user who hasn't finished wallet setup hits the same path as a web guest, which is the behaviour you want.
 
@@ -353,9 +355,13 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
 - Removing a member or leaving a group. Joining can't be undone.
-- `BreezWallet`. Native builds use `MockWallet`; web uses `UnavailableWallet`.
+- `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.
 
 The types already have room for all of these. None of them are implemented.
+
+## License
+
+[MIT](LICENSE).
