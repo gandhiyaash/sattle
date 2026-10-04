@@ -28,7 +28,7 @@ function setup(demoUserId?: string) {
 }
 
 describe('auth boundary', () => {
-  it('requires auth everywhere except /health, /s/, reading an invite and making an account', async () => {
+  it('requires auth everywhere except /health, /s/, /g/, reading an invite and making an account', async () => {
     const { call } = setup(undefined);
     expect((await call('GET', '/groups')).status).toBe(401);
     expect((await call('GET', '/me/wallet')).status).toBe(401);
@@ -36,6 +36,8 @@ describe('auth boundary', () => {
     expect((await call('GET', '/s/demo')).status).not.toBe(401);
     expect((await call('POST', '/s/demo/open')).status).not.toBe(401);
     expect((await call('GET', '/join/nope')).status).toBe(404);
+    expect((await call('GET', '/g/demo-group')).status).toBe(200);
+    expect((await call('POST', '/groups/g-flat/link')).status).toBe(401);
     expect((await call('POST', '/groups/join', { token: 'nope' })).status).toBe(401);
     expect((await call('POST', '/accounts', { displayName: 'Riya' })).status).toBe(201);
   });
@@ -45,6 +47,6 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql']);
   });
 });

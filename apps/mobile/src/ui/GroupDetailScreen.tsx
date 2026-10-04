@@ -17,6 +17,7 @@ import {
   canReceive,
   computeBalances,
   formatFiat,
+  groupLinkPath,
   invitePath,
   payLinkPath,
   simplifyDebts,
@@ -45,6 +46,10 @@ export interface GroupDetailScreenProps {
   groupId: string;
   onBack: () => void;
   onAddExpense: (members: Member[], currency: string) => void;
+  /** Opens an expense to change or delete it. `userId` is who is signed in. */
+  onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
+  /** Opens the screen for renaming, leaving and deleting the group. */
+  onManage: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string) => void;
 }
 
@@ -54,6 +59,7 @@ interface GroupView {
   members: Member[];
   expenses: Expense[];
   debts: Debt[];
+  userId: string;
   myMemberId: string | null;
   myNet: number;
 }
@@ -62,6 +68,8 @@ export function GroupDetailScreen({
   groupId,
   onBack,
   onAddExpense,
+  onEditExpense,
+  onManage,
   onSettle,
 }: GroupDetailScreenProps) {
   const client = useClient();
@@ -85,6 +93,7 @@ export function GroupDetailScreen({
       members,
       expenses: [...expenses].reverse(),
       debts,
+      userId: user.id,
       myMemberId: mine?.id ?? null,
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
     };
@@ -128,6 +137,7 @@ export function GroupDetailScreen({
       title={data.name}
       subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
       onBack={onBack}
+      right={<Button label="Manage" variant="quiet" onPress={onManage} />}
     >
       <Card>
         <Text style={s.label}>
@@ -192,6 +202,8 @@ export function GroupDetailScreen({
         </View>
       )}
 
+      <ShareGroupLink groupId={groupId} groupName={data.name} />
+
       <View>
         <SectionLabel>Members</SectionLabel>
         <Card style={{ padding: 0 }}>
@@ -215,7 +227,10 @@ export function GroupDetailScreen({
             {data.expenses.map((expense, i) => (
               <View key={expense.id}>
                 {i > 0 && <Divider />}
-                <View style={s.expenseRow}>
+                <Pressable
+                  onPress={() => onEditExpense(expense, data.members, data.currency, data.userId)}
+                  style={({ pressed }) => [s.expenseRow, pressed && { backgroundColor: color.surfaceSunken }]}
+                >
                   <View style={{ flex: 1 }}>
                     <Text style={s.expenseName}>{expense.description}</Text>
                     <Text style={s.expenseMeta}>
@@ -223,7 +238,7 @@ export function GroupDetailScreen({
                     </Text>
                   </View>
                   <Amount minor={expense.amount} currency={data.currency} size="md" />
-                </View>
+                </Pressable>
               </View>
             ))}
           </Card>
@@ -363,6 +378,62 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
         <Button label="Add" busy={busy} disabled={!name.trim()} onPress={add} />
       </View>
       {error && <Text style={s.linkError}>{error}</Text>}
+    </View>
+  );
+}
+
+/**
+ * One link for the whole group, for the chat everyone is already in. Whoever
+ * opens it sees the spends and who owes whom, and pays what they owe; they
+ * can't change anything. There is no link until this is tapped, which is why
+ * it says what the link shows first. Replacing it and turning it off are
+ * under Manage.
+ */
+function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const client = useClient();
+  const [state, setState] = useState<LinkState>({ kind: 'idle' });
+
+  const send = async () => {
+    setState({ kind: 'busy' });
+    let url: string;
+    try {
+      // Looking first is what makes a retry safe: a link made by an attempt whose reply was
+      // lost is found here. So making one takes a fresh request key every time, and can never
+      // be answered with a saved reply naming a link that has since been turned off.
+      const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
+      url = `${APP_URL}${groupLinkPath(link.token)}`;
+    } catch (e) {
+      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      return;
+    }
+    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it from any Lightning wallet, no app needed: ${url}`;
+    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until someone in the group turns it off.') });
+  };
+
+  return (
+    <View>
+      <SectionLabel>Group link</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <Text style={s.linkIntro}>
+          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe from
+          any Lightning wallet. They can’t change anything.
+        </Text>
+        <Button
+          label={state.kind === 'sent' ? 'Share it again' : 'Share the group link'}
+          busy={state.kind === 'busy'}
+          onPress={send}
+        />
+        {state.kind === 'sent' && (
+          <>
+            <Text style={s.linkNote}>{state.note}</Text>
+            <Text style={s.linkUrl} selectable numberOfLines={1}>
+              {state.url}
+            </Text>
+          </>
+        )}
+        {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
+        <Text style={s.linkNote}>Replace it or turn it off under Manage.</Text>
+      </Card>
     </View>
   );
 }
@@ -538,6 +609,7 @@ const s = StyleSheet.create({
   },
   linkBlock: { marginTop: space.sm, marginLeft: 48, gap: space.xs },
   linkNote: { ...type.caption, color: color.inkMuted },
+  linkIntro: { ...type.body, color: color.inkMuted },
   linkUrl: { ...type.amountSm, color: color.inkFaint },
   linkError: { ...type.caption, color: color.danger },
   memberRow: {
