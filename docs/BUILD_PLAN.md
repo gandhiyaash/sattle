@@ -131,7 +131,7 @@ So a payer can put their own address on a ghost, wait for the ghost to join, pay
 
 ```mermaid
 graph TD
-  L1[L1 Who set the address]
+  L1[L1 Joined members own their address]
   L2[L2 BOLT11 decoder + safe fetch]
   L3[L3 LNURL-pay client]
   L4[L4 Split the payment backend]
@@ -160,7 +160,7 @@ Each task is one branch and one PR. "Done when" is what the reviewer checks.
 
 | ID | Task | Needs | Files | Done when |
 |---|---|---|---|---|
-| L1 | Record who set each address. On claim, an address a groupmate typed is cleared; the member sets their own. | — | `migrations/007_address_set_by.sql`, `routes/groups.ts`, `repo.ts` | Test: payer sets their own address on a ghost, the ghost joins, the address is gone |
+| L1 | Joining clears the address a groupmate typed, and migration 007 clears the ones joined members already inherited. A joined member's address is then always one they set (the route already stops others changing it), so no extra column is needed. | — | `migrations/007_address_owner.sql`, `repo.ts`, `MockClient.ts` | Test: a groupmate sets their own address on a ghost, the ghost joins, the address is gone and only the member can set a new one |
 | L2 | BOLT11 decoder (payment hash, amount, description hash, expiry). Safe fetch: https only, private and loopback IPs blocked after DNS, no redirects, short timeout, size cap. | — | `apps/api/src/bolt11.ts`, `apps/api/src/safeFetch.ts` | Decodes invoices from every tested provider; fetch refuses `localhost`, `10.x`, `169.254.x`, a redirect, an oversized body |
 | L3 | LNURL-pay client: read `/.well-known/lnurlp/<name>`, check min/max, request the invoice, check amount and `description_hash`, keep `verify` if present | L2 | `apps/api/src/lnurl.ts` | Tests on recorded responses from the 16 providers; a wrong amount or hash is refused |
 | L4 | `NwcPayments` becomes one backend with two steps: get an invoice (NWC or address), confirm it (NWC lookup, LUD-21 verify, or wait for proof). A joined member with a self-set address and no NWC can receive on `invoice`. LUD-21 confirms only when the preimage matches. | L1 L3 | `payments/nwc.ts` → `payments/lightning.ts`, `migrations/008_verify_url.sql`, `server.ts`, `settlementOptions.ts` (core) | Existing NWC tests pass unchanged; `PAYMENTS=nwc` mints from a real address and confirms over verify |
@@ -215,7 +215,7 @@ A second pass over the plan above before building it. Each item lands in the PR 
 Each line is one PR off `main`, on a `yash/` branch.
 
 1. This plan.
-2. L1: record who set an address.
+2. L1: joined members own their address.
 3. R1: unique payment hash.
 4. L2: BOLT11 decoder and safe fetch (with R2).
 5. L3: LNURL-pay client (with R8, R10, R12).
@@ -223,12 +223,11 @@ Each line is one PR off `main`, on a `yash/` branch.
 
 ### Open decisions
 
-Need answers before L1 and L2.
+Need answers before L2. (Whether to clear a groupmate's address on join was decided in L1: clear it.)
 
 | Question | Options | Lean |
 |---|---|---|
 | BOLT11 decoder | Small vetted package, or our own (~80 lines of bech32) | Package, unless we want zero new dependencies |
-| Address a groupmate typed, after the ghost joins | Clear it, or keep it blocked until the member confirms it | Clear it: simpler, nothing to get wrong |
 | Late payment at a stale rate | Accept the proof anyway, or refuse and ask the payee | Accept: it's real money, and the drift is small |
 
 ### Rules
