@@ -14,7 +14,7 @@
  * checks signatures and the chain, decrypts, and prints the balances.
  */
 
-import { computeBalances, formatFiat, simplifyDebts } from '@sattle/core';
+import { computeBalances, formatAmount, simplifyDebts } from '@sattle/core';
 import { npubEncode } from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 
@@ -104,7 +104,7 @@ try {
   } else {
     const { name, currency, id } = read.group;
     const nameOf = (mid: string) => read.members.find((m) => m.id === mid)?.displayName ?? mid;
-    const fiat = (n: number) => formatFiat(n, currency);
+    const money = (n: number) => formatAmount(n, currency);
 
     const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
     console.log(
@@ -115,12 +115,12 @@ try {
 
     const balances = computeBalances(read.members.map((m) => m.id), read.expenses, read.settlements);
     console.log('\nBalances');
-    for (const b of balances) console.log(`  ${nameOf(b.memberId).padEnd(16)} ${b.net >= 0 ? '+' : '−'}${fiat(Math.abs(b.net))}`);
+    for (const b of balances) console.log(`  ${nameOf(b.memberId).padEnd(16)} ${b.net >= 0 ? '+' : '−'}${money(Math.abs(b.net))}`);
 
     const debts = simplifyDebts(id, balances);
     console.log('\nTo settle up');
     if (debts.length === 0) console.log('  Nothing. Everyone is square.');
-    for (const d of debts) console.log(`  ${nameOf(d.fromMemberId)} pays ${nameOf(d.toMemberId)} ${fiat(d.amount)}`);
+    for (const d of debts) console.log(`  ${nameOf(d.fromMemberId)} pays ${nameOf(d.toMemberId)} ${money(d.amount)}`);
 
     if (read.problems.length > 0) process.exitCode = 1;
   }

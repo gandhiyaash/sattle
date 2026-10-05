@@ -1,4 +1,5 @@
 export * from './types';
+export * from './currency';
 export * from './ledger';
 export * from './settlementOptions';
 export * from './quote';

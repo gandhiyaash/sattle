@@ -8,15 +8,42 @@
  *
  * Writing it plainly is the point. "Your funds are secured by advanced
  * cryptography" is the sentence this screen exists to refuse.
+ *
+ * Only the ways to get paid that go with the currencies they use are here
+ * (payWays): no Lightning for someone who chose rupees alone, no UPI for
+ * someone who chose bitcoin alone. The one exception is something they have
+ * already set up. That stays on show until they remove it, since hiding it
+ * would leave a wallet connected, or a UPI ID visible to others, with no way
+ * here to take it back.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { parseUpiId, upiIdHasPhoneNumber, type UpiProfile, type WalletConnection } from '@sattle/core';
-import { useAsync, useClient, useWallet } from '../react/SattleProvider';
+import {
+  parseUpiId,
+  upiIdHasPhoneNumber,
+  type PayWays,
+  type ReceiveAddress,
+  type UpiProfile,
+  type WalletConnection,
+} from '@sattle/core';
+import { usePayWays } from '../prefs/useCurrencyPrefs';
+import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
-import { Badge, Button, Card, ConfirmButton, Divider, EmptyState, ErrorState, Loading, Screen, SectionLabel } from './primitives';
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmButton,
+  Divider,
+  EmptyState,
+  ErrorState,
+  Loading,
+  Screen,
+  SectionLabel,
+  Segmented,
+} from './primitives';
 import { type Appearance, makeStyles, radius, setAppearance, space, type, useAppearance, useColors } from './theme';
 
 export interface WalletScreenProps {
@@ -25,77 +52,106 @@ export interface WalletScreenProps {
 
 export function WalletScreen({ onBack }: WalletScreenProps) {
   const s = useStyles();
+  const client = useClient();
   const wallet = useWallet();
+  const ways = usePayWays();
   const [balance, setBalance] = useState<number | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Held here, not in each section, so the screen knows what they've set up, and knows at once
+  // when that changes. A section for a way they don't use is only there for what it holds: the
+  // moment they remove that, the section goes, without first offering to set it up again.
+  const connection = useSetting(() => client.getWalletConnection());
+  const receiveAt = useSetting(() => client.getReceiveAddress());
+  const upiId = useSetting(() => client.getUpiId());
+  const show = {
+    wallet: ways.lightning || Boolean(connection.data?.connected),
+    address: ways.lightning || Boolean(receiveAt.data?.address),
+    upi: ways.upi || Boolean(upiId.data?.upiId),
+  };
+  // The demo's in-app wallet holds sats, so it goes with Lightning.
+  const inApp = wallet.isAvailable && ways.lightning;
+
   useEffect(() => {
-    if (!wallet.isAvailable) return;
+    if (!inApp) return;
     Promise.all([wallet.getBalance(), wallet.getLightningAddress()])
       .then(([b, addr]) => {
         setBalance(b.balanceSat);
         setAddress(addr);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Wallet unavailable.'));
-  }, [wallet]);
+  }, [wallet, inApp]);
 
-  if (!wallet.isAvailable) {
-    return (
-      <Screen title="Wallet" onBack={onBack}>
+  return (
+    <Screen title="Wallet" onBack={onBack}>
+      {inApp ? (
+        <>
+          <Card>
+            <Text style={s.label}>Balance</Text>
+            {balance === null && !error ? (
+              <Loading lines={1} />
+            ) : (
+              <Text style={s.balance}>
+                {new Intl.NumberFormat('en-US').format(balance ?? 0)}
+                <Text style={s.unit}> sats</Text>
+              </Text>
+            )}
+          </Card>
+
+          {error && <ErrorState message={error} />}
+
+          {address && (
+            <Card>
+              <Text style={s.label}>Your Lightning address</Text>
+              <Text style={s.address}>{address}</Text>
+              <Text style={s.addressNote}>
+                Anyone can pay you here, from any wallet, whether or not they use Sattle.
+              </Text>
+            </Card>
+          )}
+
+          <View style={{ gap: space.sm }}>
+            <Button label="Receive" variant="primary" />
+            <Button label="Send" />
+          </View>
+        </>
+      ) : ways.lightning ? (
         <EmptyState
           title="Use the wallet you already have"
           body="Sattle doesn’t hold money. Connect your own Lightning wallet below, or add your Lightning address, and what people owe you lands there. To pay someone, scan their invoice with that wallet."
         />
-        <ConnectWallet />
-        <ReceiveAtAddress />
-        <UpiIdCard />
-        <AppearancePicker />
-        <TrustModel />
-      </Screen>
-    );
-  }
-
-  return (
-    <Screen title="Wallet" onBack={onBack}>
-      <Card>
-        <Text style={s.label}>Balance</Text>
-        {balance === null && !error ? (
-          <Loading lines={1} />
-        ) : (
-          <Text style={s.balance}>
-            {new Intl.NumberFormat('en-US').format(balance ?? 0)}
-            <Text style={s.unit}> sats</Text>
-          </Text>
-        )}
-      </Card>
-
-      {error && <ErrorState message={error} />}
-
-      {address && (
-        <Card>
-          <Text style={s.label}>Your Lightning address</Text>
-          <Text style={s.address}>{address}</Text>
-          <Text style={s.addressNote}>
-            Anyone can pay you here, from any wallet, whether or not they use Sattle.
-          </Text>
-        </Card>
+      ) : (
+        <EmptyState
+          title="Get paid by UPI"
+          body="Sattle doesn’t hold money. Add your UPI ID below, and people who owe you pay it straight from their own UPI app."
+        />
       )}
 
-      <View style={{ gap: space.sm }}>
-        <Button label="Receive" variant="primary" />
-        <Button label="Send" />
-      </View>
-
-      <ConnectWallet />
-
-      <ReceiveAtAddress />
-      <UpiIdCard />
+      {show.wallet && <ConnectWallet current={connection} />}
+      {show.address && <ReceiveAtAddress current={receiveAt} alone={!show.wallet} />}
+      {show.upi && <UpiIdCard current={upiId} />}
       <AppearancePicker />
 
-      <TrustModel />
+      <TrustModel ways={{ lightning: show.wallet || show.address, upi: show.upi }} />
     </Screen>
   );
+}
+
+/**
+ * One thing they can set up to be paid with: what the server holds, and what
+ * it became on this screen since. A change made here is the newer of the two,
+ * so `data` is always what is true now, with nothing read again.
+ */
+interface Setting<T> extends AsyncState<T> {
+  /** After a change made here: what the server answered it with. */
+  set: (value: T) => void;
+}
+
+function useSetting<T>(read: () => Promise<T>): Setting<T> {
+  const current = useAsync(read, []);
+  const [changed, setChanged] = useState<T>();
+  return { ...current, data: changed ?? current.data, set: setChanged };
 }
 
 /** What each NWC method lets the holder of the connection do, in plain words. */
@@ -118,25 +174,23 @@ const methodName = (m: string) => METHOD_NAMES[m] ?? m.replaceAll('_', ' ');
  * The server only needs to create invoices and check them. Anything more the
  * connection grants is shown as a warning, because the server stores it.
  */
-function ConnectWallet() {
+function ConnectWallet({ current }: { current: Setting<WalletConnection> }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getWalletConnection(), []);
-  const [connection, setConnection] = useState<WalletConnection | null>(null);
   const [replacing, setReplacing] = useState(false);
   const [uri, setUri] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const conn = connection ?? current.data;
+  const conn = current.data;
 
   const connect = async () => {
     if (!uri.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      setConnection(await client.connectWallet(uri.trim()));
+      current.set(await client.connectWallet(uri.trim()));
       setUri('');
       setReplacing(false);
     } catch (e) {
@@ -215,7 +269,7 @@ function ConnectWallet() {
             label="Disconnect wallet"
             confirmLabel="Yes, disconnect"
             hint="Sattle forgets the connection. Money people owe you can’t land there until you connect again."
-            onConfirm={async () => setConnection(await client.disconnectWallet())}
+            onConfirm={async () => current.set(await client.disconnectWallet())}
           />
         )}
       </Card>
@@ -228,25 +282,30 @@ function ConnectWallet() {
  * that can't do NWC (Wallet of Satoshi, Phoenix, Blink and so on). One
  * address for every group. The server checks it answers before saving it.
  */
-function ReceiveAtAddress() {
+function ReceiveAtAddress({
+  current,
+  alone,
+}: {
+  current: Setting<ReceiveAddress>;
+  /** The wallet section above isn't shown, so this isn't the "or" to anything. */
+  alone: boolean;
+}) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getReceiveAddress(), []);
-  const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const address = saved !== undefined ? saved : current.data?.address;
+  const address = current.data?.address;
 
   const run = async (fn: () => Promise<{ address: string | null }>) => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      setSaved((await fn()).address);
+      current.set(await fn());
       setInput('');
       setEditing(false);
     } catch (e) {
@@ -259,7 +318,7 @@ function ReceiveAtAddress() {
 
   return (
     <View>
-      <SectionLabel>Or a Lightning address</SectionLabel>
+      <SectionLabel>{alone ? 'Lightning address' : 'Or a Lightning address'}</SectionLabel>
       <Card style={{ gap: space.md }}>
         {current.loading && address === undefined && <Loading lines={2} />}
         {current.error && address === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
@@ -334,18 +393,16 @@ function ReceiveAtAddress() {
  * number in it is warned about beside the shared-link switch too, since IDs
  * saved before the warning existed kept what that switch was.
  */
-function UpiIdCard() {
+function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const current = useAsync(() => client.getUpiId(), []);
-  const [saved, setSaved] = useState<UpiProfile | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const profile = saved ?? current.data;
+  const profile = current.data;
   const upiId = profile?.upiId;
   const onLinks = Boolean(profile?.onGroupLinks);
 
@@ -354,7 +411,7 @@ function UpiIdCard() {
     setBusy(true);
     setError(null);
     try {
-      setSaved(await fn());
+      current.set(await fn());
       setInput('');
       setEditing(false);
     } catch (e) {
@@ -501,6 +558,9 @@ function UpiIdCard() {
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
  *   Your account        routes/accounts.ts: a name in, a random token out, nothing
  *                       else; account/tokenStore keeps it on the device
+ *   Your currencies     prefs/currencyStore keeps the choice on the device and no
+ *                       route takes it; payWays only decides what is drawn, here and
+ *                       on the group screen, so nothing set up is removed by it
  *   Lightning address   walletStore.ts receive_address, set only by its owner
  *                       (routes/wallet.ts); lnurl.ts and safeFetch.ts only fetch
  *   Is it paid          payments/lightning.ts confirms on the wallet's `settled`, and
@@ -522,73 +582,115 @@ function UpiIdCard() {
  *   Joining             routes/joining.ts: POST /join-requests makes a request, not a
  *                       member; only POST /join-requests/:id/approve, by someone in
  *                       the group, claims the member
- *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
+ *   Exchange rate       rates.ts: CoinGecko, then Blockchain.com, then Coinbase; then the last
+ *                       rate any of them gave; then a fixed rate if the server has one,
+ *                       and RateUnavailableError if it hasn't, which fails the payment
+ *                       (payments/lightning.ts). QUOTE_TTL_MS;
+ *                       for a group kept in bitcoin, buildSatsQuote in quote.ts and
+ *                       quote() in payments/lightning.ts, which never asks for a rate
+ *
+ * `ways` leaves out what the reader doesn't use: someone who never chose
+ * bitcoin isn't asked to read about wallet connections and relays. A row
+ * about something they have set up is never left out, and the rows that
+ * remain are worded for what they do use.
  */
-export function TrustModel() {
+export function TrustModel({ ways }: { ways: PayWays }) {
   const s = useStyles();
+  const { lightning, upi } = ways;
   return (
     <View>
       <SectionLabel>What you're trusting</SectionLabel>
       <Card style={{ gap: space.md }}>
         <Row
           title="Your money"
-          body="Sattle never holds it. To collect a debt, the server asks the wallet or Lightning address of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund."
+          body={
+            lightning
+              ? 'Sattle never holds it. To collect a debt, the server asks the wallet or Lightning address of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund.'
+              : 'Sattle never holds it. A UPI payment goes from the payer’s UPI app straight to the person who is owed. Nothing passes through us, so there is nothing for us to freeze, lose or refund.'
+          }
         />
-        <Divider />
-        <Row
-          title="Your wallet connection"
-          body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. Disconnect makes the server forget the string. To be sure nobody can use it again, also delete the connection in your wallet."
-        />
-        <Divider />
-        <Row
-          title="Your Lightning address"
-          body="If you add one, Sattle's server keeps it and asks it for invoices, the way any wallet paying you would. An address can only receive, so there is nothing to steal, but whoever runs it (your wallet's company) sees what you're paid. Only you can set yours."
-        />
-        <Divider />
-        <Row
-          title="The relay in between"
-          body="Requests to your wallet travel through the Nostr relay named in your connection. They are encrypted, so the relay sees when a request is sent, not what it says."
-        />
+        {lightning && (
+          <>
+            <Divider />
+            <Row
+              title="Your wallet connection"
+              body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. Disconnect makes the server forget the string. To be sure nobody can use it again, also delete the connection in your wallet."
+            />
+            <Divider />
+            <Row
+              title="Your Lightning address"
+              body="If you add one, Sattle's server keeps it and asks it for invoices, the way any wallet paying you would. An address can only receive, so there is nothing to steal, but whoever runs it (your wallet's company) sees what you're paid. Only you can set yours."
+            />
+            <Divider />
+            <Row
+              title="The relay in between"
+              body="Requests to your wallet travel through the Nostr relay named in your connection. They are encrypted, so the relay sees when a request is sent, not what it says."
+            />
+          </>
+        )}
         <Divider />
         <Row
           title="Your account"
-          body="It's a name and a random key that only this device has. No email, phone or password, so there's nothing to recover it with: clear this device's data or lose it, and you lose access to your groups and wallet connection."
+          body={`It's a name and a random key that only this device has. No email, phone or password, so there's nothing to recover it with: clear this device's data or lose it, and you lose access to your groups${lightning ? ' and wallet connection' : ''}.`}
+        />
+        <Divider />
+        <Row
+          title="Your currencies"
+          body="Which currencies you use is kept on this device and never sent to Sattle's server. It only changes what the app shows you. Turning one off removes nothing: whatever you set up to get paid stays, and stays on this screen, until you remove it here."
         />
         <Divider />
         <Row
           title="Is it really paid?"
-          body="A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
+          body={
+            lightning
+              ? "A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
+              : "Sattle can't see money move, so a debt is settled on someone's word, not proof. The person who is owed confirms that a UPI payment arrived or marks the debt settled, or the person paying marks it if the one owed hasn't joined."
+          }
         />
-        <Divider />
-        <Row
-          title="UPI"
-          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
-        />
+        {upi && (
+          <>
+            <Divider />
+            <Row
+              title="UPI"
+              body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
+            />
+          </>
+        )}
         <Divider />
         <Row
           title="Your group data"
           body="Group names, people's names, expenses and payments are stored on Sattle's server. They are not end-to-end encrypted, so the people who run Sattle can read them. Everyone in a group sees everything in that group."
         />
-        <Divider />
-        <Row
-          title="Pay links"
-          body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
-        />
+        {lightning && (
+          <>
+            <Divider />
+            <Row
+              title="Pay links"
+              body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
+            />
+          </>
+        )}
         <Divider />
         <Row
           title="Group links"
-          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything: a UPI payment they say they made counts only once the person owed confirms it. They can ask to join, which is covered below. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
+          body={`A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything${
+            upi ? ': a UPI payment they say they made counts only once the person owed confirms it' : ''
+          }. They can ask to join, which is covered below. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off.`}
         />
         <Divider />
         <Row
           title="Joining"
           body="The group link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it's really them. Until then they can do no more than anyone else holding the link. Once in, they see and can add to everything, like everyone else."
         />
-        <Divider />
-        <Row
-          title="The exchange rate"
-          body="Debts are kept in your currency and paid in sats. The server takes the rate from CoinGecko and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If CoinGecko is down, it uses the last rate it had, or a fixed one."
-        />
+        {lightning && (
+          <>
+            <Divider />
+            <Row
+              title="The exchange rate"
+              body="A debt in a group kept in rupees is paid in sats. The server takes the rate from CoinGecko, or from Blockchain.com or Coinbase when it is down, and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If none of them answers, it uses the last rate it had. With no rate at all the payment doesn't go through, unless the server has been given a fixed one to use. A group kept in bitcoin is owed in sats already, so it is paid as it stands and no rate is used."
+            />
+          </>
+        )}
       </Card>
       <Text style={s.trustFooter}>
         If any of this changes, this screen changes with it.
@@ -613,27 +715,11 @@ const APPEARANCE_OPTIONS: Array<{ value: Appearance; label: string }> = [
 
 /** Light, dark, or whatever the phone is set to. Remembered on this device. */
 function AppearancePicker() {
-  const s = useStyles();
   const current = useAppearance();
   return (
     <View>
       <SectionLabel>Appearance</SectionLabel>
-      <View style={s.segments} accessibilityRole="radiogroup">
-        {APPEARANCE_OPTIONS.map((o) => {
-          const selected = o.value === current;
-          return (
-            <Pressable
-              key={o.value}
-              onPress={() => setAppearance(o.value)}
-              style={[s.segment, selected && s.segmentSelected]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-            >
-              <Text style={[s.segmentLabel, selected && s.segmentLabelSelected]}>{o.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <Segmented options={APPEARANCE_OPTIONS} value={current} onChange={setAppearance} />
     </View>
   );
 }
@@ -673,19 +759,4 @@ const useStyles = makeStyles((color) => ({
     backgroundColor: color.paper,
   },
   error: { ...type.caption, color: color.danger },
-  segments: {
-    flexDirection: 'row',
-    gap: space.xs,
-    padding: space.xs,
-    borderRadius: radius.md,
-    backgroundColor: color.surfaceSunken,
-  },
-  segment: { flex: 1, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  segmentSelected: {
-    backgroundColor: color.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.lineStrong,
-  },
-  segmentLabel: { ...type.label, color: color.inkMuted },
-  segmentLabelSelected: { color: color.ink },
 }));

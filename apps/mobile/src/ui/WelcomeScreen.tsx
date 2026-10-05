@@ -1,5 +1,6 @@
 /**
- * First launch: a name, and that's the account.
+ * A name, and that's the account. On a first launch it follows the tour
+ * (OnboardingScreen); it comes back on its own after an account is deleted.
  *
  * No email, phone or password, the same thing we ask of everyone else in a
  * group. The server hands back a token and this device keeps it, which is

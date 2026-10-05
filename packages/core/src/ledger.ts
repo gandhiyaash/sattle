@@ -5,6 +5,7 @@
  * All amounts are integer minor units. Nothing here ever sees a float.
  */
 
+import { formatAmount } from './currency';
 import {
   LEDGER_STATUSES,
   SattleError,
@@ -19,9 +20,10 @@ import {
 /**
  * Turns an expense's split instructions into exact per-member amounts.
  * Remainders are spread one minor unit at a time, in part order, so the
- * parts always sum to the total.
+ * parts always sum to the total. `currency` is the group's, and only words
+ * the message when exact amounts don't add up.
  */
-export function resolveParts(input: ExpenseInput): ResolvedPart[] {
+export function resolveParts(input: ExpenseInput, currency = 'INR'): ResolvedPart[] {
   const { amount, parts, splitMode } = input;
 
   if (!Number.isInteger(amount) || amount <= 0) {
@@ -37,7 +39,7 @@ export function resolveParts(input: ExpenseInput): ResolvedPart[] {
     if (sum !== amount) {
       throw new SattleError(
         'invalid_expense',
-        `Exact amounts add up to ${formatFiat(sum)}, not ${formatFiat(amount)}.`
+        `Exact amounts add up to ${formatAmount(sum, currency)}, not ${formatAmount(amount, currency)}.`
       );
     }
     return resolved;
@@ -120,16 +122,4 @@ export function simplifyDebts(groupId: string, balances: Balance[]): Debt[] {
     if (creditors[j].amt === 0) j++;
   }
   return debts;
-}
-
-/** ₹1,200 rather than ₹1,200.00; paise shown only when there are some. */
-export function formatFiat(minor: number, currency = 'INR'): string {
-  const major = minor / 100;
-  const hasFraction = minor % 100 !== 0;
-  return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: hasFraction ? 2 : 0,
-    maximumFractionDigits: 2,
-  }).format(major);
 }

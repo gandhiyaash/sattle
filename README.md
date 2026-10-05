@@ -1,6 +1,6 @@
 # Sattle
 
-Split expenses with friends and settle up over Bitcoin Lightning. Nobody else needs to install anything.
+Split expenses with friends and settle up over Bitcoin Lightning or UPI. Nobody else needs to install anything.
 
 Try it at [sattle.axiosiiitl.dev](https://sattle.axiosiiitl.dev). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
 
@@ -22,7 +22,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
 
 Try these flows:
 
@@ -69,10 +69,11 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 
 ```
 packages/core/src/           @sattle/core: pure, no I/O, imported by both app and API
-  types.ts                   Domain vocabulary. Member ≠ User. Debt is fiat.
+  types.ts                   Domain vocabulary. Member ≠ User. Debt is in the group's currency.
+  currency.ts                The currencies a group can be kept in, and how an amount in each is typed and shown.
   ledger.ts                  Pure maths: splits, balances, netting.
-  settlementOptions.ts       Resolves what's possible BEFORE the user taps.
-  quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
+  settlementOptions.ts       Resolves what's possible BEFORE the user taps, from the ways to pay the payer uses.
+  quote.ts                   What a debt comes to in sats: a pinned rate for rupees, none for a group kept in bitcoin. 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
   groupLinks.ts              The /g/<token> and /join/<token> paths, and finding the link's token in what someone pasted.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
@@ -126,6 +127,10 @@ apps/mobile/                 @sattle/mobile: Expo
       nativeUpdates.ts       Native seam. Android talks to Play; iOS and web get null.
     upi/
       launchUpi.ts           Native seam. Android opens a UPI app and hears back; iOS and web get null.
+    prefs/
+      currencyPrefs.ts       Which currencies someone uses, and what a new group starts in. The rules, under vitest.
+      currencyStore.ts       Where the device keeps that. SecureStore on native, localStorage on web.
+      useCurrencyPrefs.ts    The choice, live, and the ways to pay it leaves on show.
     react/
       SattleProvider.tsx     Context, hooks, and the mock/real swap.
       useSettleFlow.ts       One settle attempt, from open to terminal.
@@ -147,7 +152,10 @@ apps/mobile/                 @sattle/mobile: Expo
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
-      AccountScreen.tsx      Who you're signed in as, copying your sign-in key, and deleting the account.
+      AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
+      OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
+      tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
+      CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -184,7 +192,7 @@ const settlement = useSettlement(settlementId);
 
 **Members are not users.** A `Member` is a row in a group with a `status` of `ghost`, `joined`, or `nwc_linked`. Ghosts have never installed anything. They can pay by scanning, but they can't receive until someone adds their Lightning address. Until then `createSettlement` throws `member_cannot_receive`. Retrofitting this is miserable, which is why it is in the type from line one.
 
-**Debt is denominated in fiat.** `amount` is always minor units (paise). Sats appear only inside a `Quote`, pinned at quote time with a 90-second TTL. There is deliberately no per-group setting for this — one invariant, not a knob users have to understand.
+**Debt is in the group's currency, in whole units of its smallest part.** `amount` is always minor units: paise in a group kept in rupees, sats in one kept in bitcoin. A group has one currency from the day it is made, chosen from the ones its maker uses, and it never changes. A rupee debt becomes sats only inside a `Quote`, pinned at quote time with a 90-second TTL. A sats debt is paid as it stands: its quote names no rate, and the server never looks one up.
 
 **The ledger moves on preimage, never on optimism.** `computeBalances` only counts settlements in `confirmed` or `manually_confirmed`. The mock enforces the same rule, so you cannot accidentally build a screen that assumes otherwise.
 
@@ -213,6 +221,26 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
 
+## First launch and currencies
+
+The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
+
+A group is kept in one currency, picked when it is made and never changed: rupees, or bitcoin. A group kept in bitcoin is counted in sats everywhere: amounts are typed and shown as whole sats, and settling one needs no exchange rate.
+
+Under **Account**, **Currencies** lets someone turn one of the two off. Nobody is asked to; it is there for someone who only ever uses one. Turning one off does two things.
+
+- **New groups aren't offered in it.** Someone who uses one currency is never asked which. Someone who uses both picks per group, starting from the one they said new groups start in.
+- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice, pay link or sats anywhere, and the trust screen leaves out the rows about them. With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
+
+Two things are never hidden, because hiding them would strand someone:
+
+- **Lightning, in a group kept in bitcoin.** Nothing else can settle it, so it shows there whatever was chosen. If people owe someone in such a group and they have bitcoin turned off, **Set up getting paid** turns it back on for them and says so.
+- **Anything already set up.** A connected wallet, a Lightning address or a UPI ID stays on the Wallet screen until its owner removes it, even with that currency turned off. Other people can still pay them that way, so they have to be able to see it and take it away.
+
+The last currency can't be turned off. The choice is kept on the device (`prefs/currencyStore`) and never sent to the server, which is why it changes what is shown and not what is allowed: the server still takes UPI for a rupee group and Lightning for any group, whoever asks.
+
 ## The API
 
 `apps/api` implements every route `ApiClient` calls, and nets debts with the same `@sattle/core` ledger the app uses, so balances can never disagree. The server doesn't trust the client:
@@ -224,7 +252,7 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
 
-- `nwc` (`payments/lightning.ts`): real payments. For each settlement it pins a quote at the live rate and gets an invoice that pays the payee directly:
+- `nwc` (`payments/lightning.ts`): real payments. For each settlement it pins a quote at the live rate, or for a group kept in bitcoin takes the sats owed as they are, and gets an invoice that pays the payee directly:
   - from their own wallet over Nostr Wallet Connect, polling it (`lookup_invoice`) until it reports the invoice paid, or
   - for a member with no NWC wallet, from the Lightning address they set themselves (LNURL-pay, `lnurl.ts`). The invoice is checked first: exact amount, our network, the address's metadata. When the address has a verify link (LUD-21) it's polled, and only a preimage that matches the payment hash counts as paid. Without one, the invoice is closed when it expires, saying we couldn't tell. Either way the payer can confirm it with their proof of payment, the preimage their wallet hands back (`POST /settlements/:id/proof`, or `/s/:token/proof` from a pay link), even after we've called it expired: it's checked against the payment hash stored when the invoice was minted. Every request to an address goes through `safeFetch.ts`, which refuses private addresses, redirects and slow or oversized answers.
 
@@ -273,7 +301,7 @@ Android hands the app the link only when the site vouches for it. `apps/mobile/p
 
 ### Paying by UPI
 
-A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet.
+A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet, unless they have turned rupees off (see [First launch and currencies](#first-launch-and-currencies)).
 
 The payer is only asked when there is something to choose. **Pay by UPI** is offered only for someone who has added a UPI ID. Without one, **Pay** opens straight on the Lightning invoice (`onlyRail`). It never opens a UPI app by itself: someone who takes UPI and has no wallet still gets **Pay by UPI** to tap. Neither is required of anyone: an account is only a name. Someone with neither can't be paid here yet, and whoever owes them is told so and can remind them. An invoice still out for the debt, from the sheet before it was closed or from a pay link, is picked up, not asked for a second time, since the server makes one at a time.
 

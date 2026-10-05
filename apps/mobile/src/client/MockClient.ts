@@ -345,7 +345,7 @@ export class MockClient implements SattleClient {
       const expense: Expense = {
         id: this.id('e'),
         ...input,
-        parts: resolveParts(input),
+        parts: resolveParts(input, g.currency),
         createdAt: this.now(),
       };
       this.expenses.push(expense);
@@ -931,7 +931,7 @@ export class MockClient implements SattleClient {
       if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
       const current = this.findExpense(g.id, expenseId);
       this.checkExpenseOwner(current);
-      return Object.assign(current, { ...input, parts: resolveParts(input) });
+      return Object.assign(current, { ...input, parts: resolveParts(input, g.currency) });
     }, idempotencyKey);
   }
 

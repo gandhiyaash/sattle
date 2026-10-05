@@ -22,11 +22,14 @@ export function InvoicePanel({
   expiresAt,
   onExpired,
   qrSize = 200,
+  sats,
 }: {
   invoice: string;
   expiresAt?: string;
   onExpired?: () => void;
   qrSize?: number;
+  /** The debt is in sats already, so the countdown is the invoice's alone: no rate was locked. */
+  sats?: boolean;
 }) {
   const s = useStyles();
   const left = useSecondsLeft(expiresAt);
@@ -47,7 +50,11 @@ export function InvoicePanel({
         {invoice}
       </Text>
       <CopyInvoice invoice={invoice} />
-      {left !== null && left > 0 && <Text style={s.countdown}>Rate and invoice locked for {formatClock(left)}</Text>}
+      {left !== null && left > 0 && (
+        <Text style={s.countdown}>
+          {sats ? 'Invoice good for' : 'Rate and invoice locked for'} {formatClock(left)}
+        </Text>
+      )}
     </View>
   );
 }

@@ -112,6 +112,30 @@ describe('POST /groups', () => {
     expect(res.body.currency).toBe('USD');
   });
 
+  it('keeps a bitcoin group in whole sats, and says so when a split doesn’t add up', async () => {
+    const { call } = setup();
+    const g = (await call<Group>('POST', '/groups', { name: 'Meetup', currency: 'btc', memberNames: ['Riya'] })).body;
+    expect(g.currency).toBe('BTC');
+
+    const [me, riya] = g.memberIds;
+    const spend = (parts: unknown[]) =>
+      call<Expense & { message: string }>('POST', `/groups/${g.id}/expenses`, {
+        description: 'Pizza',
+        amount: 21_000,
+        paidByMemberId: me,
+        splitMode: 'exact',
+        parts,
+      });
+
+    const off = await spend([{ memberId: me, amount: 10_000 }, { memberId: riya, amount: 10_000 }]);
+    expect(off.status).toBe(400);
+    expect(off.body.message).toBe('Exact amounts add up to 20,000 sats, not 21,000 sats.');
+
+    expect((await spend([{ memberId: me, amount: 10_000 }, { memberId: riya, amount: 11_000 }])).status).toBe(201);
+    const debts = (await call<Debt[]>('GET', `/groups/${g.id}/debts`)).body;
+    expect(debts).toEqual([expect.objectContaining({ fromMemberId: riya, toMemberId: me, amount: 11_000 })]);
+  });
+
   it.each(['12!', 'RUPEE', '', 'ab'])('refuses currency %j, which the app couldn’t format', async (currency) => {
     const { call } = setup();
     const res = await call<{ code: string; message: string }>('POST', '/groups', { name: 'Trip', currency, memberNames: [] });
