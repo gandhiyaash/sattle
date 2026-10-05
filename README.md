@@ -10,7 +10,7 @@ A monorepo: an Expo (React Native) app for Android and web (iOS builds from the 
 
 ## Quick start
 
-Requires Node 22.13+ (the API uses the built-in `node:sqlite`).
+Requires Node 24+. The API uses the built-in `node:sqlite` and, for Nostr relays, the built-in `WebSocket`. On Node 22 that `WebSocket` reports an error again when a failing connection is closed, which sends `nostr-tools` into a loop that overflows the stack and takes the whole server down whenever a relay refuses a connection. CI runs on 24.
 
 ```bash
 git clone https://github.com/gandhiyaash/sattle.git
