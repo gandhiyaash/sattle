@@ -36,7 +36,10 @@ export function createWalletStore(db: Db) {
     receiveAddress: db.prepare('SELECT receive_address FROM users WHERE id = ?'),
     setReceiveAddress: db.prepare('UPDATE users SET receive_address = ? WHERE id = ?'),
     upiId: db.prepare('SELECT upi_id FROM users WHERE id = ?'),
-    setUpiId: db.prepare('UPDATE users SET upi_id = ? WHERE id = ?'),
+    // A new ID, or none, starts with it off the shared links: showing it there is a choice made for one ID.
+    setUpiId: db.prepare('UPDATE users SET upi_id = ?, upi_on_links = CASE WHEN upi_id IS ? THEN upi_on_links ELSE 0 END WHERE id = ?'),
+    upiOnLinks: db.prepare('SELECT upi_on_links FROM users WHERE id = ?'),
+    setUpiOnLinks: db.prepare('UPDATE users SET upi_on_links = ? WHERE id = ?'),
     remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
     unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
   };
@@ -84,13 +87,22 @@ export function createWalletStore(db: Db) {
       q.setReceiveAddress.run(address, userId);
     },
 
-    /** The user's own UPI ID, if they've set one. Shown only to someone who owes them. */
+    /** The user's own UPI ID, if they've set one. Shown only to someone who owes them, or on shared links if they allow it. */
     upiId(userId: string): string | undefined {
       return (q.upiId.get(userId) as { upi_id: string | null } | undefined)?.upi_id ?? undefined;
     },
 
     setUpiId(userId: string, upiId: string | null) {
-      q.setUpiId.run(upiId, userId);
+      q.setUpiId.run(upiId, upiId, userId);
+    },
+
+    /** Whether they let shared group links show their UPI ID. Off until they turn it on. */
+    upiOnLinks(userId: string): boolean {
+      return Boolean((q.upiOnLinks.get(userId) as { upi_on_links: number } | undefined)?.upi_on_links);
+    },
+
+    setUpiOnLinks(userId: string, on: boolean) {
+      q.setUpiOnLinks.run(on ? 1 : 0, userId);
     },
 
     /** The secret, for the payment backend only. Never put it in a response. */

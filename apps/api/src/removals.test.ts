@@ -54,8 +54,12 @@ async function setup() {
     (await call<Invite>('POST', `/groups/${group.id}/invites`, undefined, as)).body.token;
   /** Who the join page offers, by name. */
   const offered = async (token: string) => (await call<InviteView>('GET', `/join/${token}`)).body.members;
-  const joinAs = async (name: string, token: string, as: string) =>
-    call('POST', '/groups/join', { token, ref: (await offered(token)).find((m) => m.name === name)!.ref }, as);
+  /** Asks to join as `name`, and Riya lets them in. */
+  const joinAs = async (name: string, token: string, as: string) => {
+    const ref = (await offered(token)).find((m) => m.name === name)!.ref;
+    const asked = await call<{ id: string }>('POST', '/join-requests', { token, ref }, as);
+    return call('POST', `/join-requests/${asked.body.id}/approve`, undefined, riya.token);
+  };
   await joinAs('Kabir', await invite(), kabir.token);
 
   const base = `/groups/${group.id}`;
@@ -232,7 +236,7 @@ describe('DELETE /groups/:id/members/:memberId', () => {
     expect((await call('DELETE', `${base}/members/${mAman}`, undefined, kabir.token)).status).toBe(200);
     expect((await members()).map((m) => m.displayName)).toEqual(['Riya', 'Kabir']);
     expect(await offered(token)).toEqual([]);
-    expect((await call('POST', '/groups/join', { token, ref: aman }, (await call<{ token: string }>('POST', '/accounts', { displayName: 'Aman' })).body.token)).status).toBe(404);
+    expect((await call('POST', '/join-requests', { token, ref: aman }, (await call<{ token: string }>('POST', '/accounts', { displayName: 'Aman' })).body.token)).status).toBe(404);
   });
 
   it('keeps anyone who is part of an expense', async () => {

@@ -1,10 +1,12 @@
 /**
  * Joining a group from an invite: arrive on /join/<token> or paste the link,
- * see who invited you to what, say which of the people in it you are, and join.
+ * see who invited you to what, say which of the people in it you are, and ask
+ * to join. Someone already in the group lets you in; until then you're on the
+ * groups list, waiting, with a code they may ask you for (WaitingToJoin).
  *
- * Joining makes you that member, with the balance already on that name, and
- * from then on you can see and add to everything in the group. The screen
- * says so above the button.
+ * Once in, you are that member, with the balance already on that name, and
+ * can see and add to everything in the group. The screen says so above the
+ * button.
  *
  * Nobody on the list types who they are. The group already has a row for each
  * person, so the page lists the ones nobody has joined as yet and the person
@@ -26,11 +28,12 @@ export interface JoinScreenProps {
   /** From the link. Without one, the screen asks for the link first. */
   token?: string;
   onBack: () => void;
-  onJoined: (groupId: string) => void;
+  /** They've asked. Someone in the group still has to let them in. */
+  onAsked: () => void;
 }
 
 /** For someone who already has an account on this device. */
-export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
+export function JoinScreen({ token, onBack, onAsked }: JoinScreenProps) {
   const client = useClient();
   // A retry after a lost response replays the join instead of finding the name taken.
   const keys = useActionKeys();
@@ -43,12 +46,12 @@ export function JoinScreen({ token, onBack, onJoined }: JoinScreenProps) {
       {active ? (
         <WhoAreYou
           token={active}
-          note="Once you join, you can see everything in this group and add to it."
+          note="Someone in the group lets you in. Then you can see everything in it and add to it."
           suggestedName={me.data?.displayName}
           join={async (as) => {
             const input = { token: active, as };
-            const group = await keys.run('join', input, (k) => client.acceptInvite(input.token, input.as, k));
-            onJoined(group.id);
+            await keys.run('join', input, (k) => client.askToJoin(input.token, input.as, k));
+            onAsked();
           }}
           otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
         />
@@ -70,11 +73,8 @@ export function JoinAsNewScreen({
   onSkip,
 }: {
   token: string;
-  /**
-   * `accountToken` is the new account's, already saved on this device.
-   * `groupId` is null when the account was made, the connection dropped, and they gave up on the invite.
-   */
-  onJoined: (accountToken: string, groupId: string | null) => void;
+  /** `accountToken` is the new account's, already saved on this device. Their request, if it went through, is waiting. */
+  onJoined: (accountToken: string) => void;
   /** The invite is no use to them, and they have no account yet. They start the app without it. */
   onSkip: () => void;
 }) {
@@ -101,7 +101,7 @@ export function JoinAsNewScreen({
         // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
         key={token}
         token={token}
-        note="Once you join, you can see everything in this group and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
+        note="Someone in the group lets you in. Then you can see everything in it and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
         join={async (as, name) => {
           if (made.current && made.current.name !== name) await forget();
           if (!made.current) {
@@ -111,19 +111,19 @@ export function JoinAsNewScreen({
           }
           const accountToken = made.current.token;
           const input = { token, as };
-          const group = await keys
-            .run('join', input, (k) => buildClient(accountToken).acceptInvite(input.token, input.as, k))
+          await keys
+            .run('join', input, (k) => buildClient(accountToken).askToJoin(input.token, input.as, k))
             .catch(async (e) => {
               // A lost connection is worth keeping the account for: the retry replays this join.
               // Anything else means they can't be this person, so the account goes.
               if (!(e instanceof SattleError && e.code === 'network')) await forget();
               throw e;
             });
-          onJoined(accountToken, group.id);
+          onJoined(accountToken);
         }}
         otherwise={{
           label: 'Start without it',
-          onPress: () => (made.current ? onJoined(made.current.token, null) : onSkip()),
+          onPress: () => (made.current ? onJoined(made.current.token) : onSkip()),
         }}
       />
     </Screen>
@@ -305,14 +305,14 @@ function WhoAreYou({
         </Card>
         <Text style={s.hint}>
           {adding
-            ? 'You’re added to the group as a new member, with nothing owed either way.'
-            : 'You take over that name as it is, with the balance already on it.'}
+            ? 'You’ll be added to the group as a new member, with nothing owed either way.'
+            : 'You’ll take over that name as it is, with the balance already on it.'}
         </Text>
       </View>
 
       <Text style={s.note}>{note}</Text>
       {failed && <ErrorState message={failed} />}
-      <Button label={name ? `Join as ${name}` : 'Join'} variant="primary" busy={busy} disabled={!name} onPress={submit} />
+      <Button label={name ? `Ask to join as ${name}` : 'Ask to join'} variant="primary" busy={busy} disabled={!name} onPress={submit} />
     </>
   );
 }

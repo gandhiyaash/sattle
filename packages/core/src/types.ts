@@ -275,6 +275,37 @@ export interface InviteView {
   members: InviteMember[];
 }
 
+/**
+ * Asking to join, as the person asking sees it. An invite doesn't let anyone
+ * in by itself: someone already in the group has to say yes, so a link that
+ * was forwarded can't be used to become someone. Once they do, the request is
+ * gone and the group is in the asker's list. `declined` stays until the asker
+ * has seen it.
+ */
+export interface JoinRequest {
+  id: string;
+  groupName: string;
+  /** The name they'll have in the group: the one they picked, or the one they gave. */
+  name: string;
+  /**
+   * Four digits, shown to them and to whoever lets them in. If two people ask
+   * to be the same person, asking "which code do you see?" tells them apart.
+   */
+  code: string;
+  status: 'pending' | 'declined';
+  createdAt: string;
+}
+
+/** Someone waiting to be let into a group, as the people already in it see them. */
+export interface PendingJoin {
+  id: string;
+  name: string;
+  /** They picked a name already in the group, and take over its balance. Otherwise they're new. */
+  existing: boolean;
+  code: string;
+  createdAt: string;
+}
+
 // -- group links -----------------------------------------------------------
 
 /**
@@ -308,8 +339,16 @@ export interface GroupGuestDebt {
   to: string;
   /** Minor units. */
   amount: number;
-  /** Whether the person owed has somewhere to receive it (canReceive). */
+  /** Whether the person owed has somewhere to receive it over Lightning (canReceive). */
   payable: boolean;
+  /**
+   * Whether the person owed takes UPI from this page: the group is in rupees,
+   * they have a UPI ID, and they chose to be paid that way from shared links.
+   * The ID itself isn't here; getGroupLinkUpi gives it for one debt.
+   */
+  upi?: boolean;
+  /** A UPI payment someone said they made for this debt, that the person owed hasn't confirmed. */
+  upiClaim?: UpiClaim['status'];
 }
 
 /** Only what the group page may show. Names and amounts, no member or group ids. */
@@ -365,6 +404,12 @@ export interface ReceiveAddress {
 /** A person's own UPI ID, for being paid in rupees outside Lightning. Null when they haven't set one. */
 export interface UpiProfile {
   upiId: string | null;
+  /**
+   * Whether anyone holding one of their groups' shared links can be shown the
+   * UPI ID to pay them. Off unless they turn it on, since the ID often holds a
+   * phone number and a shared link has no login.
+   */
+  onGroupLinks?: boolean;
 }
 
 /** Who to pay over UPI. Only someone who owes them right now is given this. */
@@ -389,6 +434,8 @@ export interface UpiClaim {
   reference?: string;
   /** `declined`: the person owed said it didn't arrive. It stays until the payer has seen it. */
   status: 'pending' | 'declined';
+  /** Made by someone on the group's shared link, who may not be the payer. */
+  viaLink?: boolean;
   createdAt: string;
 }
 

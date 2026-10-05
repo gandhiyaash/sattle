@@ -36,9 +36,11 @@ import {
   type Invite,
   type InviteView,
   type JoinAs,
+  type JoinRequest,
   type LedgerBackup,
   type Member,
   type PayLink,
+  type PendingJoin,
   type ReceiveAddress,
   type Settlement,
   type UpiClaim,
@@ -80,6 +82,33 @@ export class MockClient implements SattleClient {
   /** user id → their UPI ID. Om has one, so the demo has someone to pay by UPI. */
   private upiIds: Record<string, string> = { 'u-om': 'om@okhdfcbank' };
   private upiClaims: UpiClaim[] = [];
+  /** Who lets shared group links show their UPI ID. */
+  private upiOnLinks: Record<string, boolean> = { 'u-om': true };
+  /**
+   * Requests to join, as the server keeps them. One is waiting in Goa trip,
+   * from someone asking to be Aman, so the demo shows letting someone in.
+   */
+  private joinRequests: Array<{
+    id: string;
+    groupId: string;
+    userId: string;
+    memberId?: string;
+    displayName: string;
+    code: string;
+    status: JoinRequest['status'];
+    createdAt: string;
+  }> = [
+    {
+      id: 'jr-demo-aman',
+      groupId: 'g-goa',
+      userId: 'u-aman',
+      memberId: 'm-goa-aman',
+      displayName: 'Aman',
+      code: '4821',
+      status: 'pending',
+      createdAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+    },
+  ];
   private listeners = new Map<string, Set<(s: Settlement) => void>>();
   /** idempotency key → the first reply, like the server's table. */
   private replies = new Map<string, unknown>();
@@ -590,11 +619,11 @@ export class MockClient implements SattleClient {
   }
 
   /**
-   * The mock has one user, who is already in every group, so this always
-   * ends in "already in this group". The join itself needs the real API.
+   * The mock has one user, who is already in every group unless they left
+   * one, so this mostly ends in "already in this group".
    */
-  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string) {
-    return this.call(() => {
+  askToJoin(token: string, as: JoinAs, idempotencyKey?: string) {
+    return this.call((): JoinRequest => {
       // The server checks the body before it looks at the invite: a name is 1 to 40 characters.
       if ('displayName' in as && (!as.displayName.trim() || as.displayName.trim().length > 40)) {
         throw new SattleError('invalid_input', 'Give a name of up to 40 characters.');
@@ -606,27 +635,108 @@ export class MockClient implements SattleClient {
       if (members.some((m) => m.claimedByUserId === me.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
       }
-      const status = this.wallet.connected ? 'nwc_linked' : 'joined';
-
+      let memberId: string | undefined;
+      let displayName: string;
       if ('displayName' in as) {
-        const name = as.displayName.trim();
-        const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === name.toLowerCase());
+        displayName = as.displayName.trim();
+        const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === displayName.toLowerCase());
         if (waiting) {
           throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
         }
-        const added: Member = { id: this.id('m'), groupId: g.id, displayName: name, status, claimedByUserId: me.id };
+      } else {
+        const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
+        if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
+        if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
+        memberId = member.id;
+        displayName = member.displayName;
+      }
+      const req = {
+        id: this.id('jr'),
+        groupId: g.id,
+        userId: me.id,
+        memberId,
+        displayName,
+        code: String(Math.floor(Math.random() * 10_000)).padStart(4, '0'),
+        status: 'pending' as const,
+        createdAt: this.now(),
+      };
+      this.joinRequests = [...this.joinRequests.filter((x) => !(x.groupId === g.id && x.userId === me.id)), req];
+      return this.asSeenByAsker(req);
+    }, idempotencyKey);
+  }
+
+  private asSeenByAsker(req: MockClient['joinRequests'][number]): JoinRequest {
+    return {
+      id: req.id,
+      groupName: this.findGroup(req.groupId).name,
+      name: req.displayName,
+      code: req.code,
+      status: req.status,
+      createdAt: req.createdAt,
+    };
+  }
+
+  /** Same rule as the server: someone in the request's group, or not_found. */
+  private findJoinRequest(id: string) {
+    const req = this.joinRequests.find((x) => x.id === id);
+    if (!req || !this.myMember(req.groupId)) throw new SattleError('not_found', 'Nobody is waiting to join with that request.');
+    return req;
+  }
+
+  getMyJoinRequests() {
+    return this.call(() =>
+      this.joinRequests.filter((x) => x.userId === fixtures.currentUser.id).map((x) => this.asSeenByAsker(x))
+    );
+  }
+
+  withdrawJoinRequest(requestId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const req = this.joinRequests.find((x) => x.id === requestId && x.userId === fixtures.currentUser.id);
+      if (!req) throw new SattleError('not_found', 'That request isn’t there any more.');
+      this.joinRequests = this.joinRequests.filter((x) => x !== req);
+    }, idempotencyKey);
+  }
+
+  getPendingJoins(groupId: string) {
+    return this.call((): PendingJoin[] => {
+      this.findGroup(groupId);
+      return this.joinRequests
+        .filter((x) => x.groupId === groupId && x.status === 'pending')
+        .map((x) => ({ id: x.id, name: x.displayName, existing: Boolean(x.memberId), code: x.code, createdAt: x.createdAt }));
+    });
+  }
+
+  approveJoin(requestId: string, idempotencyKey?: string) {
+    return this.call((): Member => {
+      const req = this.findJoinRequest(requestId);
+      if (req.status !== 'pending') throw new SattleError('conflict', `${req.displayName} was already turned down.`);
+      const g = this.findGroup(req.groupId);
+      if (this.members.some((m) => m.groupId === g.id && m.claimedByUserId === req.userId)) {
+        throw new SattleError('conflict', `${req.displayName} is already in this group.`);
+      }
+      this.joinRequests = this.joinRequests.filter((x) => x !== req);
+      if (!req.memberId) {
+        const added: Member = { id: this.id('m'), groupId: g.id, displayName: req.displayName, status: 'joined', claimedByUserId: req.userId };
         this.members.push(added);
         g.memberIds.push(added.id);
-        return g;
+        return added;
       }
-
-      const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
-      if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
+      const member = this.members.find((m) => m.id === req.memberId)!;
       if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
-      member.claimedByUserId = me.id;
-      member.status = status;
+      member.claimedByUserId = req.userId;
+      member.status = 'joined';
       delete member.lightningAddress; // as the API: a groupmate typed it, not them
-      return g;
+      // Anyone else asking to be them can't be now.
+      for (const x of this.joinRequests) {
+        if (x.memberId === member.id) Object.assign(x, { status: 'declined', memberId: undefined });
+      }
+      return member;
+    }, idempotencyKey);
+  }
+
+  declineJoin(requestId: string, idempotencyKey?: string) {
+    return this.call(() => {
+      this.findJoinRequest(requestId).status = 'declined';
     }, idempotencyKey);
   }
 
@@ -692,13 +802,18 @@ export class MockClient implements SattleClient {
             shares: e.parts.map((p) => ({ name: member(p.memberId).displayName, amount: p.amount })),
             createdAt: e.createdAt,
           })),
-        debts: this.debtsOf(g.id).map((d) => ({
-          ref: this.debtRef(token, d),
-          from: member(d.fromMemberId).displayName,
-          to: member(d.toMemberId).displayName,
-          amount: d.amount,
-          payable: canReceive(member(d.toMemberId)),
-        })),
+        debts: this.debtsOf(g.id).map((d) => {
+          const claim = this.upiClaims.find((x) => x.fromMemberId === d.fromMemberId && x.toMemberId === d.toMemberId);
+          return {
+            ref: this.debtRef(token, d),
+            from: member(d.fromMemberId).displayName,
+            to: member(d.toMemberId).displayName,
+            amount: d.amount,
+            payable: canReceive(member(d.toMemberId)),
+            ...(this.upiOnLink(g.id, member(d.toMemberId)) ? { upi: true } : {}),
+            ...(claim ? { upiClaim: claim.status } : {}),
+          };
+        }),
       };
     });
   }
@@ -732,6 +847,51 @@ export class MockClient implements SattleClient {
         this.payLinks.push(payLink);
       }
       return { token: payLink.token };
+    }, idempotencyKey);
+  }
+
+  /** Same rule as the server: a rupee group, and a payee who has an ID and chose to show it on links. */
+  private upiOnLink(groupId: string, payee: Member) {
+    return this.findGroup(groupId).currency === 'INR' && this.takesUpi(payee) && Boolean(this.upiOnLinks[payee.claimedByUserId!]);
+  }
+
+  private groupLinkUpiDebt(token: string, ref: string) {
+    const link = this.findGroupLink(token);
+    const debt = this.debtsOf(link.groupId).find((d) => this.debtRef(token, d) === ref);
+    if (!debt) throw new SattleError('link_expired', 'This has already been settled.');
+    const payee = this.members.find((m) => m.id === debt.toMemberId)!;
+    if (!this.upiOnLink(link.groupId, payee)) {
+      throw new SattleError('member_cannot_receive', `${payee.displayName} can’t be paid by UPI from here.`);
+    }
+    return { debt, payee };
+  }
+
+  getGroupLinkUpi(token: string, ref: string) {
+    return this.call((): UpiPayee => {
+      const { payee } = this.groupLinkUpiDebt(token, ref);
+      return { upiId: this.upiIds[payee.claimedByUserId!], name: payee.displayName };
+    });
+  }
+
+  claimUpiFromGroupLink(token: string, ref: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const { debt } = this.groupLinkUpiDebt(token, ref);
+      const pair = (x: UpiClaim) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId;
+      // What the payer said in the app stays.
+      if (this.upiClaims.some((x) => pair(x) && x.status === 'pending')) return;
+      this.upiClaims = [
+        ...this.upiClaims.filter((x) => !pair(x)),
+        {
+          id: this.id('uc'),
+          groupId: debt.groupId,
+          fromMemberId: debt.fromMemberId,
+          toMemberId: debt.toMemberId,
+          amount: debt.amount,
+          status: 'pending',
+          viaLink: true,
+          createdAt: this.now(),
+        },
+      ];
     }, idempotencyKey);
   }
 
@@ -809,6 +969,7 @@ export class MockClient implements SattleClient {
       this.payLinks = this.payLinks.filter((x) => !mine(x));
       this.invites = this.invites.filter((x) => !mine(x));
       this.groupLinks = this.groupLinks.filter((x) => !mine(x));
+      this.joinRequests = this.joinRequests.filter((x) => !mine(x));
     }, idempotencyKey);
   }
 
@@ -828,6 +989,9 @@ export class MockClient implements SattleClient {
       }
       this.members = this.members.filter((m) => m !== member);
       g.memberIds = g.memberIds.filter((id) => id !== memberId);
+      for (const x of this.joinRequests) {
+        if (x.memberId === memberId) Object.assign(x, { status: 'declined', memberId: undefined });
+      }
     }, idempotencyKey);
   }
 
@@ -929,23 +1093,41 @@ export class MockClient implements SattleClient {
     }
   }
 
+  private upiProfile(): UpiProfile {
+    const me = fixtures.currentUser.id;
+    return { upiId: this.upiIds[me] ?? null, onGroupLinks: Boolean(this.upiOnLinks[me]) };
+  }
+
   getUpiId() {
-    return this.call((): UpiProfile => ({ upiId: this.upiIds[fixtures.currentUser.id] ?? null }));
+    return this.call(() => this.upiProfile());
   }
 
   setUpiId(upiId: string) {
     return this.call((): UpiProfile => {
       const parsed = parseUpiId(upiId);
       if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
-      this.upiIds[fixtures.currentUser.id] = parsed.upiId;
-      return { upiId: parsed.upiId };
+      const me = fixtures.currentUser.id;
+      // As the server: a different ID starts off the shared links.
+      if (this.upiIds[me] !== parsed.upiId) delete this.upiOnLinks[me];
+      this.upiIds[me] = parsed.upiId;
+      return this.upiProfile();
+    });
+  }
+
+  setUpiOnGroupLinks(on: boolean) {
+    return this.call((): UpiProfile => {
+      const me = fixtures.currentUser.id;
+      if (on && !this.upiIds[me]) throw new SattleError('invalid_input', 'Add your UPI ID first.');
+      this.upiOnLinks[me] = on;
+      return this.upiProfile();
     });
   }
 
   clearUpiId() {
     return this.call((): UpiProfile => {
       delete this.upiIds[fixtures.currentUser.id];
-      return { upiId: null };
+      delete this.upiOnLinks[fixtures.currentUser.id];
+      return this.upiProfile();
     });
   }
 

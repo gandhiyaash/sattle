@@ -94,7 +94,8 @@ describe('the group’s link', () => {
     const kabir = await signUp('Kabir');
     const invite = (await call<{ token: string }>('POST', `${base}/invites`, undefined, riya.token)).body.token;
     const offered = (await call<InviteView>('GET', `/join/${invite}`)).body.members;
-    await call('POST', '/groups/join', { token: invite, ref: offered.find((m) => m.name === 'Kabir')!.ref }, kabir.token);
+    const asked = await call<{ id: string }>('POST', '/join-requests', { token: invite, ref: offered.find((m) => m.name === 'Kabir')!.ref }, kabir.token);
+    await call('POST', `/join-requests/${asked.body.id}/approve`, undefined, riya.token);
     const token = await share(kabir.token);
 
     db.prepare('UPDATE group_links SET created_at = ?').run('2020-01-01T00:00:00.000Z');

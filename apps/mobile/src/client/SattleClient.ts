@@ -26,9 +26,11 @@ import type {
   Invite,
   InviteView,
   JoinAs,
+  JoinRequest,
   LedgerBackup,
   Member,
   PayLink,
+  PendingJoin,
   ReceiveAddress,
   Settlement,
   UpiClaim,
@@ -108,15 +110,16 @@ export interface SattleClient {
   // -- invites --------------------------------------------------------------
   //
   // One link for the whole group: whoever opens it picks which of the people
-  // who haven't joined they are, and becomes that member. Someone who isn't
-  // one of them adds themselves.
+  // who haven't joined they are, or gives their own name, and asks to join.
+  // Someone already in the group lets them in, so a forwarded link can't be
+  // used to become someone.
 
   /** The group's invite, or null when it has none that still works. */
   getGroupInvite(groupId: string): Promise<Invite | null>;
   /**
    * Makes the group's invite; anyone in the group can. If there was one, it
-   * stops working. Share `${APP_URL}${invitePath(token)}`. Whoever joins with
-   * it becomes a full member, so it lasts a week.
+   * stops working. Share `${APP_URL}${invitePath(token)}`. Whoever is let in
+   * with it becomes a full member, so it lasts a week.
    */
   createInvite(groupId: string, idempotencyKey?: string): Promise<Invite>;
   /** Turns the group's invite off. */
@@ -124,13 +127,28 @@ export interface SattleClient {
   /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
   getInvite(token: string): Promise<InviteView>;
   /**
-   * The signed-in user joins the invite's group and gets it back. With a
-   * `ref`, one of `getInvite`'s, they become that member; throws `conflict` if
-   * someone else has joined as that person since. With a `displayName`, they
-   * are added as a new member; throws `conflict` if that name is a member
-   * still waiting to be picked.
+   * The signed-in user asks to join the invite's group, and is in once someone
+   * there says yes. With a `ref`, one of `getInvite`'s, they ask to be that
+   * member; throws `conflict` if someone has joined as that person since.
+   * With a `displayName`, they ask to be added as a new member; throws
+   * `conflict` if that name is a member still waiting to be picked. Asking
+   * again replaces their last request for the group.
    */
-  acceptInvite(token: string, as: JoinAs, idempotencyKey?: string): Promise<Group>;
+  askToJoin(token: string, as: JoinAs, idempotencyKey?: string): Promise<JoinRequest>;
+  /** The user's own requests, waiting or turned down. One that was let in is gone, and the group is in getGroups. */
+  getMyJoinRequests(): Promise<JoinRequest[]>;
+  /** Takes back a request, or clears one that was turned down. */
+  withdrawJoinRequest(requestId: string, idempotencyKey?: string): Promise<void>;
+  /** Members only. Who is waiting to be let in, oldest first. */
+  getPendingJoins(groupId: string): Promise<PendingJoin[]>;
+  /**
+   * Anyone in the group. They become the member they asked to be, or a new
+   * one; anyone else asking to be that member is turned down. Throws
+   * `conflict` if it was turned down already or someone joined as them since.
+   */
+  approveJoin(requestId: string, idempotencyKey?: string): Promise<Member>;
+  /** Anyone in the group. The person asking sees it was turned down. */
+  declineJoin(requestId: string, idempotencyKey?: string): Promise<void>;
 
   // -- group links ----------------------------------------------------------
   //
@@ -155,6 +173,17 @@ export interface SattleClient {
    * owed has nowhere to receive.
    */
   payFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<{ token: string }>;
+  /**
+   * Public. Where to pay the debt `ref` by UPI, when the person owed allows it
+   * from shared links (the debt's `upi`). Throws `member_cannot_receive` when
+   * they don't, `link_expired` if the debt is gone.
+   */
+  getGroupLinkUpi(token: string, ref: string): Promise<UpiPayee>;
+  /**
+   * Public. Says the debt `ref` was paid by UPI. Moves nothing: the person
+   * owed confirms it. A claim already waiting for the debt is left as it is.
+   */
+  claimUpiFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<void>;
 
   // -- changing and removing ------------------------------------------------
   //
@@ -214,8 +243,13 @@ export interface SattleClient {
 
   /** The user's own UPI ID, for every group they're in. */
   getUpiId(): Promise<UpiProfile>;
-  /** Throws `invalid_input` when it isn't a UPI ID. */
+  /** Throws `invalid_input` when it isn't a UPI ID. A different ID is off shared links until turned on again. */
   setUpiId(upiId: string): Promise<UpiProfile>;
+  /**
+   * Whether anyone holding one of the user's groups' shared links may be
+   * shown their UPI ID to pay them. Throws `invalid_input` with no ID set.
+   */
+  setUpiOnGroupLinks(on: boolean): Promise<UpiProfile>;
   clearUpiId(): Promise<UpiProfile>;
   /**
    * Where to pay a member over UPI. Only for someone who owes them: throws

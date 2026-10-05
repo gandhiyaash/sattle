@@ -9,22 +9,29 @@
  * off. Holding it changes nothing in the group; the only thing it can start
  * is a payment, which goes to the person owed like any other.
  *
- * /g/ responses carry names and amounts only, never member or group ids.
+ * In a rupee group, a debt can also be paid by UPI from here, to someone who
+ * has a UPI ID and has chosen to be paid that way from shared links. The
+ * page says it was paid (a claim, as in upi.ts), and the person owed is the
+ * one who confirms it, so holding the link still can't settle anything.
+ *
+ * /g/ responses carry names and amounts only, never member or group ids. A
+ * UPI ID is given only for one debt at a time, when someone asks to pay it.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import { SattleError, type Debt, type GroupGuestView, type GroupLink } from '@sattle/core';
+import { SattleError, UPI_CURRENCY, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { idempotency } from '../middleware';
 import { receivable } from '../payments';
-import { nowIso } from '../repo';
-import { debtsOf } from '../settlementRules';
+import { newId, nowIso } from '../repo';
+import { debtsOf, inProgressFor } from '../settlementRules';
 import { newPayLinkToken } from './payLinks';
+import { takesUpiOnLinks } from './upi';
 
 /** 16 random bytes, base64url: 22 characters, unguessable. */
 export const newGroupLinkToken = () => randomBytes(16).toString('base64url');
@@ -37,7 +44,7 @@ export const newGroupLinkToken = () => randomBytes(16).toString('base64url');
 const debtRef = (token: string, d: Pick<Debt, 'fromMemberId' | 'toMemberId'>) =>
   createHash('sha256').update(`${token}:${d.fromMemberId}:${d.toMemberId}`).digest('base64url').slice(0, 16);
 
-export function groupLinkRoutes({ db, repo, payments }: Ctx) {
+export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
@@ -47,10 +54,33 @@ export function groupLinkRoutes({ db, repo, payments }: Ctx) {
     return link;
   };
 
+  /** The debt the page means by `ref`, as it is now. 410 link_expired once it's no longer owed. */
+  const findDebt = (link: GroupLink, ref: string) => {
+    const g = repo.group(link.groupId)!;
+    const debt = debtsOf(repo, g).find((d) => debtRef(link.token, d) === ref);
+    if (!debt) throw new SattleError('link_expired', 'This has already been settled.');
+    return { g, debt };
+  };
+
+  /** Whether the person owed takes UPI from this page. */
+  const upiHere = (g: Group, toMemberId: string) =>
+    g.currency === UPI_CURRENCY && takesUpiOnLinks(wallets, repo.member(toMemberId)!);
+
+  /** The payee, for a debt someone wants to pay by UPI from the page. 409 member_cannot_receive if they can't be. */
+  const upiPayee = (link: GroupLink, ref: string) => {
+    const { g, debt } = findDebt(link, ref);
+    const payee = repo.member(debt.toMemberId)!;
+    if (!upiHere(g, payee.id)) {
+      throw new SattleError('member_cannot_receive', `${payee.displayName} can’t be paid by UPI from here.`);
+    }
+    return { g, debt, payee };
+  };
+
   const guestView = (link: GroupLink): GroupGuestView => {
     const g = repo.group(link.groupId)!;
     const members = new Map(repo.members(g.id).map((m) => [m.id, m]));
     const name = (id: string) => members.get(id)!.displayName;
+    const claims = repo.upiClaims(g.id);
     return {
       groupName: g.name,
       currency: g.currency,
@@ -61,13 +91,18 @@ export function groupLinkRoutes({ db, repo, payments }: Ctx) {
         shares: e.parts.map((p) => ({ name: name(p.memberId), amount: p.amount })),
         createdAt: e.createdAt,
       })),
-      debts: debtsOf(repo, g).map((d) => ({
-        ref: debtRef(link.token, d),
-        from: name(d.fromMemberId),
-        to: name(d.toMemberId),
-        amount: d.amount,
-        payable: receivable(payments, members.get(d.toMemberId)!),
-      })),
+      debts: debtsOf(repo, g).map((d) => {
+        const claim = claims.find((x) => x.fromMemberId === d.fromMemberId && x.toMemberId === d.toMemberId);
+        return {
+          ref: debtRef(link.token, d),
+          from: name(d.fromMemberId),
+          to: name(d.toMemberId),
+          amount: d.amount,
+          payable: receivable(payments, members.get(d.toMemberId)!),
+          ...(upiHere(g, d.toMemberId) ? { upi: true } : {}),
+          ...(claim ? { upiClaim: claim.status } : {}),
+        };
+      }),
     };
   };
 
@@ -115,9 +150,7 @@ export function groupLinkRoutes({ db, repo, payments }: Ctx) {
     const link = findLink(c.req.param('token'));
 
     const token = transaction(db, () => {
-      const g = repo.group(link.groupId)!;
-      const debt = debtsOf(repo, g).find((d) => debtRef(link.token, d) === c.req.param('ref'));
-      if (!debt) throw new SattleError('link_expired', 'This has already been settled.');
+      const { g, debt } = findDebt(link, c.req.param('ref'));
       const payee = repo.member(debt.toMemberId)!;
       if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
@@ -139,6 +172,53 @@ export function groupLinkRoutes({ db, repo, payments }: Ctx) {
       ).token;
     });
     return c.json({ token }, 201);
+  });
+
+  /**
+   * Public. Where to pay a debt on the page by UPI: UpiPayee. Only for a debt
+   * owed to someone who chose to be paid by UPI from shared links.
+   *   unknown group link                         → 404 not_found
+   *   that debt is no longer owed                → 410 link_expired
+   *   not in rupees, no UPI ID, or not chosen    → 409 member_cannot_receive
+   */
+  r.get('/g/:token/debts/:ref/upi', (c) => {
+    const { payee } = upiPayee(findLink(c.req.param('token')), c.req.param('ref'));
+    const body: UpiPayee = { upiId: wallets.upiId(payee.claimedByUserId!)!, name: payee.displayName };
+    return c.json(body);
+  });
+
+  /**
+   * Public. Someone on the page says the debt was paid by UPI. It moves
+   * nothing: the person owed sees it, marked as coming from the link, and
+   * confirms it or says it didn't arrive. Returns 201 `{ ok: true }`.
+   *   as for /upi above
+   *   a Lightning payment for it is under way    → 409 conflict
+   * A claim already waiting for this debt, from the page or from the payer
+   * in the app, is left as it is: the link can't replace what the payer said.
+   */
+  r.post('/g/:token/debts/:ref/upi-claims', once, (c) => {
+    const link = findLink(c.req.param('token'));
+    transaction(db, () => {
+      const { g, debt } = upiPayee(link, c.req.param('ref'));
+      if (inProgressFor(repo, g, debt)) {
+        throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+      }
+      const waiting = repo
+        .upiClaims(g.id)
+        .find((x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId && x.status === 'pending');
+      if (waiting) return;
+      repo.replaceUpiClaim({
+        id: newId('uc'),
+        groupId: g.id,
+        fromMemberId: debt.fromMemberId,
+        toMemberId: debt.toMemberId,
+        amount: debt.amount,
+        status: 'pending',
+        viaLink: true,
+        createdAt: nowIso(),
+      });
+    });
+    return c.json({ ok: true }, 201);
   });
 
   return r;

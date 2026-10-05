@@ -111,8 +111,6 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client:
  */
 function AccountGate({ invite, onInviteDone }: { invite: string | null; onInviteDone: () => void }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
-  // The group someone joined on the way in, with no account before that. The app opens on it.
-  const [joined, setJoined] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -144,13 +142,13 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
       );
     case 'none':
       if (invite) {
-        // Reading an invite needs no account. Picking who they are makes one, under that name.
+        // Reading an invite needs no account. Picking who they are makes one, under that name, and asks to join.
         return (
           <SattleProvider>
             <JoinAsNewScreen
               token={invite}
-              onJoined={(token, groupId) => {
-                setJoined(groupId);
+              // They've asked to join. The app opens on their groups, where the request waits.
+              onJoined={(token) => {
                 onInviteDone();
                 setAccount({ kind: 'ready', client: buildClient(token) });
               }}
@@ -165,7 +163,6 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
         <DemoApp
           client={account.client}
           invite={invite}
-          group={joined}
           onInviteDone={onInviteDone}
           // The server no longer knows the token, so the device shouldn't keep it.
           onAccountDeleted={async () => {
