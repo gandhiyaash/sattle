@@ -59,10 +59,12 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Read here, not in each section, so the screen knows what they've already set up.
-  const connection = useAsync(() => client.getWalletConnection(), []);
-  const receiveAt = useAsync(() => client.getReceiveAddress(), []);
-  const upiId = useAsync(() => client.getUpiId(), []);
+  // Held here, not in each section, so the screen knows what they've set up, and knows at once
+  // when that changes. A section for a way they don't use is only there for what it holds: the
+  // moment they remove that, the section goes, without first offering to set it up again.
+  const connection = useSetting(() => client.getWalletConnection());
+  const receiveAt = useSetting(() => client.getReceiveAddress());
+  const upiId = useSetting(() => client.getUpiId());
   const show = {
     wallet: ways.lightning || Boolean(connection.data?.connected),
     address: ways.lightning || Boolean(receiveAt.data?.address),
@@ -136,6 +138,22 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
   );
 }
 
+/**
+ * One thing they can set up to be paid with: what the server holds, and what
+ * it became on this screen since. A change made here is the newer of the two,
+ * so `data` is always what is true now, with nothing read again.
+ */
+interface Setting<T> extends AsyncState<T> {
+  /** After a change made here: what the server answered it with. */
+  set: (value: T) => void;
+}
+
+function useSetting<T>(read: () => Promise<T>): Setting<T> {
+  const current = useAsync(read, []);
+  const [changed, setChanged] = useState<T>();
+  return { ...current, data: changed ?? current.data, set: setChanged };
+}
+
 /** What each NWC method lets the holder of the connection do, in plain words. */
 const METHOD_NAMES: Record<string, string> = {
   make_invoice: 'Create invoices',
@@ -156,24 +174,23 @@ const methodName = (m: string) => METHOD_NAMES[m] ?? m.replaceAll('_', ' ');
  * The server only needs to create invoices and check them. Anything more the
  * connection grants is shown as a warning, because the server stores it.
  */
-function ConnectWallet({ current }: { current: AsyncState<WalletConnection> }) {
+function ConnectWallet({ current }: { current: Setting<WalletConnection> }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const [connection, setConnection] = useState<WalletConnection | null>(null);
   const [replacing, setReplacing] = useState(false);
   const [uri, setUri] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const conn = connection ?? current.data;
+  const conn = current.data;
 
   const connect = async () => {
     if (!uri.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      setConnection(await client.connectWallet(uri.trim()));
+      current.set(await client.connectWallet(uri.trim()));
       setUri('');
       setReplacing(false);
     } catch (e) {
@@ -252,7 +269,7 @@ function ConnectWallet({ current }: { current: AsyncState<WalletConnection> }) {
             label="Disconnect wallet"
             confirmLabel="Yes, disconnect"
             hint="Sattle forgets the connection. Money people owe you can’t land there until you connect again."
-            onConfirm={async () => setConnection(await client.disconnectWallet())}
+            onConfirm={async () => current.set(await client.disconnectWallet())}
           />
         )}
       </Card>
@@ -269,27 +286,26 @@ function ReceiveAtAddress({
   current,
   alone,
 }: {
-  current: AsyncState<ReceiveAddress>;
+  current: Setting<ReceiveAddress>;
   /** The wallet section above isn't shown, so this isn't the "or" to anything. */
   alone: boolean;
 }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const address = saved !== undefined ? saved : current.data?.address;
+  const address = current.data?.address;
 
   const run = async (fn: () => Promise<{ address: string | null }>) => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      setSaved((await fn()).address);
+      current.set(await fn());
       setInput('');
       setEditing(false);
     } catch (e) {
@@ -377,17 +393,16 @@ function ReceiveAtAddress({
  * number in it is warned about beside the shared-link switch too, since IDs
  * saved before the warning existed kept what that switch was.
  */
-function UpiIdCard({ current }: { current: AsyncState<UpiProfile> }) {
+function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const [saved, setSaved] = useState<UpiProfile | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const profile = saved ?? current.data;
+  const profile = current.data;
   const upiId = profile?.upiId;
   const onLinks = Boolean(profile?.onGroupLinks);
 
@@ -396,7 +411,7 @@ function UpiIdCard({ current }: { current: AsyncState<UpiProfile> }) {
     setBusy(true);
     setError(null);
     try {
-      setSaved(await fn());
+      current.set(await fn());
       setInput('');
       setEditing(false);
     } catch (e) {

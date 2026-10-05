@@ -21,8 +21,9 @@ const OPTIONS: Array<{ currency: SupportedCurrency; mark: string; name: string; 
   { currency: 'BTC', mark: 'sats', name: 'Bitcoin', detail: 'Keep bills in sats and settle up over Lightning.' },
 ];
 
-/** What a group's currency is called where one is picked. */
-export const CURRENCY_NAMES = OPTIONS.map((o) => ({ value: o.currency, label: o.name }));
+/** The currencies someone uses, by name, for wherever they pick one of them: never one they don't use. */
+export const currencyNames = (uses: readonly SupportedCurrency[]) =>
+  OPTIONS.filter((o) => uses.includes(o.currency)).map((o) => ({ value: o.currency, label: o.name }));
 
 export function CurrencyPicker({
   prefs,
@@ -80,7 +81,7 @@ export function CurrencyPicker({
         <View style={{ gap: space.sm }}>
           <Text style={s.label}>New groups start in</Text>
           <Segmented
-            options={CURRENCY_NAMES}
+            options={currencyNames(prefs.uses)}
             value={prefs.newGroups}
             onChange={(currency) => onChange(startNewGroupsIn(prefs, currency))}
           />

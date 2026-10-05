@@ -17,7 +17,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { isBitcoin } from '@sattle/core';
 import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useClient } from '../react/SattleProvider';
-import { CURRENCY_NAMES } from './CurrencyPicker';
+import { currencyNames } from './CurrencyPicker';
 import { Button, Card, ErrorState, Screen, SectionLabel, Segmented } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
@@ -79,7 +79,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
       {prefs.uses.length > 1 && (
         <View>
           <SectionLabel>Kept in</SectionLabel>
-          <Segmented options={CURRENCY_NAMES.filter((c) => prefs.uses.includes(c.value))} value={currency} onChange={setCurrency} />
+          <Segmented options={currencyNames(prefs.uses)} value={currency} onChange={setCurrency} />
           <Text style={s.note}>
             {isBitcoin(currency)
               ? 'Amounts are in sats, and people settle up over Lightning. This can’t be changed later.'

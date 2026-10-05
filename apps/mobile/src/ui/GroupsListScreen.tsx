@@ -100,7 +100,7 @@ export function GroupsListScreen({
   // Net position per currency, over the groups where something has been spent. In the order
   // the app lists currencies everywhere else, not the order the groups happen to come in.
   const totals = new Map<string, number>();
-  for (const currency of [...SUPPORTED_CURRENCIES, ...(data ?? []).map((r) => r.group.currency)]) {
+  for (const currency of new Set([...SUPPORTED_CURRENCIES, ...(data ?? []).map((r) => r.group.currency)])) {
     const spent = (data ?? []).filter((r) => r.group.currency === currency && r.expenseCount > 0);
     if (spent.length > 0) totals.set(currency, spent.reduce((sum, r) => sum + r.net, 0));
   }
