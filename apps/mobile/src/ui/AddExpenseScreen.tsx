@@ -14,14 +14,20 @@
  * and a running total of what's left to assign, and won't save until the
  * amounts add up. An expense keeps only what each person owes, not the
  * shares behind it, so editing one split by shares opens it as exact amounts.
+ *
+ * Amounts are typed in the group's currency: rupees with paise after the
+ * point, or whole sats in a group kept in bitcoin.
  */
 
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
+  amountAsTyped,
   canChangeExpense,
-  formatFiat,
+  formatAmount,
+  isBitcoin,
+  parseAmount,
   resolveParts,
   type Expense,
   type ExpensePartInput,
@@ -60,12 +66,6 @@ const MODES: Array<{ mode: SplitMode; label: string }> = [
   { mode: 'exact', label: 'Exact' },
 ];
 
-/** Rupees as typed into paise; 0 for anything that isn't a clean number. */
-function toMinor(text: string): number {
-  const n = Number(text.replace(/[^0-9.]/g, ''));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
-}
-
 const MAX_SHARES = 99;
 
 export function AddExpenseScreen({
@@ -81,9 +81,12 @@ export function AddExpenseScreen({
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
+  const sats = isBitcoin(currency);
+  // Sats are whole, so their keyboard has no point on it.
+  const keyboard = sats ? 'number-pad' : 'decimal-pad';
 
   const [description, setDescription] = useState(expense?.description ?? '');
-  const [amountText, setAmountText] = useState(expense ? String(expense.amount / 100) : '');
+  const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
   const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? members[0]?.id ?? '');
   // An uneven split comes back as the amounts it resolved to, which saving keeps.
   const [mode, setMode] = useState<SplitMode>(expense && expense.splitMode !== 'equal' ? 'exact' : 'equal');
@@ -92,10 +95,10 @@ export function AddExpenseScreen({
   );
   /** By shares: whole shares per member, 1 unless changed. */
   const [weights, setWeights] = useState<Record<string, number>>({});
-  /** Exact: each member's amount as typed, in rupees. */
+  /** Exact: each member's amount as typed, in rupees or sats. */
   const [exacts, setExacts] = useState<Record<string, string>>(() =>
     expense && expense.splitMode !== 'equal'
-      ? Object.fromEntries(expense.parts.map((p) => [p.memberId, String(p.amount / 100)]))
+      ? Object.fromEntries(expense.parts.map((p) => [p.memberId, amountAsTyped(p.amount, currency)]))
       : {}
   );
 
@@ -105,7 +108,7 @@ export function AddExpenseScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const amountMinor = useMemo(() => toMinor(amountText), [amountText]);
+  const amountMinor = useMemo(() => parseAmount(amountText, currency), [amountText, currency]);
 
   // Members in group order, so the remainder lands the same way every time.
   const parts = useMemo<ExpensePartInput[]>(
@@ -116,10 +119,10 @@ export function AddExpenseScreen({
           mode === 'shares'
             ? { memberId: m.id, weight: weights[m.id] ?? 1 }
             : mode === 'exact'
-              ? { memberId: m.id, amount: toMinor(exacts[m.id] ?? '') }
+              ? { memberId: m.id, amount: parseAmount(exacts[m.id] ?? '', currency) }
               : { memberId: m.id }
         ),
-    [members, included, mode, weights, exacts]
+    [members, included, mode, weights, exacts, currency]
   );
 
   /** Exact: total still to hand out. Negative when the amounts overshoot. */
@@ -128,18 +131,21 @@ export function AddExpenseScreen({
   const preview = useMemo(() => {
     if (mode === 'exact' || amountMinor <= 0 || parts.length === 0) return null;
     try {
-      return resolveParts({
-        groupId,
-        description,
-        amount: amountMinor,
-        paidByMemberId: paidBy,
-        splitMode: mode,
-        parts,
-      });
+      return resolveParts(
+        {
+          groupId,
+          description,
+          amount: amountMinor,
+          paidByMemberId: paidBy,
+          splitMode: mode,
+          parts,
+        },
+        currency
+      );
     } catch {
       return null;
     }
-  }, [amountMinor, parts, mode, groupId, description, paidBy]);
+  }, [amountMinor, parts, mode, groupId, description, paidBy, currency]);
 
   const step = (id: string, by: number) =>
     setWeights((prev) => ({
@@ -159,8 +165,8 @@ export function AddExpenseScreen({
     if (mode === 'exact' && unassigned !== 0) {
       return setError(
         unassigned > 0
-          ? `${formatFiat(unassigned, currency)} still to assign.`
-          : `The amounts are ${formatFiat(-unassigned, currency)} more than the total.`
+          ? `${formatAmount(unassigned, currency)} still to assign.`
+          : `The amounts are ${formatAmount(-unassigned, currency)} more than the total.`
       );
     }
 
@@ -220,15 +226,16 @@ export function AddExpenseScreen({
           <View>
             <Text style={s.fieldLabel}>How much?</Text>
             <View style={s.amountWrap}>
-              <Text style={s.currencySymbol}>₹</Text>
+              {!sats && <Text style={s.currencySymbol}>₹</Text>}
               <TextInput
                 style={[s.input, s.amountInput]}
                 value={amountText}
                 onChangeText={setAmountText}
                 placeholder="0"
                 placeholderTextColor={color.inkFaint}
-                keyboardType="decimal-pad"
+                keyboardType={keyboard}
               />
+              {sats && <Text style={s.currencySymbol}>sats</Text>}
             </View>
           </View>
         </Card>
@@ -289,13 +296,13 @@ export function AddExpenseScreen({
                           {member.displayName}
                         </Text>
                         {on && share && mode === 'shares' && (
-                          <Text style={s.share}>{formatFiat(share.amount, currency)}</Text>
+                          <Text style={s.share}>{formatAmount(share.amount, currency)}</Text>
                         )}
                       </View>
                     </Pressable>
 
                     {on && share && mode === 'equal' && (
-                      <Text style={s.share}>{formatFiat(share.amount, currency)}</Text>
+                      <Text style={s.share}>{formatAmount(share.amount, currency)}</Text>
                     )}
 
                     {on && mode === 'shares' && (
@@ -324,16 +331,17 @@ export function AddExpenseScreen({
 
                     {on && mode === 'exact' && (
                       <View style={s.exactWrap}>
-                        <Text style={s.exactSymbol}>₹</Text>
+                        {!sats && <Text style={s.exactSymbol}>₹</Text>}
                         <TextInput
                           style={[s.input, s.exactInput]}
                           value={exacts[member.id] ?? ''}
                           onChangeText={(v) => setExacts((prev) => ({ ...prev, [member.id]: v }))}
                           placeholder="0"
                           placeholderTextColor={color.inkFaint}
-                          keyboardType="decimal-pad"
-                          accessibilityLabel={`${member.displayName}'s amount`}
+                          keyboardType={keyboard}
+                          accessibilityLabel={`${member.displayName}'s amount${sats ? ' in sats' : ''}`}
                         />
+                        {sats && <Text style={s.exactSymbol}>sats</Text>}
                       </View>
                     )}
                   </View>
@@ -343,7 +351,7 @@ export function AddExpenseScreen({
           </Card>
           {mode === 'equal' && preview && included.length > 1 && (
             <Text style={s.previewNote}>
-              Remainder is spread a paisa at a time, so the split always adds up.
+              Remainder is spread a {sats ? 'sat' : 'paisa'} at a time, so the split always adds up.
             </Text>
           )}
           {mode === 'shares' && included.length > 0 && (
@@ -361,8 +369,8 @@ export function AddExpenseScreen({
               {unassigned === 0
                 ? 'Adds up to the total.'
                 : unassigned > 0
-                  ? `${formatFiat(unassigned, currency)} left to assign`
-                  : `${formatFiat(-unassigned, currency)} over the total`}
+                  ? `${formatAmount(unassigned, currency)} left to assign`
+                  : `${formatAmount(-unassigned, currency)} over the total`}
             </Text>
           )}
         </View>

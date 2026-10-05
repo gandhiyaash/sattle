@@ -24,7 +24,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import {
   SattleError,
-  formatFiat,
+  formatAmount,
   joinPath,
   upiPayUri,
   type GroupGuestDebt,
@@ -293,7 +293,7 @@ function DebtCard({
                 uri={upiPayUri({ upiId: upi.payee.upiId, name: upi.payee.name, amount: debt.amount, note: groupName })}
               />
               <Text style={s.caption}>
-                Pay {formatFiat(debt.amount, currency)}, then tap below. {debt.to} confirms it arrived, and then it’s
+                Pay {formatAmount(debt.amount, currency)}, then tap below. {debt.to} confirms it arrived, and then it’s
                 settled.
               </Text>
               <Button label="I’ve paid" variant="primary" busy={upi.saying} onPress={onPaidByUpi} />
@@ -325,7 +325,7 @@ function Spend({ expense, currency }: { expense: GroupGuestExpense; currency: st
         <Amount minor={expense.amount} currency={currency} size="md" />
       </View>
       <Text style={s.shares}>
-        {expense.shares.map((share) => `${share.name} ${formatFiat(share.amount, currency)}`).join('  ·  ')}
+        {expense.shares.map((share) => `${share.name} ${formatAmount(share.amount, currency)}`).join('  ·  ')}
       </Text>
     </View>
   );

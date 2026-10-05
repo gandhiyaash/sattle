@@ -4,13 +4,21 @@
  * Names only. Nobody here needs the app, an email or a phone number: they
  * start as ghosts, and a pay link is how money reaches them later. Asking
  * for more up front is where Splitwise loses the people who never install.
+ *
+ * The group is kept in the currency its maker uses. Only someone who uses
+ * both rupees and bitcoin is asked, and the question opens on the one they
+ * said new groups start in. A group's currency can't be changed afterwards,
+ * since every amount in it is counted in that currency's units.
  */
 
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { isBitcoin } from '@sattle/core';
+import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useClient } from '../react/SattleProvider';
-import { Button, Card, ErrorState, Screen, SectionLabel } from './primitives';
+import { currencyNames } from './CurrencyPicker';
+import { Button, Card, ErrorState, Screen, SectionLabel, Segmented } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface NewGroupScreenProps {
@@ -23,8 +31,10 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
+  const prefs = useCurrencyPrefs();
 
   const [name, setName] = useState('');
+  const [currency, setCurrency] = useState(prefs.newGroups);
   const [people, setPeople] = useState<string[]>(['']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +50,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
     try {
       const input = {
         name: name.trim(),
-        currency: 'INR',
+        currency,
         memberNames: people.map((p) => p.trim()).filter(Boolean),
       };
       const group = await keys.run('create-group', input, (k) => client.createGroup(input, k));
@@ -65,6 +75,18 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
           autoFocus
         />
       </Card>
+
+      {prefs.uses.length > 1 && (
+        <View>
+          <SectionLabel>Kept in</SectionLabel>
+          <Segmented options={currencyNames(prefs.uses)} value={currency} onChange={setCurrency} />
+          <Text style={s.note}>
+            {isBitcoin(currency)
+              ? 'Amounts are in sats, and people settle up over Lightning. This can’t be changed later.'
+              : 'Amounts are in rupees, and people settle up by UPI or over Lightning. This can’t be changed later.'}
+          </Text>
+        </View>
+      )}
 
       <View>
         <SectionLabel>Who’s in it</SectionLabel>

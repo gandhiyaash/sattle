@@ -32,7 +32,8 @@ const ExpenseBody = z.object({
 export const CreateGroupBody = z.object({
   name: z.string().trim().min(1).max(80),
   // Shaped like an ISO 4217 code. Anything else makes Intl.NumberFormat throw
-  // when the app formats one of the group's amounts.
+  // when the app formats one of the group's amounts. BTC is a group counted
+  // in sats: its amounts are whole sats, and settling it needs no rate.
   currency: z
     .string()
     .trim()
@@ -177,7 +178,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const expense: Expense = {
       id: newId('e'),
       ...input,
-      parts: resolveParts(input),
+      parts: resolveParts(input, g.currency),
       createdAt: nowIso(),
     };
     return c.json(repo.insertExpense(expense), 201);
@@ -197,7 +198,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const expense = transaction(db, () => {
       const current = findExpense(g, c.req.param('expenseId'));
       checkExpenseOwner(repo, current, user.id);
-      return repo.updateExpense({ ...current, ...input, parts: resolveParts(input) });
+      return repo.updateExpense({ ...current, ...input, parts: resolveParts(input, g.currency) });
     });
     return c.json(expense);
   });

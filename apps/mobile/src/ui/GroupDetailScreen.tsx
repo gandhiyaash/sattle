@@ -11,6 +11,10 @@
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  * 3. Nobody joins by holding the link: whoever asks to join shows up here,
  *    with a code, and someone in the group lets them in or turns them down.
+ * 4. It only talks about the ways to pay the person looking uses (payWays).
+ *    Someone who chose rupees alone sees no Lightning here, and someone who
+ *    chose bitcoin alone sees no UPI, except in a group kept in bitcoin,
+ *    where Lightning is the only way there is.
  *
  * Add expense stays at the bottom of the screen however far the list has
  * scrolled: it is what the screen is opened for most.
@@ -22,7 +26,8 @@ import { Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View 
 import {
   canReceive,
   computeBalances,
-  formatFiat,
+  formatAmount,
+  isBitcoin,
   payLinkPath,
   simplifyDebts,
   UPI_CURRENCY,
@@ -30,10 +35,13 @@ import {
   type Expense,
   type Member,
   type PaymentMode,
+  type PayWays,
   type PendingJoin,
   type UpiClaim,
   type UpiProfile,
 } from '@sattle/core';
+import { toggleCurrency } from '../prefs/currencyPrefs';
+import { chooseCurrencies, useCurrencyPrefs, usePayWays } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
 import { APP_URL, groupLinkToShare } from '../react/useSettleFlow';
 import {
@@ -95,6 +103,7 @@ export function GroupDetailScreen({
   const s = useStyles();
   const client = useClient();
   const mode = usePaymentMode();
+  const prefs = useCurrencyPrefs();
   /** What the share icon last did. The link stays on screen, so it can be copied by hand. */
   const [shared, setShared] = useState<LinkState>({ kind: 'idle' });
 
@@ -128,6 +137,7 @@ export function GroupDetailScreen({
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
     };
   }, [groupId]);
+  const ways = usePayWays(data?.currency);
 
   // A payment can land while this is open: a guest paying a link, someone
   // else settling up. Keep the balances current without a loading flash.
@@ -167,6 +177,13 @@ export function GroupDetailScreen({
   );
   const owingMe = myDebts.filter((d) => d.toMemberId === data.myMemberId).map((d) => nameOf(d.fromMemberId));
   const rupees = data.currency === UPI_CURRENCY;
+  // A group kept in bitcoin, joined by someone who said they don't use it. Getting paid here takes
+  // Lightning, and Wallet only shows that to someone who uses bitcoin, so setting it up turns it on.
+  const turnsOnBitcoin = isBitcoin(data.currency) && !prefs.uses.includes('BTC');
+  const setUpGettingPaid = () => {
+    if (turnsOnBitcoin) chooseCurrencies(toggleCurrency(prefs, 'BTC'));
+    onOpenWallet();
+  };
 
   // The group's one link, for the chat everyone is in. Whoever opens it sees what's been split
   // and can pay what they owe with no app. The same page has Join on it: they say who they
@@ -241,7 +258,7 @@ export function GroupDetailScreen({
       )}
 
       {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId) && (
-        <GetPaidCard names={owingMe} rupees={rupees} onOpenWallet={onOpenWallet} />
+        <GetPaidCard names={owingMe} ways={ways} turnsOnBitcoin={turnsOnBitcoin} onSetUp={setUpGettingPaid} />
       )}
 
       {myDebts.length > 0 && (
@@ -254,8 +271,10 @@ export function GroupDetailScreen({
               const otherMember = data.members.find((m) => m.id === other);
               const blocked = !owedByMe && false; // they pay you; nothing to block
               // UPI is a way to pay someone who has no wallet here, as long as the group is in rupees.
-              const takesUpi = Boolean(otherMember?.upi) && data.currency === UPI_CURRENCY;
-              const cannotReceive = owedByMe && otherMember && !canReceive(otherMember, mode) && !takesUpi;
+              // Either way counts only if it is one the user is shown.
+              const takesUpi = ways.upi && Boolean(otherMember?.upi);
+              const takesLightning = ways.lightning && Boolean(otherMember && canReceive(otherMember, mode));
+              const cannotReceive = owedByMe && otherMember && !takesLightning && !takesUpi;
               const claim = data.claims.find(
                 (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId
               );
@@ -293,7 +312,9 @@ export function GroupDetailScreen({
                       onChanged={refresh}
                     />
                   )}
+                  {/* A pay link asks for a Lightning payment, so it goes with Lightning. */}
                   {!owedByMe &&
+                    ways.lightning &&
                     (iCanReceive ? (
                       <SendPayLink
                         debt={debt}
@@ -307,10 +328,10 @@ export function GroupDetailScreen({
                       </Text>
                     ))}
                   {!owedByMe && (
-                    <MarkSettled debt={debt} payerName={nameOf(other)} onSettled={refresh} />
+                    <MarkSettled debt={debt} payerName={nameOf(other)} upi={ways.upi} onSettled={refresh} />
                   )}
                   {cannotReceive && otherMember && (
-                    <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode)}</Text>
+                    <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode, ways)}</Text>
                   )}
                 </Card>
               );
@@ -325,7 +346,7 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} rupees={rupees} />
+              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} ways={ways} />
             </View>
           ))}
           <Divider />
@@ -373,19 +394,39 @@ function listNames(names: string[]): string {
  * People owe the user, and there is nowhere for them to pay it: no wallet or
  * Lightning address, and in a rupee group no UPI ID either. Without this, the
  * people owing are told they can't pay here yet and the user never finds out why.
+ * It names only the ways the user is shown, which are the ones Wallet will offer.
  */
-function GetPaidCard({ names, rupees, onOpenWallet }: { names: string[]; rupees: boolean; onOpenWallet: () => void }) {
+function GetPaidCard({
+  names,
+  ways,
+  turnsOnBitcoin,
+  onSetUp,
+}: {
+  names: string[];
+  ways: PayWays;
+  /** The group is kept in bitcoin and they don't use it yet: setting up is what starts them using it. */
+  turnsOnBitcoin: boolean;
+  onSetUp: () => void;
+}) {
   const s = useStyles();
   const who = listNames(names);
   return (
     <Card style={s.getPaid}>
       <Text style={s.getPaidTitle}>{who} can’t pay you yet</Text>
       <Text style={s.linkIntro}>
-        {rupees
-          ? 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app.'
-          : 'Add a way to get paid: a Lightning wallet or a Lightning address. Then they can pay you in the app.'}
+        {!ways.lightning
+          ? 'Add your UPI ID, and they can pay you in the app.'
+          : ways.upi
+            ? 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app.'
+            : 'Add a way to get paid: a Lightning wallet or a Lightning address. Then they can pay you in the app.'}
       </Text>
-      <Button label="Set up getting paid" variant="primary" onPress={onOpenWallet} />
+      {turnsOnBitcoin && (
+        <Text style={s.linkNote}>
+          This group is kept in bitcoin, so they pay you over Lightning. Setting it up turns Bitcoin on for you; you
+          can turn it off again under Account.
+        </Text>
+      )}
+      <Button label="Set up getting paid" variant="primary" onPress={onSetUp} />
     </Card>
   );
 }
@@ -484,8 +525,14 @@ function splitSummary(expense: Expense, nameOf: (id: string) => string): string 
 }
 
 /** Under a debt you can't pay here yet: why, and what Options offers. */
-function cannotReceiveNote(member: Member, mode: PaymentMode): string {
+function cannotReceiveNote(member: Member, mode: PaymentMode, ways: PayWays): string {
   const name = member.displayName;
+  // UPI is the only way they're shown, and this person hasn't given a UPI ID.
+  if (!ways.lightning) {
+    return member.claimedByUserId
+      ? `${name} hasn’t added a UPI ID yet, so you can’t pay them here.`
+      : `${name} isn't on Sattle yet. Invite them, or mark it settled if you paid another way.`;
+  }
   if (mode === 'simulated') return `${name} hasn't joined — you can still pay them an address.`;
   return member.claimedByUserId
     ? `${name} needs to set up receiving before you can pay here.`
@@ -500,11 +547,22 @@ type LinkState =
   | { kind: 'sent'; url: string; note: string }
   | { kind: 'failed'; message: string };
 
-/** One member, with their state. */
-function MemberRow({ member, isMe, mode, rupees }: { member: Member; isMe: boolean; mode: PaymentMode; rupees: boolean }) {
+/** One member, with their state, in terms of the ways to pay the user is shown. */
+function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean; mode: PaymentMode; ways: PayWays }) {
   const s = useStyles();
+  const lightning = ways.lightning && canReceive(member, mode);
   // Someone with only a UPI ID can still be paid here, in a rupee group.
-  const upiOnly = rupees && member.upi && !canReceive(member, mode);
+  const upiOnly = ways.upi && Boolean(member.upi) && !lightning;
+  const state =
+    member.status === 'ghost'
+      ? (ways.lightning && member.lightningAddress) || 'Not joined'
+      : member.status === 'nwc_linked' && ways.lightning
+        ? 'External wallet'
+        : upiOnly
+          ? 'In app · takes UPI'
+          : ways.lightning && mode === 'real' && !lightning
+            ? 'In app · can’t receive yet'
+            : 'In app';
   return (
     <View style={s.memberRow}>
       <Avatar name={member.displayName} dim={member.status === 'ghost'} />
@@ -513,26 +571,9 @@ function MemberRow({ member, isMe, mode, rupees }: { member: Member; isMe: boole
           {member.displayName}
           {isMe ? ' (you)' : ''}
         </Text>
-        <Text style={s.memberMeta}>
-          {member.status === 'joined'
-            ? upiOnly
-              ? 'In app · takes UPI'
-              : mode === 'real' && !canReceive(member, mode)
-                ? 'In app · can’t receive yet'
-                : 'In app'
-            : member.status === 'nwc_linked'
-              ? 'External wallet'
-              : member.lightningAddress
-                ? member.lightningAddress
-                : 'Not joined'}
-        </Text>
+        <Text style={s.memberMeta}>{state}</Text>
       </View>
-      {member.status === 'ghost' && (
-        <Badge
-          text={canReceive(member, mode) ? 'Payable' : 'No app'}
-          tone={canReceive(member, mode) ? 'accent' : 'neutral'}
-        />
-      )}
+      {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
     </View>
   );
 }
@@ -646,7 +687,7 @@ function SendPayLink({
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
       return;
     }
-    const message = `${payerName}, you owe me ${formatFiat(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
+    const message = `${payerName}, you owe me ${formatAmount(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
     setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until it’s paid.') });
   };
 
@@ -675,7 +716,18 @@ function SendPayLink({
  * who has joined, so this is where it lives; the payer's sheet tells them to
  * ask. Two taps, since nothing undoes it.
  */
-function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: string; onSettled: () => void }) {
+function MarkSettled({
+  debt,
+  payerName,
+  upi,
+  onSettled,
+}: {
+  debt: Debt;
+  payerName: string;
+  /** Whether UPI is something the user is shown here, and so worth naming as a way it may have been paid. */
+  upi: boolean;
+  onSettled: () => void;
+}) {
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
@@ -703,7 +755,12 @@ function MarkSettled({ debt, payerName, onSettled }: { debt: Debt; payerName: st
       {state === 'confirming' || state === 'busy' ? (
         <Button label={`Yes, ${payerName} paid me`} busy={state === 'busy'} onPress={confirm} />
       ) : (
-        <Button label="Mark as settled" variant="quiet" hint="Paid in cash, UPI, or forgiven." onPress={() => setState('confirming')} />
+        <Button
+          label="Mark as settled"
+          variant="quiet"
+          hint={upi ? 'Paid in cash, UPI, or forgiven.' : 'Paid in cash, or forgiven.'}
+          onPress={() => setState('confirming')}
+        />
       )}
       {typeof state === 'object' && <Text style={s.linkError}>{state.failed}</Text>}
     </View>
@@ -735,7 +792,7 @@ function UpiClaimNote({
   const keys = useActionKeys();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const amount = formatFiat(claim.amount, currency);
+  const amount = formatAmount(claim.amount, currency);
   const declined = claim.status === 'declined';
 
   const act = async (action: string, fn: (key: string) => Promise<unknown>) => {
