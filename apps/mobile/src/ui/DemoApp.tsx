@@ -121,6 +121,10 @@ function Navigator({
               refresh();
               setRoute({ name: 'groups' });
             }}
+            onAlreadyIn={(groupId) => {
+              onInviteDone?.();
+              setRoute({ name: 'group', groupId });
+            }}
           />
         );
 

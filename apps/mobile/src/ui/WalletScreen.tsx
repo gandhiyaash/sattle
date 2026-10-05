@@ -322,8 +322,10 @@ function ReceiveAtAddress() {
 /**
  * A UPI ID, for being paid in rupees outside Lightning. One for every group.
  * Sattle can't see a UPI payment, so the card says who confirms one, and who
- * is shown the ID: people who owe them, and, only if they turn it on, anyone
- * holding one of their groups' shared links.
+ * is shown the ID: people who owe them, and anyone holding one of their
+ * groups' shared links, unless they turn that off. It says so before the ID
+ * is saved, since that is on from the start. The switch here is for all
+ * their groups; Manage, in a group, has the same one for that group alone.
  */
 function UpiIdCard() {
   const color = useColors();
@@ -369,7 +371,9 @@ function UpiIdCard() {
             <Text style={s.address}>{upiId}</Text>
             <Text style={s.rowBody}>
               In every group kept in rupees. People in a group who owe you are shown it
-              {onLinks ? ', and so is anyone with one of your groups’ shared links.' : '.'}
+              {onLinks
+                ? ', and so is anyone with one of your groups’ shared links, unless you turned that off for the group.'
+                : '. A group’s shared link shows it only if you turned that on for the group.'}
             </Text>
           </View>
         )}
@@ -377,7 +381,8 @@ function UpiIdCard() {
         {upiId === null && !editing && (
           <Text style={s.rowBody}>
             Add your UPI ID and people who owe you in a rupee group can pay you from GPay, PhonePe or any UPI app. It
-            looks like name@okhdfcbank.
+            looks like name@okhdfcbank. Anyone holding one of your groups’ shared links can pay you this way too, and
+            sees the ID when they do. You can turn that off once it’s saved.
           </Text>
         )}
 
@@ -414,8 +419,11 @@ function UpiIdCard() {
             <Text style={s.label}>On shared group links</Text>
             <Text style={s.rowBody}>
               {onLinks
-                ? 'On. Someone paying from a group’s shared link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you.'
+                ? 'On. Someone paying from a group’s shared link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you, so turn this off if a link has gone further than people you know.'
                 : 'Off. Someone paying from a group’s shared link, without the app, can’t pay you by UPI. Turn it on and anyone holding that link can see your UPI ID, so only if the link stays with people you know.'}
+            </Text>
+            <Text style={s.rowBody}>
+              This is for every group you’re in. To choose differently for one group, open it and go to Manage.
             </Text>
             <Button
               label={onLinks ? 'Turn off for shared links' : 'Let shared links show it'}
@@ -467,8 +475,9 @@ function UpiIdCard() {
  *                       only the payee's confirm makes one; walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
  *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
- *                       only with upi_on_links, which a new ID resets
- *   Invites             routes/invites.ts: POST /join-requests makes a request, not a
+ *                       while upi_on_links is on, as it is from the start, or
+ *                       members.upi_on_link where the person chose for that group
+ *   Joining             routes/invites.ts: POST /join-requests makes a request, not a
  *                       member; only POST /join-requests/:id/approve, by someone in
  *                       the group, claims the member
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
@@ -511,7 +520,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="UPI"
-          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and only someone in the group who owes you is shown it, unless you let shared group links show it: then anyone holding one of those links can see it."
+          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
         />
         <Divider />
         <Row
@@ -526,12 +535,12 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Group links"
-          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything: a UPI payment they say they made counts only once the person owed confirms it. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
+          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything: a UPI payment they say they made counts only once the person owed confirms it. They can ask to join, which is covered below. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
         />
         <Divider />
         <Row
-          title="Invites"
-          body="An invite link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it's really them. Until then they see nothing of the group. Once in, they see and can add to everything, like everyone else."
+          title="Joining"
+          body="The group link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it's really them. Until then they can do no more than anyone else holding the link. Once in, they see and can add to everything, like everyone else."
         />
         <Divider />
         <Row

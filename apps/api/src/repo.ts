@@ -13,7 +13,6 @@ import {
   type Debt,
   type Group,
   type GroupLink,
-  type Invite,
   type JoinRequest,
   type Member,
   type PayLink,
@@ -118,13 +117,6 @@ const toJoinRequest = (r: Row): StoredJoinRequest => ({
   createdAt: r.created_at as string,
 });
 
-const toInvite = (r: Row): Invite => ({
-  token: r.token as string,
-  groupId: r.group_id as string,
-  createdAt: r.created_at as string,
-  expiresAt: r.expires_at as string,
-});
-
 export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
@@ -155,8 +147,13 @@ export function createRepo(db: Db) {
       `UPDATE members SET claimed_by_user_id = ?, status = ?, lightning_address = NULL
        WHERE id = ? AND claimed_by_user_id IS NULL`
     ),
-    unclaimMember: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE id = ?`),
-    unclaimAllOf: db.prepare(`UPDATE members SET claimed_by_user_id = NULL, status = 'ghost' WHERE claimed_by_user_id = ?`),
+    // What they chose about this group's shared link (upi_on_link) was theirs, so it goes with them.
+    unclaimMember: db.prepare(
+      `UPDATE members SET claimed_by_user_id = NULL, status = 'ghost', upi_on_link = NULL WHERE id = ?`
+    ),
+    unclaimAllOf: db.prepare(
+      `UPDATE members SET claimed_by_user_id = NULL, status = 'ghost', upi_on_link = NULL WHERE claimed_by_user_id = ?`
+    ),
     claimedCount: db.prepare('SELECT COUNT(*) AS n FROM members WHERE group_id = ? AND claimed_by_user_id IS NOT NULL'),
     deleteMember: db.prepare('DELETE FROM members WHERE id = ?'),
     // Rows that point at a member and so keep it from being deleted. The member id is bound
@@ -207,13 +204,6 @@ export function createRepo(db: Db) {
     latestForPayLink: db.prepare(
       'SELECT * FROM settlements WHERE pay_link_token = ? ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ),
-    inviteByToken: db.prepare('SELECT * FROM invites WHERE token = ?'),
-    inviteByGroup: db.prepare('SELECT * FROM invites WHERE group_id = ?'),
-    insertInvite: db.prepare(
-      `INSERT INTO invites (token, group_id, created_by_user_id, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ),
-    deleteInvite: db.prepare('DELETE FROM invites WHERE group_id = ?'),
     groupLinkByToken: db.prepare('SELECT * FROM group_links WHERE token = ?'),
     groupLinkByGroup: db.prepare('SELECT * FROM group_links WHERE group_id = ?'),
     insertGroupLink: db.prepare('INSERT INTO group_links (token, group_id, created_at) VALUES (?, ?, ?)'),
@@ -273,7 +263,6 @@ export function createRepo(db: Db) {
   const dropGroup = [
     'DELETE FROM settlements WHERE group_id = ?',
     'DELETE FROM pay_links WHERE group_id = ?',
-    'DELETE FROM invites WHERE group_id = ?',
     'DELETE FROM group_links WHERE group_id = ?',
     'DELETE FROM upi_claims WHERE group_id = ?',
     'DELETE FROM join_requests WHERE group_id = ?',
@@ -288,7 +277,6 @@ export function createRepo(db: Db) {
   const dropUser = [
     'UPDATE settlements SET pay_link_token = NULL WHERE pay_link_token IN (SELECT token FROM pay_links WHERE created_by_user_id = ?)',
     'DELETE FROM pay_links WHERE created_by_user_id = ?',
-    'DELETE FROM invites WHERE created_by_user_id = ?',
     'DELETE FROM join_requests WHERE user_id = ?',
     'DELETE FROM idempotency_keys WHERE user_id = ?',
     'DELETE FROM users WHERE id = ?',
@@ -308,8 +296,8 @@ export function createRepo(db: Db) {
       return u;
     },
     /**
-     * Removes the account and what only it could use: its pay links, the
-     * invites it sent, its saved replies. Its members must already be handed
+     * Removes the account and what only it could use: its pay links, its
+     * requests to join, its saved replies. Its members must already be handed
      * back (unclaimAllOf) and its wallet connection removed (walletStore).
      */
     deleteUser(id: string) {
@@ -382,7 +370,7 @@ export function createRepo(db: Db) {
     claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
       return q.claimMember.run(userId, status, id).changes === 1;
     },
-    /** The reverse: the member is a ghost again, with its name, history and balance. An invite can hand it back. */
+    /** The reverse: the member is a ghost again, with its name, history and balance. The group's link can hand it back. */
     unclaimMember(id: string) {
       // A UPI claim is between two people with accounts: one made it, the other confirms it.
       q.deleteUpiClaimsOfMember.run(id, id);
@@ -531,26 +519,6 @@ export function createRepo(db: Db) {
     },
     /** The account of the first member who has one. Every group has at least one. */
     firstAccountIn: (groupId: string) => (q.firstAccountIn.get(groupId) as { id: string } | undefined)?.id,
-
-    /** The invite, and who made it. */
-    invite: (token: string) => {
-      const r = q.inviteByToken.get(token) as Row | undefined;
-      return r && { ...toInvite(r), createdByUserId: r.created_by_user_id as string };
-    },
-    /** The group's invite, whether or not it has expired. */
-    inviteFor: (groupId: string) => {
-      const r = q.inviteByGroup.get(groupId) as Row | undefined;
-      return r && toInvite(r);
-    },
-    /** One invite at a time: the new one takes the old one's place, and the old link stops working. */
-    replaceInvite(invite: Invite, createdByUserId: string) {
-      q.deleteInvite.run(invite.groupId);
-      q.insertInvite.run(invite.token, invite.groupId, createdByUserId, invite.createdAt, invite.expiresAt);
-      return invite;
-    },
-    deleteInvite(groupId: string) {
-      q.deleteInvite.run(groupId);
-    },
 
     /** A payer's word that they paid over UPI, waiting on the person owed. */
     upiClaim: (id: string) => {

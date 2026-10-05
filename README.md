@@ -47,7 +47,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `EXPO_PUBLIC_MOCK_FAILURE_RATE` | `0` | 0–1 chance any mock call fails |
 | `EXPO_PUBLIC_MOCK_ALWAYS_FAIL` | `false` | `true` makes every mock payment end in `failed` |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:3000` | real backend base URL |
-| `EXPO_PUBLIC_APP_URL` | `http://localhost:8081` | base for invite links |
+| `EXPO_PUBLIC_APP_URL` | `http://localhost:8081` | base for the links the app shares |
 
 `apps/api/.env`:
 
@@ -74,7 +74,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   settlementOptions.ts       Resolves what's possible BEFORE the user taps.
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
-  invites.ts                 The /join/<token> path, and finding a token in what someone pasted.
+  invites.ts                 The /join/<token> path, and finding a group link's token in what someone pasted.
   groupLinks.ts              The /g/<token> path.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
@@ -101,7 +101,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   contract.test.ts           Auth boundary and migrations.
 
 apps/mobile/                 @sattle/mobile: Expo
-  App.tsx                    Routes /s/<token> to the guest page and /join/<token> to joining; otherwise the app.
+  App.tsx                    Routes /s/<token> to the guest page, /g/<token> to the group page and /join/<token> to joining; otherwise the app.
   modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
   src/
     client/
@@ -129,8 +129,8 @@ apps/mobile/                 @sattle/mobile: Expo
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
-      JoinScreen.tsx         The /join/<token> page: who invited you to what, who you are, and Join.
-      GroupGuestScreen.tsx   The /g/<token> page: the whole group, read-only, with Lightning and UPI on each debt.
+      JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
+      GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
@@ -193,7 +193,7 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 `resolveSettlementOptions()` decides first. When the recipient cannot receive, it returns `blocked` with three remedies in place of rails:
 
 1. **Add their Lightning address.** The route most people miss. Any wallet gives Aman an address, and paying it needs nothing from him — no install, no signup, no device awake. `setMemberPayoutAddress` stores it and leaves his status as `ghost`, because he is payable, not joined.
-2. **Invite them.** Shares the group's invite, where Aman picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
+2. **Invite them.** Shares the group's link, where Aman taps **Join**, picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
 3. **Mark as settled.** Cash, UPI, forgiven. Present on every screen, never removable.
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
@@ -222,14 +222,13 @@ Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only 
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. An invite turns ghosts into members. It is one link for the whole group, `/join/<token>`: anyone already in the group taps **Invite people to join** under the member list and sends it to the chat everyone is in. Whoever opens it sees who invited them to what and a list of the people who haven't joined, picks the one they are, and asks to join. Someone already in the group then sees "Someone wants to join as Kabir" at the top of the group, with a four-digit code, and taps **Let in** or **Not them**. Once let in, they take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and asks to be added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they asked for. Until they're let in, the group sits on their groups list as **Asked to join**, showing their code, and they can see nothing in it.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. The group's link turns ghosts into members. It is the group's one link, `/g/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. It opens the group's page, where anyone can see what's been split and pay what they owe (see [The group link](#the-group-link)), and that page has **Join** on it. Join opens `/join/<token>`, with the same token: whoever taps it sees which group it is and the people in it, picks the one they are from those nobody has joined as yet, and asks to join. The ones who have joined are listed too, marked and not pickable, so the page is the whole group even when every name is taken. Someone already in the group then sees "Someone wants to join as Kabir" at the top of the group, with a four-digit code, and taps **Let in** or **Not them**. Once let in, they take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and asks to be added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they asked for. Until they're let in, the group sits on their groups list as **Asked to join**, showing their code, and they can do no more than anyone else holding the link. Someone already in the group has nobody left to be, so for them Join opens the group.
 
-Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members, settlements and invites of their own. They can leave, but nobody else can remove them. The link is therefore treated as a key:
+Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members and settlements, and share or replace its link. They can leave, but nobody else can remove them. So the link is treated as a key, and holding it is never enough:
 
 - It is 128 random bits, and only a member of the group can make one.
 - A group has at most one. Sharing again hands out the same link, so the one already in the chat keeps working.
-- It lasts a week.
-- Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
+- It doesn't run out by itself. Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
 - Nobody becomes a member by holding it. Asking makes a request (`join_requests`); only someone already in the group can let them in, and only then is the ghost claimed.
 - Each ghost can be taken once. Picking a name someone has already joined as answers `409 conflict`. Several people can ask to be the same ghost, so a stranger asking first can't lock the real person out; letting one in turns the others down. The card says when two people are asking for one name, and the code is how to tell which is which: ask the person which code they see.
 - At most 20 requests wait on a group at once, so a leaked link can't bury the real one under requests from throwaway accounts. Turning some down makes room.
@@ -238,9 +237,9 @@ Joining is full membership. There are no roles, so the new member can read every
 
 The link proves nothing about who is on the other end, since it can be forwarded, so a person checks instead: whoever lets someone in is vouching for them. That is the price of one link for everyone and no passwords. A link in the wrong hands is turned off, and its requests turned down; a wrong yes is undone only by the person leaving, so the card asks to let in only someone you know is them.
 
-`GET /join/:token` is public, like the pay page, and returns names and nothing else: the group, the inviter, and each person who hasn't joined, with an opaque `ref` in place of an id. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. `GET`, `POST` and `DELETE /groups/:id/invites` read, replace and turn off the group's invite.
+`GET /join/:token` is public, like the group page, and returns names and nothing else: the group, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /invites/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
 
-On an Android phone with the app installed, tapping the link opens the app on the join screen. Everywhere else it opens the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
+The shared link, `/g/<token>`, opens in the browser for everyone, so paying needs no app. On an Android phone with the app installed, **Join** hands over to the app, which claims `/join/` links, and opens the join screen there, or the group for someone already in it. Everywhere else it carries on in the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
 
 Android hands the app the link only when the site vouches for it. `apps/mobile/public/.well-known/assetlinks.json`, which the web deploy publishes, has to list the SHA-256 of every certificate a real copy is signed with: the upload key, which signs the APK on a GitHub release, and Play's app signing key, which signs what Play installs (Play Console, **App integrity**, **App signing**). A copy signed with a key that isn't listed, a debug build for one, gets the link in the browser as before.
 
@@ -265,22 +264,22 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 - It is offered under real and simulated payments alike, and someone who can only be paid by UPI isn't shown as blocked.
 - UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
 
-`PUT`/`DELETE /me/upi` set and remove the ID, and `PUT /me/upi/group-links` lets the group link offer it (below). `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
+`PUT`/`DELETE /me/upi` set and remove the ID. `PUT /me/upi/group-links` turns off, or back on, the group links offering it, and `GET`/`PUT /me/upi/group-links/:groupId` is the same choice for one group (below). `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
 
-### Group links
+### The group link
 
-A pay link covers one debt. A group link covers the group: someone in it taps **Share the group link** and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does.
+A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps the share icon at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. Under the debts is **Join**, for the people who belong in the group; see [Joining a group](#joining-a-group).
 
 A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
 
 - There is no link until someone in the group makes one, and there is only ever one. Making another replaces it, and the old one stops working.
 - Anyone in the group can replace it or turn it off, under **Manage**. It doesn't expire by itself.
-- It only reads. Nothing under `/g/` changes the group; the one thing it can start is a payment, and that goes to the person owed like any other.
+- It only reads. Nothing under `/g/` changes the group. It can start a payment, which goes to the person owed like any other, and its holder can ask to join, which someone in the group has to say yes to.
 - `GET /g/:token` returns names and amounts and no ids. Each debt carries an opaque `ref`, a hash tied to that link, which is what the page sends back to pay it.
 
-**Pay with Lightning** appears on a debt when the person owed can receive, by the same rule the app uses (`canReceive`). **Pay by UPI** appears in a rupee group when the person owed has a UPI ID and has turned on **Let shared links show it** under Wallet. It is off until they do, and a new UPI ID turns it off again, because a UPI ID often holds a phone number and the link has no login. The ID isn't in `GET /g/:token`; `GET /g/:token/debts/:ref/upi` gives it for the one debt someone chose to pay. The page then shows the QR code (and on a phone, a button that opens a UPI app) and **I’ve paid**, which is `POST /g/:token/debts/:ref/upi-claims`: a claim, as in the app, marked as coming from the link. The person owed confirms it or says it didn't arrive, and the page shows which. It won't replace a claim the payer made in the app.
+**Pay with Lightning** appears on a debt when the person owed can receive, by the same rule the app uses (`canReceive`). **Pay by UPI** appears in a rupee group when the person owed has a UPI ID. Shared links show it from the start, so Wallet says so before an ID is saved: a UPI ID often holds a phone number and the link has no login. Under Wallet, **Turn off for shared links** stops it for every group they're in. Under **Manage**, in a group, the same switch is for that group alone, and it wins: off for one group while it is on for the rest, or on for one while it is off, until they tap **Use my Wallet setting here**. Neither choice is tied to one ID, so a new UPI ID leaves them as they are, and the choice for a group goes when the person leaves it. The ID isn't in `GET /g/:token`; `GET /g/:token/debts/:ref/upi` gives it for the one debt someone chose to pay. The page then shows the QR code (and on a phone, a button that opens a UPI app) and **I’ve paid**, which is `POST /g/:token/debts/:ref/upi-claims`: a claim, as in the app, marked as coming from the link. The person owed confirms it or says it didn't arrive, and the page shows which. It won't replace a claim the payer made in the app.
 
-A debt to someone with nowhere to receive is listed with "settle with them directly", and in the app that person sees a card saying who can't pay them yet, with a way to set up getting paid. The page can't tell who is looking, so every payable debt has the buttons: paying someone else's is allowed, and the money goes to the person owed either way. The page also says that someone in the group who wants to add spends needs the invite link, which is a different link.
+A debt to someone with nowhere to receive is listed with "settle with them directly", and in the app that person sees a card saying who can't pay them yet, with a way to set up getting paid. The page can't tell who is looking, so every payable debt has the buttons: paying someone else's is allowed, and the money goes to the person owed either way.
 
 Opening the wallet is the phone's job, not ours. The button is a `lightning:` link: Android shows a chooser of the installed wallets, iOS opens one, and on a computer the QR code is scanned.
 
@@ -298,9 +297,9 @@ One rule runs through all of it, the same one settling follows: nobody can undo 
 | Disconnect a wallet | Yourself | While a payment to you is under way: that wallet is what confirms it. |
 | Delete an account | Yourself | While a payment to you is under way. |
 
-Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; an invite hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
+Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; the group's link hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
 
-Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links and the invites it made are removed; the names its members had in shared groups stay.
+Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links it made and its requests to join are removed; the names its members had in shared groups stay.
 
 An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
 
@@ -438,10 +437,10 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 ## Not in here yet
 
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
-- Opening an invite link straight into the installed app. It opens the web app; in the app the link is pasted.
+- Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
-- Native routing. On web, `/s/<token>` and `/join/<token>` open the right screen; the installed app doesn't handle links yet.
+- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles only `/join/<token>`, and only on Android.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.
 - Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.

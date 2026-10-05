@@ -156,7 +156,7 @@ describe('UPI', () => {
     expect(await yashOwesOm(call)).toBe(0);
   });
 
-  it('"only someone who owes you is shown it": Yash, who owes Om, is; the member list never carries it', async () => {
+  it('"someone in the group who owes you is shown it": Yash, who owes Om, is; the member list never carries it', async () => {
     const { db, call } = setup();
     db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
 
@@ -170,6 +170,39 @@ describe('UPI', () => {
     const asOm = await call('GET', '/groups/g-goa/members/m-goa-yash/upi', undefined, { authorization: 'Bearer t-om' });
     expect(asOm.status).toBe(409);
     expect(JSON.stringify(asOm.body)).not.toContain('yash@ybl');
+  });
+});
+
+describe('UPI on shared links', () => {
+  /** Yash, the demo user, is owed in Flat 4B, which is shared at /g/demo-group. He adds a UPI ID. */
+  async function owed() {
+    const t = setup();
+    await t.call('PUT', '/me/upi', { upiId: 'yash@ybl' });
+    const page = async () => (await t.call<GroupGuestView>('GET', '/g/demo-group')).body;
+    const debt = async () => (await page()).debts.find((d) => d.to === 'Yash')!;
+    const id = async () => t.call<UpiPayee>('GET', `/g/demo-group/debts/${(await debt()).ref}/upi`);
+    return { ...t, page, debt, id };
+  }
+
+  it('"So is anyone holding one of your groups\' shared links, when they choose to pay you": from the start, and the ID only for the debt they pick', async () => {
+    const { page, debt, id } = await owed();
+    expect((await debt()).upi).toBe(true);
+    expect(JSON.stringify(await page())).not.toContain('yash@ybl');
+    expect((await id()).body).toEqual({ upiId: 'yash@ybl', name: 'Yash' });
+  });
+
+  it('"unless you turn that off, for all your groups or for one"', async () => {
+    const { call, debt, id } = await owed();
+
+    await call('PUT', '/me/upi/group-links/g-flat', { on: false });
+    expect((await debt()).upi).toBeUndefined();
+    expect((await id()).status).toBe(409);
+
+    await call('PUT', '/me/upi/group-links/g-flat', { on: null });
+    expect((await id()).status).toBe(200);
+    await call('PUT', '/me/upi/group-links', { on: false });
+    expect((await debt()).upi).toBeUndefined();
+    expect((await id()).status).toBe(409);
   });
 });
 
@@ -216,6 +249,24 @@ describe('Group links', () => {
 
     expect((await call('DELETE', '/groups/g-flat/link', undefined, asOm)).status).toBe(200);
     expect((await call('GET', `/g/${replaced.body.token}`)).status).toBe(404);
+  });
+});
+
+describe('Joining', () => {
+  it('"The group link lets someone ask to join, not join. Someone already in the group has to let them in"', async () => {
+    const { call } = setup();
+    // Dev has Flat 4B's link and an account. The group isn't his until someone in it says so.
+    const dev = (await call<{ token: string }>('POST', '/accounts', { displayName: 'Dev' })).body.token;
+    const asDev = { authorization: `Bearer ${dev}` };
+    const asked = await call<{ id: string; code: string }>('POST', '/join-requests', { token: 'demo-group', displayName: 'Dev' }, asDev);
+    expect(asked.status).toBe(201);
+    expect(asked.body.code).toMatch(/^\d{4}$/);
+    expect((await call('GET', '/groups/g-flat', undefined, asDev)).status).toBe(404);
+
+    // He can't let himself in. Yash, who is in the group, can.
+    expect((await call('POST', `/join-requests/${asked.body.id}/approve`, undefined, asDev)).status).toBe(404);
+    expect((await call('POST', `/join-requests/${asked.body.id}/approve`)).status).toBe(200);
+    expect((await call('GET', '/groups/g-flat', undefined, asDev)).status).toBe(200);
   });
 });
 

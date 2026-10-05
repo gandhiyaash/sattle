@@ -8,9 +8,10 @@ import { nowIso, type Repo } from './repo';
 
 /**
  * Reachable without signing in: the guest pay page under /s/, the group page
- * under /g/, reading an invite under /join/, and making an account. Asking
- * to join is not here: that needs an account, so it lives at POST
- * /join-requests. Making or removing a group link isn't either: /groups/:id/link.
+ * under /g/, who its link offers to join as under /join/, and making an
+ * account. Asking to join is not here: that needs an account, so it lives at
+ * POST /join-requests. Making or removing a group link isn't either:
+ * /groups/:id/link.
  */
 const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts'];
 

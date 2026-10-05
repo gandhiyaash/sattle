@@ -59,7 +59,7 @@ export function SettleUpSheet({
       const { url, message, sentNote } = await flow.createInvite(groupName);
       setInvite({ kind: 'sent', url, note: await share(message, sentNote) });
     } catch (e) {
-      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
+      setInvite({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make the link. Try again.' });
     }
   };
 

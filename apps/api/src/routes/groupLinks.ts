@@ -6,11 +6,12 @@
  * A pay link shows one debt on purpose. This shows the ledger, so it is the
  * group's own choice: there is no link until someone in the group makes one,
  * there is only ever one, and anyone in the group can replace it or turn it
- * off. Holding it changes nothing in the group; the only thing it can start
- * is a payment, which goes to the person owed like any other.
+ * off. Holding it changes nothing in the group. It can start a payment,
+ * which goes to the person owed like any other, and it can be used to ask to
+ * join (invites.ts), which someone in the group has to say yes to.
  *
  * In a rupee group, a debt can also be paid by UPI from here, to someone who
- * has a UPI ID and has chosen to be paid that way from shared links. The
+ * has a UPI ID and hasn't turned that off for shared links. The
  * page says it was paid (a claim, as in upi.ts), and the person owed is the
  * one who confirms it, so holding the link still can't settle anything.
  *
@@ -176,10 +177,10 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
 
   /**
    * Public. Where to pay a debt on the page by UPI: UpiPayee. Only for a debt
-   * owed to someone who chose to be paid by UPI from shared links.
+   * owed to someone who has a UPI ID and lets shared links show it.
    *   unknown group link                         → 404 not_found
    *   that debt is no longer owed                → 410 link_expired
-   *   not in rupees, no UPI ID, or not chosen    → 409 member_cannot_receive
+   *   not in rupees, no UPI ID, or turned off    → 409 member_cannot_receive
    */
   r.get('/g/:token/debts/:ref/upi', (c) => {
     const { payee } = upiPayee(findLink(c.req.param('token')), c.req.param('ref'));

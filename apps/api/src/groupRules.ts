@@ -46,7 +46,7 @@ export function checkMemberCanGo(repo: Repo, g: Group, member: Member) {
 
 /**
  * The user's member becomes a ghost again, keeping its name, history and
- * balance; an invite can hand it back. The last person with an account can't
+ * balance; the group's link can hand it back. The last person with an account can't
  * leave, because nobody could reach the group afterwards.
  */
 export function leaveGroup(repo: Repo, g: Group, userId: string) {

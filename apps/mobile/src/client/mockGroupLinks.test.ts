@@ -87,14 +87,14 @@ describe('MockClient group links', () => {
     await expect(c.payFromGroupLink(link.token, toAman.ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
   });
 
-  it('offers UPI on a debt only once the person owed turns it on, and gives the ID for that debt', async () => {
+  it('offers UPI on a debt once the person owed has a UPI ID, until they turn it off, and gives the ID for that debt', async () => {
     const c = client();
-    await c.setUpiId('yash@okaxis');
     const toYash = async () => (await c.getGroupGuestView('demo-group')).debts.find((d) => d.to === 'Yash')!;
+    // No UPI ID yet, so nothing to offer.
     expect((await toYash()).upi).toBeUndefined();
     await expect(c.getGroupLinkUpi('demo-group', (await toYash()).ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
 
-    expect((await c.setUpiOnGroupLinks(true)).onGroupLinks).toBe(true);
+    await c.setUpiId('yash@okaxis');
     const debt = await toYash();
     expect(debt.upi).toBe(true);
     expect(JSON.stringify(await c.getGroupGuestView('demo-group'))).not.toContain('yash@okaxis');
@@ -104,5 +104,33 @@ describe('MockClient group links', () => {
     expect((await toYash()).upiClaim).toBe('pending');
     const [claim] = (await c.getUpiClaims('g-flat')).filter((x) => x.viaLink);
     expect(claim).toMatchObject({ amount: debt.amount, status: 'pending' });
+
+    expect((await c.setUpiOnGroupLinks(false)).onGroupLinks).toBe(false);
+    expect((await toYash()).upi).toBeUndefined();
+    await expect(c.getGroupLinkUpi('demo-group', debt.ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
+  });
+
+  it('lets the person owed choose for one group, over what they chose for all of them', async () => {
+    const c = client();
+    await c.setUpiId('yash@okaxis');
+    const offered = async () => (await c.getGroupGuestView('demo-group')).debts.find((d) => d.to === 'Yash')!.upi;
+    expect(await c.getUpiOnGroupLink('g-flat')).toEqual({ on: true, choice: null });
+
+    // On for all his groups, off for Flat 4B.
+    expect(await c.setUpiOnGroupLink('g-flat', false)).toEqual({ on: false, choice: false });
+    expect(await offered()).toBeUndefined();
+    expect((await c.getUpiId()).onGroupLinks).toBe(true);
+    expect(await c.getUpiOnGroupLink('g-goa')).toEqual({ on: true, choice: null });
+
+    // Off for all of them, on for Flat 4B.
+    await c.setUpiOnGroupLinks(false);
+    expect(await c.setUpiOnGroupLink('g-flat', true)).toEqual({ on: true, choice: true });
+    expect(await offered()).toBe(true);
+
+    // No choice for it again, and it follows the rest. A new UPI ID changes none of this.
+    expect(await c.setUpiOnGroupLink('g-flat', null)).toEqual({ on: false, choice: null });
+    await c.setUpiId('yash@ybl');
+    expect(await offered()).toBeUndefined();
+    expect((await c.getUpiId()).onGroupLinks).toBe(false);
   });
 });

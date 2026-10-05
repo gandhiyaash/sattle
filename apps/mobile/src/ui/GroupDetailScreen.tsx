@@ -5,11 +5,15 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README. One invite, under the list, is for all of them.
+ *    of a line in a README. One link, from the share icon in the header, is
+ *    for all of them.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
- * 3. Nobody joins by holding the invite: whoever asks to join shows up here,
+ * 3. Nobody joins by holding the link: whoever asks to join shows up here,
  *    with a code, and someone in the group lets them in or turns them down.
+ *
+ * Add expense stays at the bottom of the screen however far the list has
+ * scrolled: it is what the screen is opened for most.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -19,7 +23,6 @@ import {
   canReceive,
   computeBalances,
   formatFiat,
-  groupLinkPath,
   payLinkPath,
   simplifyDebts,
   UPI_CURRENCY,
@@ -32,7 +35,7 @@ import {
   type UpiProfile,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
-import { APP_URL, inviteLink } from '../react/useSettleFlow';
+import { APP_URL, groupLinkToShare } from '../react/useSettleFlow';
 import {
   Amount,
   Avatar,
@@ -41,6 +44,7 @@ import {
   Card,
   Divider,
   ErrorState,
+  IconButton,
   Loading,
   Screen,
   SectionLabel,
@@ -71,7 +75,7 @@ interface GroupView {
   claims: UpiClaim[];
   /** People asking to join, waiting on someone here to let them in. */
   waiting: PendingJoin[];
-  /** The user's own UPI ID, and whether the group link may offer it. */
+  /** The user's own UPI ID, if they've given one. */
   upi: UpiProfile;
   userId: string;
   myMemberId: string | null;
@@ -91,6 +95,8 @@ export function GroupDetailScreen({
   const s = useStyles();
   const client = useClient();
   const mode = usePaymentMode();
+  /** What the share icon last did. The link stays on screen, so it can be copied by hand. */
+  const [shared, setShared] = useState<LinkState>({ kind: 'idle' });
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
     const [user, group, members, expenses, settlements, claims, waiting, upi] = await Promise.all([
@@ -99,10 +105,9 @@ export function GroupDetailScreen({
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
-      // A server from before UPI, or before join requests, has no such route. The group still opens, with nothing waiting.
-      client.getUpiClaims(groupId).catch((): UpiClaim[] => []),
-      client.getPendingJoins(groupId).catch((): PendingJoin[] => []),
-      client.getUpiId().catch((): UpiProfile => ({ upiId: null })),
+      client.getUpiClaims(groupId),
+      client.getPendingJoins(groupId),
+      client.getUpiId(),
     ]);
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
@@ -163,13 +168,40 @@ export function GroupDetailScreen({
   const owingMe = myDebts.filter((d) => d.toMemberId === data.myMemberId).map((d) => nameOf(d.fromMemberId));
   const rupees = data.currency === UPI_CURRENCY;
 
+  // The group's one link, for the chat everyone is in. Whoever opens it sees what's been split
+  // and can pay what they owe with no app. The same page has Join on it: they say who they
+  // are, and someone here lets them in.
+  const shareGroup = async () => {
+    setShared({ kind: 'busy' });
+    let link: Awaited<ReturnType<typeof groupLinkToShare>>;
+    try {
+      link = await groupLinkToShare(client, groupId);
+    } catch (e) {
+      setShared({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      return;
+    }
+    const message = `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and I’ll let you in: ${link.url}`;
+    setShared({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
+  };
+
   return (
     <Screen
       title={data.name}
       subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
       onBack={onBack}
-      right={<Button label="Manage" variant="quiet" onPress={onManage} />}
+      right={
+        <View style={s.headerActions}>
+          <IconButton icon="share" label="Share this group" busy={shared.kind === 'busy'} onPress={shareGroup} />
+          <Button label="Manage" variant="quiet" onPress={onManage} />
+        </View>
+      }
+      footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
     >
+      {shared.kind === 'sent' && (
+        <Shared url={shared.url} note={shared.note} onHide={() => setShared({ kind: 'idle' })} />
+      )}
+      {shared.kind === 'failed' && <ErrorState message={shared.message} />}
+
       <Card>
         {data.expenses.length === 0 ? (
           // Zero because nothing has happened yet, not because it was paid off.
@@ -205,8 +237,8 @@ export function GroupDetailScreen({
         </View>
       )}
 
-      {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId && data.upi.onGroupLinks) && (
-        <GetPaidCard names={owingMe} hasUpi={rupees && Boolean(data.upi.upiId)} onOpenWallet={onOpenWallet} />
+      {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId) && (
+        <GetPaidCard names={owingMe} rupees={rupees} onOpenWallet={onOpenWallet} />
       )}
 
       {myDebts.length > 0 && (
@@ -284,8 +316,6 @@ export function GroupDetailScreen({
         </View>
       )}
 
-      <ShareGroupLink groupId={groupId} groupName={data.name} />
-
       <View>
         <SectionLabel>Members</SectionLabel>
         <Card style={{ padding: 0 }}>
@@ -298,7 +328,6 @@ export function GroupDetailScreen({
           <Divider />
           <AddMember groupId={groupId} onAdded={refresh} />
         </Card>
-        <InviteToJoin groupId={groupId} groupName={data.name} />
       </View>
 
       <View>
@@ -328,12 +357,6 @@ export function GroupDetailScreen({
         )}
       </View>
 
-      <Button
-        label="Add expense"
-        variant="primary"
-        onPress={() => onAddExpense(data.members, data.currency)}
-      />
-
       <LedgerBackupCard groupId={groupId} version={data.expenses.length} />
     </Screen>
   );
@@ -347,28 +370,28 @@ function listNames(names: string[]): string {
 
 /**
  * People owe the user, and there is nowhere for them to pay it: no wallet or
- * Lightning address, and no UPI the group link can offer. Without this, the
- * people owing see "can't be paid here yet" and the user never finds out why.
+ * Lightning address, and in a rupee group no UPI ID either. Without this, the
+ * people owing are told they can't pay here yet and the user never finds out why.
  */
-function GetPaidCard({ names, hasUpi, onOpenWallet }: { names: string[]; hasUpi: boolean; onOpenWallet: () => void }) {
+function GetPaidCard({ names, rupees, onOpenWallet }: { names: string[]; rupees: boolean; onOpenWallet: () => void }) {
   const s = useStyles();
   const who = listNames(names);
   return (
     <Card style={s.getPaid}>
       <Text style={s.getPaidTitle}>{who} can’t pay you yet</Text>
       <Text style={s.linkIntro}>
-        {hasUpi
-          ? 'They can pay your UPI ID in the app, but the group link can’t offer it until you turn that on in Wallet. Or add a Lightning wallet or address, and anyone can pay you from any Lightning wallet.'
-          : 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app or straight from the group link.'}
+        {rupees
+          ? 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app.'
+          : 'Add a way to get paid: a Lightning wallet or a Lightning address. Then they can pay you in the app.'}
       </Text>
-      <Button label={hasUpi ? 'Open Wallet' : 'Set up getting paid'} variant="primary" onPress={onOpenWallet} />
+      <Button label="Set up getting paid" variant="primary" onPress={onOpenWallet} />
     </Card>
   );
 }
 
 /**
  * Someone asking to join. They can't see or change anything until someone
- * here lets them in. Holding the invite proves nothing, since it can be
+ * here lets them in. Holding the link proves nothing, since it can be
  * forwarded, so the card says to let in only someone you know is them.
  */
 function JoinRequestCard({
@@ -514,49 +537,30 @@ function MemberRow({ member, isMe, mode, rupees }: { member: Member; isMe: boole
 }
 
 /**
- * One invite for everyone, for the chat they're all in. Whoever opens it picks
- * their own name from the list, or adds themselves if they aren't on it, and
- * asks to join; someone here lets them in. So nobody needs a link of their
- * own, and a forwarded one can't make a stranger into someone. Joining is
- * full membership: they can see and add to the whole group, which is why it
- * says so before it's sent. Replacing it and turning it off are under Manage.
+ * What the share icon just did, at the top of the screen. The icon has no
+ * room to say what the link is, so this does: whoever opens it sees the group
+ * and can pay, and can ask to join, which someone here has to say yes to.
+ * Replacing it and turning it off are under Manage.
  */
-function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: string }) {
+function Shared({ url, note, onHide }: { url: string; note: string; onHide: () => void }) {
   const s = useStyles();
-  const client = useClient();
-  const [state, setState] = useState<LinkState>({ kind: 'idle' });
-
-  const send = async () => {
-    setState({ kind: 'busy' });
-    let link: Awaited<ReturnType<typeof inviteLink>>;
-    try {
-      link = await inviteLink(client, groupId);
-    } catch (e) {
-      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
-      return;
-    }
-    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this, pick your name or add it, and I’ll let you in: ${link.url}`;
-    setState({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
-  };
-
   return (
-    <View style={s.inviteBlock}>
-      <Button
-        label={state.kind === 'sent' ? 'Share the invite again' : 'Invite people to join'}
-        hint="One link for everyone. They pick their name, or add themselves, and you or anyone here lets them in. Then they can see this group and add to it."
-        busy={state.kind === 'busy'}
-        onPress={send}
-      />
-      {state.kind === 'sent' && (
-        <>
-          <Text style={s.linkNote}>{state.note}</Text>
-          <Text style={s.linkUrl} selectable numberOfLines={1}>
-            {state.url}
-          </Text>
-        </>
-      )}
-      {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
-    </View>
+    <Card style={{ gap: space.xs }}>
+      <View style={s.sharedTop}>
+        <Text style={[s.linkNote, { flex: 1 }]}>{note}</Text>
+        <Pressable onPress={onHide} hitSlop={12} accessibilityRole="button">
+          <Text style={s.sharedHide}>Hide</Text>
+        </Pressable>
+      </View>
+      <Text style={s.linkUrl} selectable numberOfLines={1}>
+        {url}
+      </Text>
+      <Text style={s.linkNote}>
+        One link for everyone. Whoever opens it sees what’s been split and who owes what, and can pay what they owe
+        with no app. They can also ask to join from it: you or anyone here lets them in. Replace it or turn it off
+        under Manage.
+      </Text>
+    </Card>
   );
 }
 
@@ -601,63 +605,6 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
         <Button label="Add" busy={busy} disabled={!name.trim()} onPress={add} />
       </View>
       {error && <Text style={s.linkError}>{error}</Text>}
-    </View>
-  );
-}
-
-/**
- * One link for the whole group, for the chat everyone is already in. Whoever
- * opens it sees the spends and who owes whom, and pays what they owe; they
- * can't change anything. There is no link until this is tapped, which is why
- * it says what the link shows first. Replacing it and turning it off are
- * under Manage.
- */
-function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: string }) {
-  const s = useStyles();
-  const client = useClient();
-  const [state, setState] = useState<LinkState>({ kind: 'idle' });
-
-  const send = async () => {
-    setState({ kind: 'busy' });
-    let url: string;
-    try {
-      // Looking first is what makes a retry safe: a link made by an attempt whose reply was
-      // lost is found here. So making one takes a fresh request key every time, and can never
-      // be answered with a saved reply naming a link that has since been turned off.
-      const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
-      url = `${APP_URL}${groupLinkPath(link.token)}`;
-    } catch (e) {
-      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
-      return;
-    }
-    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it, no app needed: ${url}`;
-    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until someone in the group turns it off.') });
-  };
-
-  return (
-    <View>
-      <SectionLabel>Group link</SectionLabel>
-      <Card style={{ gap: space.sm }}>
-        <Text style={s.linkIntro}>
-          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe with
-          Lightning, or by UPI to anyone who allows it. They can’t change anything.
-        </Text>
-        <Button
-          label={state.kind === 'sent' ? 'Share it again' : 'Share the group link'}
-          busy={state.kind === 'busy'}
-          onPress={send}
-        />
-        {state.kind === 'sent' && (
-          <>
-            <Text style={s.linkNote}>{state.note}</Text>
-            <Text style={s.linkUrl} selectable numberOfLines={1}>
-              {state.url}
-            </Text>
-          </>
-        )}
-        {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
-        <Text style={s.linkNote}>Replace it or turn it off under Manage.</Text>
-      </Card>
     </View>
   );
 }
@@ -941,7 +888,9 @@ const useStyles = makeStyles((color) => ({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
-  inviteBlock: { marginTop: space.sm, gap: space.xs },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  sharedTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  sharedHide: { ...type.label, color: color.accent },
   addMember: { padding: space.md, gap: space.xs },
   addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addInput: {

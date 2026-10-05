@@ -33,7 +33,7 @@ export function accountRoutes({ db, repo, wallets }: Ctx) {
   /**
    * Deletes the caller's account. Authed: /me isn't under a public prefix.
    * Their token stops working, their wallet connection is forgotten, and the
-   * pay links and invites they made are removed. In each group their member
+   * pay links they made and their requests to join are removed. In each group their member
    * becomes a ghost, with its name and balance, because the others' ledger
    * still needs that row; a group where they were the only account is
    * deleted outright. 409 while a payment to them is under way.

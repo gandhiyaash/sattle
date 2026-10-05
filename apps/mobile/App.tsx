@@ -40,7 +40,7 @@ function tokenFromPath(path: RegExp): string | null {
 const guestToken = () => tokenFromPath(GUEST_PATH);
 /** A group link: the whole group, to read and to pay from, for someone with no app. */
 const groupToken = () => tokenFromPath(GROUP_PATH);
-/** An invite, on the web: the app opens on the join screen, which makes an account if there isn't one. */
+/** Joining with a group's link, on the web: the app opens on the join screen, which makes an account if there isn't one. */
 const inviteToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
@@ -64,7 +64,7 @@ function Root() {
     setInvite(null);
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
   };
-  // Native: the invite link that opened the app, or one tapped while it was already open.
+  // Native: the /join/ link that opened the app, or one tapped while it was already open.
   // The phone only hands the app the links app.json claims, and only once the site vouches
   // for the app in public/.well-known.
   useEffect(() => {
@@ -142,7 +142,7 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
       );
     case 'none':
       if (invite) {
-        // Reading an invite needs no account. Picking who they are makes one, under that name, and asks to join.
+        // Seeing who the link offers needs no account. Picking who they are makes one, under that name, and asks to join.
         return (
           <SattleProvider>
             <JoinAsNewScreen

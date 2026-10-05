@@ -104,7 +104,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
 
   /**
    * The caller's member becomes a ghost again and they lose the group. Their
-   * name, history and balance stay; an invite can bring them back. 409 for
+   * name, history and balance stay; the group's link can bring them back. 409 for
    * the only person with an account, or while a payment to them is under way.
    */
   r.post('/groups/:id/leave', once, (c) => {

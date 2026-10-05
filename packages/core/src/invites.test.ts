@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { groupLinkPath } from './groupLinks';
 import { invitePath, parseInviteToken } from './invites';
 
 describe('parseInviteToken', () => {
@@ -9,6 +10,11 @@ describe('parseInviteToken', () => {
     expect(parseInviteToken(`https://sattle.example${invitePath(token)}`)).toBe(token);
     expect(parseInviteToken(`Aman, join "Goa trip" on Sattle: https://sattle.example/join/${token}`)).toBe(token);
     expect(parseInviteToken(`  https://sattle.example/join/${token}/  `)).toBe(token);
+  });
+
+  it('finds it in the group link as it is shared, which is the same token', () => {
+    expect(parseInviteToken(`https://sattle.example${groupLinkPath(token)}`)).toBe(token);
+    expect(parseInviteToken(`Here’s what we’ve split in "Goa trip": https://sattle.example/g/${token}`)).toBe(token);
   });
 
   it('takes a token pasted on its own', () => {

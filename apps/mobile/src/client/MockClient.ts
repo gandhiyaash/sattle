@@ -33,7 +33,6 @@ import {
   type GroupGuestView,
   type GroupLink,
   type GuestView,
-  type Invite,
   type InviteView,
   type JoinAs,
   type JoinRequest,
@@ -44,6 +43,7 @@ import {
   type ReceiveAddress,
   type Settlement,
   type UpiClaim,
+  type UpiOnGroupLink,
   type UpiPayee,
   type UpiProfile,
   type WalletConnection,
@@ -75,15 +75,16 @@ export class MockClient implements SattleClient {
   private payLinks: PayLink[];
   /** token → the settlement that link last opened */
   private payLinkSettlements: Record<string, string>;
-  private invites: Array<Invite & { invitedBy: string }> = [];
   private groupLinks: GroupLink[];
   private wallet: WalletConnection = { connected: false, methods: [], excessMethods: [] };
   private receiveAddress: string | null = null;
   /** user id → their UPI ID. Om has one, so the demo has someone to pay by UPI. */
   private upiIds: Record<string, string> = { 'u-om': 'om@okhdfcbank' };
   private upiClaims: UpiClaim[] = [];
-  /** Who lets shared group links show their UPI ID. */
-  private upiOnLinks: Record<string, boolean> = { 'u-om': true };
+  /** user id → whether shared group links may show their UPI ID, in every group they're in. On until they choose. */
+  private upiOnLinks: Record<string, boolean> = {};
+  /** member id → what that person chose for that one group, which wins. Absent while the group follows the other. */
+  private upiOnLinkChoices: Record<string, boolean> = {};
   /**
    * Requests to join, as the server keeps them. One is waiting in Goa trip,
    * from someone asking to be Aman, so the demo shows letting someone in.
@@ -553,68 +554,34 @@ export class MockClient implements SattleClient {
     return this.onSettlementUpdate(sid, () => cb(structuredClone(this.guestView(this.findLink(token)))));
   }
 
-  // -- invites --------------------------------------------------------------
+  // -- joining -------------------------------------------------------------
+  // With the group's link: the same token as the group page.
 
-  private isLive = (invite: Invite) => Date.parse(invite.expiresAt) > Date.now();
-
-  /** Same rules as the server: a dead link is not_found, an old one link_expired. */
-  private liveInvite(token: string) {
-    const invite = this.invites.find((i) => i.token === token);
-    if (!invite) throw new SattleError('not_found', 'This invite is no longer valid.');
-    if (!this.isLive(invite)) throw new SattleError('link_expired', 'This invite has expired. Ask for a new one.');
-    return invite;
-  }
-
-  /** Stands in for the server's hash: opaque to the page, and tied to this invite and this member. */
+  /** Stands in for the server's hash: opaque to the page, and tied to this link and this member. */
   private memberRef(token: string, memberId: string) {
     let h = 0;
     for (const ch of `${token}:${memberId}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return `m${h.toString(36)}`;
   }
 
-  getGroupInvite(groupId: string) {
-    return this.call((): Invite | null => {
-      this.findGroup(groupId);
-      const found = this.invites.find((i) => i.groupId === groupId);
-      if (!found || !this.isLive(found)) return null;
-      const { invitedBy: _, ...invite } = found;
-      return invite;
+  getInvite(token: string) {
+    return this.call((): InviteView => {
+      const link = this.findGroupLink(token);
+      const members = this.members.filter((m) => m.groupId === link.groupId);
+      return {
+        groupName: this.findGroup(link.groupId).name,
+        members: members
+          .filter((m) => !m.claimedByUserId)
+          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
+        joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
+      };
     });
   }
 
-  createInvite(groupId: string, idempotencyKey?: string) {
-    return this.call(() => {
-      const g = this.findGroup(groupId);
-      const me = this.members.find((m) => m.groupId === g.id && m.claimedByUserId === fixtures.currentUser.id);
-      const invite: Invite = {
-        token: Math.random().toString(36).slice(2, 12),
-        groupId,
-        createdAt: this.now(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-      // One at a time: the new one takes the old one's place.
-      this.invites = [...this.invites.filter((i) => i.groupId !== groupId), { ...invite, invitedBy: me?.displayName ?? 'Someone' }];
-      return invite;
-    }, idempotencyKey);
-  }
-
-  removeInvite(groupId: string, idempotencyKey?: string) {
-    return this.call(() => {
-      this.findGroup(groupId);
-      this.invites = this.invites.filter((i) => i.groupId !== groupId);
-    }, idempotencyKey);
-  }
-
-  getInvite(token: string) {
-    return this.call((): InviteView => {
-      const invite = this.liveInvite(token);
-      return {
-        groupName: this.findGroup(invite.groupId).name,
-        invitedBy: invite.invitedBy,
-        members: this.members
-          .filter((m) => m.groupId === invite.groupId && !m.claimedByUserId)
-          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
-      };
+  getJoinedGroup(token: string) {
+    return this.call((): Group | null => {
+      const link = this.findGroupLink(token);
+      return this.myMember(link.groupId) ? this.findGroup(link.groupId) : null;
     });
   }
 
@@ -624,13 +591,13 @@ export class MockClient implements SattleClient {
    */
   askToJoin(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call((): JoinRequest => {
-      // The server checks the body before it looks at the invite: a name is 1 to 40 characters.
+      // The server checks the body before it looks at the link: a name is 1 to 40 characters.
       if ('displayName' in as && (!as.displayName.trim() || as.displayName.trim().length > 40)) {
         throw new SattleError('invalid_input', 'Give a name of up to 40 characters.');
       }
-      const invite = this.liveInvite(token);
+      const link = this.findGroupLink(token);
       const me = fixtures.currentUser;
-      const g = this.findGroup(invite.groupId);
+      const g = this.findGroup(link.groupId);
       const members = this.members.filter((m) => m.groupId === g.id);
       if (members.some((m) => m.claimedByUserId === me.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
@@ -850,9 +817,15 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
-  /** Same rule as the server: a rupee group, and a payee who has an ID and chose to show it on links. */
+  /** Same rule as the server: a rupee group, and a payee who has an ID and hasn't turned it off for links. */
   private upiOnLink(groupId: string, payee: Member) {
-    return this.findGroup(groupId).currency === 'INR' && this.takesUpi(payee) && Boolean(this.upiOnLinks[payee.claimedByUserId!]);
+    return this.findGroup(groupId).currency === 'INR' && this.takesUpi(payee) && this.upiOnLinkOf(payee).on;
+  }
+
+  /** What applies to this member's group: what they chose for it, or else what they chose for all their groups. */
+  private upiOnLinkOf(member: Member): UpiOnGroupLink {
+    const choice = this.upiOnLinkChoices[member.id] ?? null;
+    return { on: choice ?? this.upiOnLinks[member.claimedByUserId!] ?? true, choice };
   }
 
   private groupLinkUpiDebt(token: string, ref: string) {
@@ -967,7 +940,6 @@ export class MockClient implements SattleClient {
       this.expenses = this.expenses.filter((x) => !mine(x));
       this.settlements = this.settlements.filter((x) => !mine(x));
       this.payLinks = this.payLinks.filter((x) => !mine(x));
-      this.invites = this.invites.filter((x) => !mine(x));
       this.groupLinks = this.groupLinks.filter((x) => !mine(x));
       this.joinRequests = this.joinRequests.filter((x) => !mine(x));
     }, idempotencyKey);
@@ -1006,6 +978,8 @@ export class MockClient implements SattleClient {
       this.checkNothingIncoming(g.id);
       delete me.claimedByUserId;
       me.status = 'ghost';
+      // What they chose about this group's link was theirs, so it goes with them.
+      delete this.upiOnLinkChoices[me.id];
     }, idempotencyKey);
   }
 
@@ -1095,7 +1069,7 @@ export class MockClient implements SattleClient {
 
   private upiProfile(): UpiProfile {
     const me = fixtures.currentUser.id;
-    return { upiId: this.upiIds[me] ?? null, onGroupLinks: Boolean(this.upiOnLinks[me]) };
+    return { upiId: this.upiIds[me] ?? null, onGroupLinks: this.upiOnLinks[me] ?? true };
   }
 
   getUpiId() {
@@ -1106,27 +1080,41 @@ export class MockClient implements SattleClient {
     return this.call((): UpiProfile => {
       const parsed = parseUpiId(upiId);
       if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
-      const me = fixtures.currentUser.id;
-      // As the server: a different ID starts off the shared links.
-      if (this.upiIds[me] !== parsed.upiId) delete this.upiOnLinks[me];
-      this.upiIds[me] = parsed.upiId;
+      this.upiIds[fixtures.currentUser.id] = parsed.upiId;
       return this.upiProfile();
     });
   }
 
   setUpiOnGroupLinks(on: boolean) {
     return this.call((): UpiProfile => {
-      const me = fixtures.currentUser.id;
-      if (on && !this.upiIds[me]) throw new SattleError('invalid_input', 'Add your UPI ID first.');
-      this.upiOnLinks[me] = on;
+      this.upiOnLinks[fixtures.currentUser.id] = on;
       return this.upiProfile();
+    });
+  }
+
+  getUpiOnGroupLink(groupId: string) {
+    return this.call((): UpiOnGroupLink => {
+      this.findGroup(groupId);
+      const me = this.myMember(groupId);
+      if (!me) throw new SattleError('not_found', 'That group doesn’t exist.');
+      return this.upiOnLinkOf(me);
+    });
+  }
+
+  setUpiOnGroupLink(groupId: string, on: boolean | null) {
+    return this.call((): UpiOnGroupLink => {
+      this.findGroup(groupId);
+      const me = this.myMember(groupId);
+      if (!me) throw new SattleError('not_found', 'That group doesn’t exist.');
+      if (on === null) delete this.upiOnLinkChoices[me.id];
+      else this.upiOnLinkChoices[me.id] = on;
+      return this.upiOnLinkOf(me);
     });
   }
 
   clearUpiId() {
     return this.call((): UpiProfile => {
       delete this.upiIds[fixtures.currentUser.id];
-      delete this.upiOnLinks[fixtures.currentUser.id];
       return this.upiProfile();
     });
   }
