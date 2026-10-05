@@ -217,11 +217,6 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
     return c.json(asSeenByAsker(req), 201);
   });
 
-  /** Old apps join here and expect to be in. They can't be any more, so they're told to update. */
-  r.post('/groups/join', () => {
-    throw new SattleError('conflict', 'Joining a group now needs someone in it to let you in. Update Sattle to ask.');
-  });
-
   /** Authed. The user's own requests, waiting or turned down. Names only. */
   r.get('/me/join-requests', (c) => c.json(repo.joinRequestsOf(c.get('user').id).map(asSeenByAsker)));
 

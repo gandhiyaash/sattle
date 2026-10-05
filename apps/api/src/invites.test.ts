@@ -343,18 +343,6 @@ describe('POST /join-requests', () => {
   });
 });
 
-describe('POST /groups/join', () => {
-  it('tells an app from before approvals to update, and lets nobody in', async () => {
-    const { call, signUp, invite, refOf, members, waiting } = await setup();
-    const { token } = (await invite()).body;
-    const res = await call('POST', '/groups/join', { token, ref: await refOf(token, 'Kabir') }, (await signUp('Kabir')).token);
-    expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ code: 'conflict', message: expect.stringContaining('Update Sattle') });
-    expect((await members()).filter((m) => m.claimedByUserId)).toHaveLength(1);
-    expect(await waiting()).toEqual([]);
-  });
-});
-
 describe('POST /join-requests/:id/approve', () => {
   it('makes the person the ghost they picked: a member who can read the group and add to it', async () => {
     const { call, signUp, invite, joinAs, members, group, base, kabir, aman, riya, mine } = await setup();
