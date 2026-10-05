@@ -26,6 +26,7 @@ import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
 import { AboveBottomBar } from './primitives';
+import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
@@ -41,6 +42,7 @@ type Route =
   | { name: 'wallet' }
   | { name: 'account' }
   | { name: 'join'; token?: string }
+  | { name: 'restore'; groupId: string; backupKey: string }
   | { name: 'guest'; token: string };
 
 export interface DemoAppProps {
@@ -51,15 +53,18 @@ export interface DemoAppProps {
   onJoinDone?: () => void;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
+  /** The account has a new sign-in key, already saved. The client passed in should be swapped for one with it. */
+  onKeyReplaced?: (token: string) => void;
 }
 
-export function DemoApp({ client, joining, onJoinDone, onAccountDeleted }: DemoAppProps) {
+export function DemoApp({ client, joining, onJoinDone, onAccountDeleted, onKeyReplaced }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
       <Navigator
         joining={joining ?? null}
         onJoinDone={onJoinDone}
         onAccountDeleted={onAccountDeleted}
+        onKeyReplaced={onKeyReplaced}
       />
     </SattleProvider>
   );
@@ -69,10 +74,12 @@ function Navigator({
   joining,
   onJoinDone,
   onAccountDeleted,
+  onKeyReplaced,
 }: {
   joining: string | null;
   onJoinDone?: () => void;
   onAccountDeleted?: () => void;
+  onKeyReplaced?: (token: string) => void;
 }) {
   const sheet = useSheet();
   const insets = useSafeAreaInsets();
@@ -166,6 +173,14 @@ function Navigator({
           />
         );
 
+      case 'restore':
+        return (
+          <RestoreScreen
+            initialKey={route.backupKey}
+            onBack={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
+          />
+        );
+
       case 'editExpense':
         return (
           <AddExpenseScreen
@@ -194,6 +209,10 @@ function Navigator({
               refresh();
               setRoute({ name: 'groups' });
             }}
+            // The mock's key is made up, so there's nothing on the relays to read.
+            onReadBack={
+              isMock() ? undefined : (backupKey) => setRoute({ name: 'restore', groupId: route.groupId, backupKey })
+            }
           />
         );
 
@@ -216,7 +235,13 @@ function Navigator({
         return <WalletScreen onBack={() => setRoute({ name: 'groups' })} />;
 
       case 'account':
-        return <AccountScreen onBack={() => setRoute({ name: 'groups' })} onDeleted={() => onAccountDeleted?.()} />;
+        return (
+          <AccountScreen
+            onBack={() => setRoute({ name: 'groups' })}
+            onDeleted={() => onAccountDeleted?.()}
+            onKeyReplaced={onKeyReplaced}
+          />
+        );
 
       case 'guest':
         return (

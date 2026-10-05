@@ -16,6 +16,7 @@ import { GuestPayScreen } from './src/ui/GuestPayScreen';
 import { JoinAsNewScreen } from './src/ui/JoinScreen';
 import { OnboardingScreen } from './src/ui/OnboardingScreen';
 import { Loading, Screen } from './src/ui/primitives';
+import { RestoreScreen } from './src/ui/RestoreScreen';
 import { useColorMode } from './src/ui/theme';
 import { readToured, writeToured } from './src/ui/tourStore';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
@@ -26,6 +27,8 @@ const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
 const GROUP_PATH = /^\/g\/([^/]+)\/?$/;
 /** The path joinPath() builds: /join/<token>. */
 const JOIN_PATH = /^\/join\/([^/]+)\/?$/;
+/** Reading a group back from its backup key. The key is pasted on the page, never put in the address. */
+const RESTORE_PATH = /^\/restore\/?$/;
 
 /** The token when this page was opened from a link of that shape. Web only: native has no path. */
 function tokenFromPath(path: RegExp): string | null {
@@ -45,6 +48,9 @@ const guestToken = () => tokenFromPath(GUEST_PATH);
 const groupToken = () => tokenFromPath(GROUP_PATH);
 /** Joining with a group's link, on the web: the app opens on the join screen, which makes an account if there isn't one. */
 const joinToken = () => tokenFromPath(JOIN_PATH);
+/** Web only, like the others: /restore, for someone with a backup key and maybe no account or server. */
+const isRestorePath = () =>
+  Platform.OS === 'web' && typeof window !== 'undefined' && RESTORE_PATH.test(window.location.pathname);
 
 export default function App() {
   const mode = useColorMode();
@@ -61,6 +67,7 @@ export default function App() {
 function Root() {
   const [token] = useState(guestToken);
   const [group] = useState(groupToken);
+  const [restoring] = useState(isRestorePath);
   const [joining, setJoining] = useState(joinToken);
   const currenciesRead = useCurrenciesRead();
   // Whether this device has been shown the tour. Undefined until it has said.
@@ -112,6 +119,10 @@ function Root() {
       </SattleProvider>
     );
   }
+  if (restoring) {
+    // Relays only: no client, no account, and no tour first. Back is for the app at /.
+    return <RestoreScreen onBack={() => window.location.assign('/')} />;
+  }
   if (toured === undefined || !currenciesRead) return <Starting />;
   // First launch: how it works, in three screens. A /join/ link that brought them
   // here is kept, and is where they go once it's over.
@@ -128,7 +139,7 @@ function Starting() {
   );
 }
 
-type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client: SattleClient };
+type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'restoring' } | { kind: 'ready'; client: SattleClient };
 
 /**
  * The app proper needs a device account. A stored token the server no longer
@@ -180,7 +191,14 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
           </SattleProvider>
         );
       }
-      return <WelcomeScreen onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })} />;
+      return (
+        <WelcomeScreen
+          onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
+          onRestore={() => setAccount({ kind: 'restoring' })}
+        />
+      );
+    case 'restoring':
+      return <RestoreScreen onBack={() => setAccount({ kind: 'none' })} />;
     case 'ready':
       return (
         <DemoApp
@@ -192,6 +210,8 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
             await clearToken();
             setAccount({ kind: 'none' });
           }}
+          // Already saved by the account screen. The old token no longer signs in.
+          onKeyReplaced={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
         />
       );
   }

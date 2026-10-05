@@ -7,6 +7,12 @@
  * including someone who is owed money; the yes is what stops them becoming
  * that person.
  *
+ * Someone who joined and then lost the phone or browser they joined with
+ * asks the same way, picking their own name from the ones already joined.
+ * Letting them in hands that name to their new account and takes it from
+ * the old one, so it needs the same yes, from anyone in the group, the old
+ * device included.
+ *
  * Once let in they are a member like any other, so they can read and write
  * everything in the group. The link doesn't run out by itself: anyone in the
  * group can replace it or turn it off, and the requests waiting on it can be
@@ -27,6 +33,7 @@ import { SattleError, type JoinView, type JoinRequest, type PendingJoin } from '
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
+import { checkNothingIncoming } from '../groupRules';
 import { parse } from '../http';
 import { idempotency } from '../middleware';
 import { newId, nowIso, type StoredJoinRequest } from '../repo';
@@ -76,8 +83,11 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       members: members
         .filter((m) => !m.claimedByUserId)
         .map((m) => ({ ref: memberRef(link.token, m.id), name: m.displayName })),
-      // Names only, with no ref: there is nothing to send back for someone who can't be picked.
       joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
+      // The same people, for someone taking their own place back from a device they lost.
+      rejoin: members
+        .filter((m) => m.claimedByUserId)
+        .map((m) => ({ ref: memberRef(link.token, m.id), name: m.displayName })),
     };
     return c.json(view);
   });
@@ -105,6 +115,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
     code: req.code,
     status: req.status,
     createdAt: req.createdAt,
+    ...(req.replacesUserId && { takesOver: true }),
   });
 
   /** A request, for someone in its group. Anyone else gets not_found, as for the group itself. */
@@ -128,13 +139,15 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
    * in the group lets them in.
    *
    * With a `ref`, they ask to be the ghost they picked on the join page, with
-   * the balance already on that name. With a `displayName`, they weren't on
+   * the balance already on that name. With a `ref` from `rejoin`, they ask to
+   * take back a name they joined as before, from the account that has it; the
+   * request names that account, and letting them in only hands the name over
+   * while that account still has it. With a `displayName`, they weren't on
    * the page and ask to be added as a new member. Asking again replaces their
    * last request, so picking the wrong name is fixed by picking the right one.
    *   link not usable                       → as `live` above
    *   already in this group                 → 409 conflict (one person, one member)
    *   nobody in the group has that ref      → 404 not_found
-   *   someone has already joined as them    → 409 conflict
    *   that name is a ghost waiting to join  → 409 conflict: they should pick it,
    *                                           not start a second row beside it
    *   MAX_PENDING_JOINS already waiting     → 409 conflict
@@ -153,6 +166,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       const members = repo.members(link.groupId);
       let memberId: string | undefined;
       let displayName: string;
+      let replacesUserId: string | undefined;
 
       if ('displayName' in who) {
         const waiting = members.find((m) => !m.claimedByUserId && sameName(m.displayName, who.displayName));
@@ -163,9 +177,9 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       } else {
         const member = members.find((m) => memberRef(link.token, m.id) === who.ref);
         if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
-        if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
         memberId = member.id;
         displayName = member.displayName;
+        replacesUserId = member.claimedByUserId;
       }
 
       const mine = repo.joinRequestsOf(user.id).find((x) => x.groupId === link.groupId && x.status === 'pending');
@@ -180,6 +194,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
         displayName,
         code: newJoinCode(),
         createdAt: nowIso(),
+        replacesUserId,
       });
     });
     return c.json(asSeenByAsker(req), 201);
@@ -197,13 +212,20 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
   /** Authed, members only. Who is waiting to be let in, oldest first. */
   r.get('/groups/:id/join-requests', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    const waiting: PendingJoin[] = repo.pendingJoins(g.id).map((req) => ({
-      id: req.id,
-      name: req.memberId ? repo.member(req.memberId)!.displayName : req.displayName,
-      existing: Boolean(req.memberId),
-      code: req.code,
-      createdAt: req.createdAt,
-    }));
+    const me = c.get('user').id;
+    const waiting: PendingJoin[] = repo.pendingJoins(g.id).map((req) => {
+      // Only while the account they'd take it from still has the name: otherwise it's a ghost again.
+      const holder = req.memberId ? repo.member(req.memberId)!.claimedByUserId : undefined;
+      const replacing = req.replacesUserId && holder === req.replacesUserId ? holder : undefined;
+      return {
+        id: req.id,
+        name: req.memberId ? repo.member(req.memberId)!.displayName : req.displayName,
+        existing: Boolean(req.memberId),
+        code: req.code,
+        createdAt: req.createdAt,
+        ...(replacing && { replacing: replacing === me ? ('you' as const) : ('someone' as const) }),
+      };
+    });
     return c.json(waiting);
   });
 
@@ -212,9 +234,16 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
    * they asked to be, or a new member under the name they gave, and the
    * request is gone. Anyone else asking to be that ghost is turned down.
    * Returns the Member.
+   *
+   * A request to take a name back from the account that has it hands the
+   * member over: that account leaves the group as if it had left, and the
+   * asker takes the name as it is. Whoever has the name can say yes to this
+   * too, which is how an old device hands its place to a new one.
    *   not in the group, or no such request   → 404 not_found
    *   it was already turned down             → 409 conflict
-   *   someone has joined as that ghost since → 409 conflict
+   *   someone has joined as that ghost since → 409 conflict (for a takeover:
+   *                                            anyone but the account it named)
+   *   a payment to that account is under way → 409 conflict
    * The member is `joined`, or `nwc_linked` if they have a wallet connected,
    * like the members they have in other groups.
    */
@@ -232,7 +261,12 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       if (!req.memberId) {
         return repo.appendMember({ id: newId('m'), groupId: req.groupId, displayName: req.displayName, status, claimedByUserId: req.userId });
       }
-      if (!repo.claimMember(req.memberId, req.userId, status)) {
+      const holder = repo.member(req.memberId)!.claimedByUserId;
+      if (holder && holder === req.replacesUserId) {
+        // It lands on their wallet and their member, so it finishes before the name moves.
+        checkNothingIncoming(repo, holder, req.groupId, `A payment to ${req.displayName} is still in progress. Wait for it to finish.`);
+        repo.handOverMember(req.memberId, holder, req.userId, status);
+      } else if (!repo.claimMember(req.memberId, req.userId, status)) {
         throw new SattleError('conflict', `Someone has already joined as ${req.displayName}.`);
       }
       repo.declineJoinRequestsFor(req.memberId);

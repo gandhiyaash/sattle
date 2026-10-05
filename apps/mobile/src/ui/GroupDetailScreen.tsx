@@ -9,7 +9,7 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README. One link, from the share icon in the header, is
+ *    of a line in a README. One link, from Invite in the header, is
  *    for all of them. A member nothing has been built on yet can be removed
  *    from their row; that is the server's rule (groupRules.ts), not a choice
  *    made here.
@@ -60,7 +60,6 @@ import {
   ConfirmButton,
   Divider,
   ErrorState,
-  IconButton,
   Loading,
   Screen,
   SectionLabel,
@@ -129,7 +128,7 @@ export function GroupDetailScreen({
   const keys = useActionKeys();
   const mode = usePaymentMode();
   const prefs = useCurrencyPrefs();
-  /** What the share icon last did. The share sheet says so itself; this is for when there isn't one. */
+  /** What Invite last did. The share sheet says so itself; this is for when there isn't one. */
   const [shared, setShared] = useState<GroupShare>({ kind: 'idle' });
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
@@ -261,7 +260,7 @@ export function GroupDetailScreen({
       right={
         <View style={s.headerActions}>
           <Button label="Manage" variant="quiet" onPress={onManage} />
-          <IconButton icon="share" label="Share this group" busy={shared.kind === 'busy'} onPress={shareGroup} />
+          <Button label="Invite" busy={shared.kind === 'busy'} onPress={shareGroup} />
         </View>
       }
       footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
@@ -537,7 +536,13 @@ function JoinRequestCard({
         <Avatar name={request.name} dim />
         <View style={{ flex: 1 }}>
           <Text style={s.debtText}>
-            {request.existing ? `Someone wants to join as ${request.name}` : `${request.name} wants to join`}
+            {request.replacing === 'you'
+              ? 'Someone wants to take over your place'
+              : request.replacing
+                ? `Someone says they’re ${request.name}, on a new device`
+                : request.existing
+                  ? `Someone wants to join as ${request.name}`
+                  : `${request.name} wants to join`}
           </Text>
           <Text style={s.memberMeta}>
             Code {request.code} · {ago(request.createdAt)}
@@ -546,11 +551,7 @@ function JoinRequestCard({
         </View>
       </View>
       <Text style={[s.linkNote, s.indented]}>
-        {twin
-          ? `More than one person is asking to be ${request.name}. Ask ${request.name} which code they see, and let in only that one.`
-          : request.existing
-            ? `They’ll see everything in ${groupName} and take over ${request.name}’s balance. Let them in only if you know it’s ${request.name}: if unsure, ask which code they see.`
-            : `They’ll see everything in ${groupName} and can add to it.`}
+        {joinRequestNote(request, twin, groupName)}
       </Text>
       <View style={[s.joinActions, s.indented]}>
         <Button label="Let in" variant="primary" busy={busy === 'approve'} disabled={busy !== null} onPress={() => act('approve')} />
@@ -559,6 +560,24 @@ function JoinRequestCard({
       {error && <Text style={[s.linkError, s.indented]}>{error}</Text>}
     </Card>
   );
+}
+
+/** What letting this person in would do, under who they are. */
+function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string): string {
+  const { name } = request;
+  if (request.replacing === 'you') {
+    return `If it’s you, on a new phone or browser, let them in: that one becomes ${name}, and this device leaves ${groupName}. If it isn’t you, tap Not them.`;
+  }
+  if (request.replacing) {
+    return `${name} has joined already. Letting them in hands ${name}’s place to this new account, and the old one leaves ${groupName}. Do it only if you’ve checked with ${name}, say by asking which code they see.`;
+  }
+  if (twin) {
+    return `More than one person is asking to be ${name}. Ask ${name} which code they see, and let in only that one.`;
+  }
+  if (request.existing) {
+    return `They’ll see everything in ${groupName} and take over ${name}’s balance. Let them in only if you know it’s ${name}: if unsure, ask which code they see.`;
+  }
+  return `They’ll see everything in ${groupName} and can add to it.`;
 }
 
 /** "just now", "5 min ago", "2 h ago", "3 days ago". */
@@ -605,7 +624,7 @@ const REFRESH_MS = 4000;
 /** How long "Link copied" stays under the group's name. */
 const COPIED_MS = 3000;
 
-/** The share icon, between taps. Sharing shows nothing here unless there was no share sheet to show it. */
+/** Invite, between taps. Sharing shows nothing here unless there was no share sheet to show it. */
 type GroupShare = { kind: 'idle' } | { kind: 'busy' } | { kind: 'copied' } | { kind: 'failed'; message: string };
 
 type LinkState =

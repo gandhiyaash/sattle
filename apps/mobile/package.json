@@ -18,6 +18,7 @@
     "expo-intent-launcher": "~57.0.1",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "nostr-tools": "^2.25.2",
     "qrcode-generator": "^2.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",

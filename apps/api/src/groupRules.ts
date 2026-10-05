@@ -29,9 +29,14 @@ export function checkExpenseOwner(repo: Repo, expense: Expense, userId: string) 
  * A payment on its way to this user is confirmed through their wallet and
  * lands on their member, so neither can go until it has finished.
  */
-export function checkNothingIncoming(repo: Repo, userId: string, groupId?: string) {
+export function checkNothingIncoming(
+  repo: Repo,
+  userId: string,
+  groupId?: string,
+  message = 'A payment to you is still in progress. Wait for it to finish.'
+) {
   const open = repo.unfinishedToUser(userId).some((s) => isInProgress(s) && (!groupId || s.groupId === groupId));
-  if (open) throw conflict('A payment to you is still in progress. Wait for it to finish.');
+  if (open) throw conflict(message);
 }
 
 /** Only a ghost nobody has built anything on: no expense, payment or pay link names them. */

@@ -43,6 +43,8 @@ export interface GroupSettingsScreenProps {
   onBack: () => void;
   /** The user left the group, or it was deleted: there's nothing to go back to. */
   onGone: () => void;
+  /** Reads the group back from Nostr with its backup key, as someone would without Sattle. Absent: no button. */
+  onReadBack?: (backupKey: string) => void;
 }
 
 interface Settings {
@@ -61,7 +63,7 @@ interface Settings {
   linkUpi: UpiOnGroupLink | null;
 }
 
-export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
+export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: GroupSettingsScreenProps) {
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
@@ -109,7 +111,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
 
       <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
 
-      <LedgerBackupSection groupId={groupId} />
+      <LedgerBackupSection groupId={groupId} onReadBack={onReadBack} />
 
       <View>
         <SectionLabel>Leave</SectionLabel>
@@ -165,7 +167,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
 }
 
 /**
- * The group's one link, which the share icon on the group screen hands out.
+ * The group's one link, which Invite on the group screen hands out.
  * Whoever holds it sees the spends and who owes whom and can pay a debt, with
  * no app and no account, and can ask to join. This is where it is replaced
  * or turned off: that is how a link that went to the wrong place is taken
@@ -238,7 +240,7 @@ function GroupLinkSection({
             />
           </>
         ) : (
-          <Text style={s.body}>No link yet. The share icon on the group screen makes one.</Text>
+          <Text style={s.body}>No link yet. Invite on the group screen makes one.</Text>
         )}
 
         {upi && (
@@ -276,7 +278,13 @@ function GroupLinkSection({
  * that reads it back. The key decrypts the whole group, so it's copied, not
  * shared to a chat by default.
  */
-function LedgerBackupSection({ groupId }: { groupId: string }) {
+function LedgerBackupSection({
+  groupId,
+  onReadBack,
+}: {
+  groupId: string;
+  onReadBack?: (backupKey: string) => void;
+}) {
   const s = useStyles();
   const client = useClient();
   const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId]);
@@ -330,6 +338,9 @@ function LedgerBackupSection({ groupId }: { groupId: string }) {
             />
           )}
           <Button label="Copy backup key" variant="quiet" onPress={copy} />
+          {onReadBack && data.published > 0 && (
+            <Button label="Read it back" variant="quiet" onPress={() => onReadBack(data.uri)} />
+          )}
         </View>
         {note && (
           <>
