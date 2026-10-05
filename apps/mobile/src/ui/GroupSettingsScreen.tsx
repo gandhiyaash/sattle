@@ -1,15 +1,17 @@
 /**
- * Managing a group: its name, who is in it, leaving it, deleting it.
+ * Managing a group: its name, its link, its backup, leaving it, deleting it.
+ * Who is in it is on the group screen, under Members.
  *
  * Everything here follows one rule, the server's (groupRules.ts): nobody can
- * undo what someone else is owed. So the only member who can be removed is
- * one nothing has been built on, a group is deleted only once it's settled,
- * and what a person can always do is take themselves out. Each action says
- * what it leaves behind before the second tap.
+ * undo what someone else is owed. So a group is deleted only once it's
+ * settled, and what a person can always do is take themselves out.
+ *
+ * The screen says little until asked. What a thing is sits behind Learn more;
+ * what an action leaves behind is said between the first tap and the second.
  */
 
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   computeBalances,
@@ -18,18 +20,18 @@ import {
   simplifyDebts,
   UPI_CURRENCY,
   type GroupLink,
-  type Member,
   type UpiOnGroupLink,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
-  Avatar,
+  Badge,
   Button,
   Card,
   ConfirmButton,
   Divider,
   ErrorState,
+  LearnMore,
   Loading,
   Screen,
   SectionLabel,
@@ -41,14 +43,12 @@ export interface GroupSettingsScreenProps {
   onBack: () => void;
   /** The user left the group, or it was deleted: there's nothing to go back to. */
   onGone: () => void;
+  /** Reads the group back from Nostr with its backup key, as someone would without Sattle. Absent: no button. */
+  onReadBack?: (backupKey: string) => void;
 }
 
 interface Settings {
   name: string;
-  members: Member[];
-  myMemberId: string | null;
-  /** Ghosts that no expense or payment names. */
-  removable: Set<string>;
   /** People with an account, the user included. */
   accounts: number;
   settled: boolean;
@@ -63,14 +63,13 @@ interface Settings {
   linkUpi: UpiOnGroupLink | null;
 }
 
-export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
+export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: GroupSettingsScreenProps) {
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
 
   const { data, loading, error, reload } = useAsync<Settings>(async () => {
-    const [user, group, members, expenses, settlements, link, upi, linkUpi] = await Promise.all([
-      client.getCurrentUser(),
+    const [group, members, expenses, settlements, link, upi, linkUpi] = await Promise.all([
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
@@ -79,20 +78,8 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       client.getUpiId(),
       client.getUpiOnGroupLink(groupId),
     ]);
-    const named = new Set<string>();
-    for (const e of expenses) {
-      named.add(e.paidByMemberId);
-      for (const p of e.parts) named.add(p.memberId);
-    }
-    for (const s of settlements) {
-      named.add(s.fromMemberId);
-      named.add(s.toMemberId);
-    }
     return {
       name: group.name,
-      members,
-      myMemberId: members.find((m) => m.claimedByUserId === user.id)?.id ?? null,
-      removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
       accounts: members.filter((m) => m.claimedByUserId).length,
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
       paying: settlements.some(isInProgress),
@@ -122,61 +109,30 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
     <Screen title="Manage group" subtitle={data.name} onBack={onBack}>
       <Rename groupId={groupId} name={data.name} onRenamed={reload} />
 
-      <View>
-        <SectionLabel>Members</SectionLabel>
-        <Card style={{ padding: 0 }}>
-          {data.members.map((member, i) => (
-            <View key={member.id}>
-              {i > 0 && <Divider />}
-              <View style={s.memberRow}>
-                <Avatar name={member.displayName} dim={member.status === 'ghost'} />
-                <Text style={s.memberName}>
-                  {member.displayName}
-                  {member.id === data.myMemberId ? ' (you)' : ''}
-                </Text>
-              </View>
-              {data.removable.has(member.id) && (
-                <View style={s.memberAction}>
-                  <ConfirmButton
-                    label={`Remove ${member.displayName}`}
-                    confirmLabel={`Yes, remove ${member.displayName}`}
-                    onConfirm={async () => {
-                      await keys.run('remove-member', { groupId, id: member.id }, (k) =>
-                        client.removeMember(groupId, member.id, k)
-                      );
-                      reload();
-                    }}
-                  />
-                </View>
-              )}
-            </View>
-          ))}
-        </Card>
-        <Text style={s.note}>
-          Only someone added by mistake can be removed. Once a person is in an expense or a payment they stay in the
-          group’s history, and someone who has joined can only leave by themselves.
-        </Text>
-      </View>
-
       <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
+
+      <LedgerBackupSection groupId={groupId} onReadBack={onReadBack} />
 
       <View>
         <SectionLabel>Leave</SectionLabel>
         <Card style={{ gap: space.md }}>
-          <Text style={s.body}>
-            {alone
-              ? 'You’re the only one here with an account, so nobody could open this group after you. Delete it instead.'
-              : 'You stop seeing this group. Your name and balance stay in it, and anything owed to you can then be marked settled by whoever owes it. The group’s link brings you back.'}
-          </Text>
-          {!alone && (
-            <ConfirmButton
-              label="Leave this group"
-              confirmLabel="Yes, leave"
-              onConfirm={async () => {
-                await keys.run('leave', { groupId }, (k) => client.leaveGroup(groupId, k));
-                onGone();
-              }}
-            />
+          {alone ? (
+            <Text style={s.body}>Only you have an account here, so delete the group instead.</Text>
+          ) : (
+            <>
+              <ConfirmButton
+                label="Leave this group"
+                confirmLabel="Yes, leave"
+                confirmHint="Anything owed to you can then be marked settled by whoever owes it."
+                onConfirm={async () => {
+                  await keys.run('leave', { groupId }, (k) => client.leaveGroup(groupId, k));
+                  onGone();
+                }}
+              />
+              <LearnMore>
+                You stop seeing this group. Your name and balance stay in it, and the group’s link brings you back.
+              </LearnMore>
+            </>
           )}
         </Card>
       </View>
@@ -184,22 +140,25 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       <View>
         <SectionLabel>Delete</SectionLabel>
         <Card style={{ gap: space.md }}>
-          <Text style={s.body}>
-            {data.paying
-              ? 'A payment in this group is still in progress. The group can be deleted once it has finished.'
-              : data.settled
-                ? 'Deletes the group and everything in it, for everyone. This can’t be undone.'
-                : 'A group can only be deleted once nothing is owed in it, so that deleting it can’t erase a debt. Settle up first.'}
-          </Text>
-          {data.settled && !data.paying && (
+          {data.paying ? (
+            <Text style={s.body}>A payment is still in progress. Delete the group once it has finished.</Text>
+          ) : data.settled ? (
             <ConfirmButton
               label="Delete this group"
               confirmLabel="Yes, delete it for everyone"
+              confirmHint="Everything in it goes, for everyone. This can’t be undone."
               onConfirm={async () => {
                 await keys.run('delete-group', { groupId }, (k) => client.deleteGroup(groupId, k));
                 onGone();
               }}
             />
+          ) : (
+            <>
+              <Text style={s.body}>Settle up first.</Text>
+              <LearnMore>
+                A group can only be deleted once nothing is owed in it, so that deleting it can’t erase a debt.
+              </LearnMore>
+            </>
           )}
         </Card>
       </View>
@@ -255,17 +214,17 @@ function GroupLinkSection({
       <Card style={{ gap: space.md }}>
         {link ? (
           <>
-            <Text style={s.body}>
-              Anyone holding this link can see the group’s spends and who owes what, and pay a debt, with no app.
-              They can’t change anything. They can ask to join, and someone here has to let them in.
-            </Text>
             <Text style={s.url} selectable numberOfLines={1}>
               {`${APP_URL}${groupLinkPath(link.token)}`}
             </Text>
+            <LearnMore>
+              Anyone holding this link can see the group’s spends and who owes what, and pay a debt, with no app.
+              They can’t change anything. They can ask to join, and someone here has to let them in.
+            </LearnMore>
             <ConfirmButton
               label="Make a new link"
               confirmLabel="Yes, replace the link"
-              hint="The old one stops working for everyone who has it."
+              confirmHint="The old one stops working for everyone who has it."
               onConfirm={async () => {
                 setLink(await keys.run('replace-link', { groupId, old: link.token }, (k) => client.createGroupLink(groupId, k)));
               }}
@@ -273,7 +232,7 @@ function GroupLinkSection({
             <ConfirmButton
               label="Turn off the link"
               confirmLabel="Yes, turn it off"
-              hint="Nobody can open the group with it or ask to join, until someone shares the group again."
+              confirmHint="Nobody can open the group with it or ask to join, until someone shares the group again."
               onConfirm={async () => {
                 await keys.run('remove-link', { groupId, old: link.token }, (k) => client.removeGroupLink(groupId, k));
                 setLink(null);
@@ -281,10 +240,7 @@ function GroupLinkSection({
             />
           </>
         ) : (
-          <Text style={s.body}>
-            This group has no link, so only the people in it can see it and nobody new can ask to join. The share
-            icon on the group screen makes one.
-          </Text>
+          <Text style={s.body}>No link yet. Invite on the group screen makes one.</Text>
         )}
 
         {upi && (
@@ -294,11 +250,13 @@ function GroupLinkSection({
             <Text style={s.body}>
               {upi.choice === null
                 ? `${upi.on ? 'On' : 'Off'}, as in Wallet for all your groups.`
-                : `${upi.on ? 'On' : 'Off'}, chosen for this group.`}{' '}
+                : `${upi.on ? 'On' : 'Off'}, chosen for this group.`}
+            </Text>
+            <LearnMore>
               {upi.on
                 ? 'Someone paying from the link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you, so turn this off if the link has gone further than people you know.'
                 : 'Someone paying from the link, without the app, can’t pay you by UPI. Turn it on and anyone holding the link can see your UPI ID, so only if the link stays with people you know.'}
-            </Text>
+            </LearnMore>
             <Button
               label={upi.on ? 'Turn off for this group' : 'Turn on for this group'}
               busy={busy}
@@ -310,6 +268,88 @@ function GroupLinkSection({
           </>
         )}
         {error && <Text style={s.error}>{error}</Text>}
+      </Card>
+    </View>
+  );
+}
+
+/**
+ * The group's ledger on Nostr: how much of it is out on relays, and the key
+ * that reads it back. The key decrypts the whole group, so it's copied, not
+ * shared to a chat by default.
+ */
+function LedgerBackupSection({
+  groupId,
+  onReadBack,
+}: {
+  groupId: string;
+  onReadBack?: (backupKey: string) => void;
+}) {
+  const s = useStyles();
+  const client = useClient();
+  const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId]);
+  const [note, setNote] = useState<string | null>(null);
+
+  // Nothing to back up before the first expense.
+  if (!data || data.entries === 0) return null;
+
+  const hosts = data.relays.map((r) => r.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ');
+  const entries = `${data.entries} ${data.entries === 1 ? 'entry' : 'entries'}`;
+  const status =
+    data.relays.length === 0
+      ? `${entries} signed. This server isn’t publishing to relays yet.`
+      : data.published < data.entries
+        ? `${data.published} of ${entries} on ${hosts}. The rest go out shortly.`
+        : `${data.entries === 1 ? 'The entry is' : `All ${entries}`} on ${hosts}.`;
+
+  const copy = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        await navigator.clipboard.writeText(data.uri);
+        setNote('Copied. It unlocks this group’s history, so only give it to people in the group.');
+      } catch {
+        setNote('Copy the key below by hand:');
+      }
+      return;
+    }
+    const r = await Share.share({ message: data.uri }).catch(() => null);
+    setNote(r?.action === Share.sharedAction ? 'Saved. Keep it somewhere only you can read.' : 'Here’s the key:');
+  };
+
+  return (
+    <View>
+      <SectionLabel>Backup</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <View style={s.backupTop}>
+          <Text style={s.backupTitle}>Backed up on Nostr</Text>
+          {data.relays.length > 0 && data.published === data.entries && <Badge text="Up to date" tone="accent" />}
+        </View>
+        <Text style={s.caption}>{status}</Text>
+        <LearnMore>
+          Signed and encrypted, so relays keep it without reading it. With the backup key, anyone in the group can
+          rebuild these balances without Sattle.
+        </LearnMore>
+        <View style={s.backupActions}>
+          {data.latest && (
+            <Button
+              label="See it on a relay"
+              variant="quiet"
+              onPress={() => Linking.openURL(`https://njump.me/${data.latest}`)}
+            />
+          )}
+          <Button label="Copy backup key" variant="quiet" onPress={copy} />
+          {onReadBack && data.published > 0 && (
+            <Button label="Read it back" variant="quiet" onPress={() => onReadBack(data.uri)} />
+          )}
+        </View>
+        {note && (
+          <>
+            <Text style={s.caption}>{note}</Text>
+            <Text style={s.url} selectable numberOfLines={2}>
+              {data.uri}
+            </Text>
+          </>
+        )}
       </Card>
     </View>
   );
@@ -364,13 +404,12 @@ function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; o
 const useStyles = makeStyles((color) => ({
   body: { ...type.body, color: color.inkMuted },
   label: { ...type.label, color: color.inkMuted },
-  note: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
+  caption: { ...type.caption, color: color.inkMuted },
   error: { ...type.caption, color: color.danger },
   url: { ...type.amountSm, color: color.inkFaint },
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg },
-  memberName: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
-  // Lines up under the name: row padding, avatar, gap.
-  memberAction: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md },
+  backupTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  backupTitle: { ...type.body, fontWeight: '600', color: color.ink },
+  backupActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   renameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   input: {
     flex: 1,

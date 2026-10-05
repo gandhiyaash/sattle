@@ -9,9 +9,12 @@
  * both rupees and bitcoin is asked, and the question opens on the one they
  * said new groups start in. A group's currency can't be changed afterwards,
  * since every amount in it is counted in that currency's units.
+ *
+ * The names can be typed straight down without leaving the keyboard: Enter
+ * goes on to the next one, and after the last it adds a field to go to.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { isBitcoin } from '@sattle/core';
@@ -41,6 +44,27 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
 
   const setPerson = (i: number, value: string) =>
     setPeople((prev) => prev.map((p, j) => (j === i ? value : p)));
+
+  const fields = useRef<Array<TextInput | null>>([]);
+  // A field is added to be typed in, so it gets the cursor. It isn't on screen until the next render.
+  const added = useRef(false);
+  useEffect(() => {
+    if (!added.current) return;
+    added.current = false;
+    fields.current[people.length - 1]?.focus();
+  }, [people.length]);
+
+  const addPerson = () => {
+    added.current = true;
+    setPeople((p) => [...p, '']);
+  };
+
+  /** Enter on a name. On an empty field it does nothing here, and the keyboard goes away: they're done. */
+  const nextPerson = (i: number) => {
+    if (!people[i].trim()) return;
+    if (i === people.length - 1) addPerson();
+    else fields.current[i + 1]?.focus();
+  };
 
   const submit = async () => {
     if (!name.trim()) return setError('Give the group a name.');
@@ -73,6 +97,9 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
           placeholder="Goa trip"
           placeholderTextColor={color.inkFaint}
           autoFocus
+          returnKeyType="next"
+          submitBehavior="submit"
+          onSubmitEditing={() => fields.current[0]?.focus()}
         />
       </Card>
 
@@ -95,14 +122,21 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
           {people.map((person, i) => (
             <TextInput
               key={i}
+              ref={(el) => {
+                fields.current[i] = el;
+              }}
               style={s.input}
               value={person}
               onChangeText={(v) => setPerson(i, v)}
+              onSubmitEditing={() => nextPerson(i)}
+              returnKeyType={person.trim() ? 'next' : 'done'}
+              // With a name in it the keyboard stays up for the next one.
+              submitBehavior={person.trim() ? 'submit' : 'blurAndSubmit'}
               placeholder="Their name"
               placeholderTextColor={color.inkFaint}
             />
           ))}
-          <Button label="Add another person" variant="quiet" onPress={() => setPeople((p) => [...p, ''])} />
+          <Button label="Add another person" variant="quiet" onPress={addPerson} />
         </Card>
         <Text style={s.note}>They don’t need the app. You can add more people later.</Text>
       </View>

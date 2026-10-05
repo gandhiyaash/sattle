@@ -36,7 +36,7 @@ Everyone else is a name in the group. To collect, you post one link in the group
 
 **Sign in with Nostr.** Link a Nostr key to your account, and signing in with it opens the account on any device, including the groups nobody else joined. Your browser extension (NIP-07) or remote signer (NIP-46 `bunker://`, from nsec.app or Amber) signs a NIP-98-shaped proof answering a one-time challenge, so Sattle never sees the private key and a proof can't be replayed.
 
-**A ledger on relays.** Each expense and confirmed settlement becomes a Nostr event (kind 4733), encrypted with NIP-44 under a random key per group, so relays store it without being able to read it. Each event is signed, so a relay can't forge or change one, and names the one before it, so a reader notices a missing or reordered entry. Publishing goes through an outbox table: a relay outage or a restart only delays an entry, never loses it. The group screen copies the backup key, and with it the app's restore page or `npm run ledger:verify` rebuilds every balance from the relays, with no Sattle server involved. The restore page decrypts in the browser and never sends the key anywhere.
+**A ledger on relays.** Each expense and confirmed settlement becomes a Nostr event (kind 4733), encrypted with NIP-44 under a random key per group, so relays store it without being able to read it. Each event is signed, so a relay can't forge or change one, and names the one before it, so a reader notices a missing or reordered entry. Publishing goes through an outbox table: a relay outage or a restart only delays an entry, never loses it. The group's **Manage** screen copies the backup key, and with it the app's restore page or `npm run ledger:verify` rebuilds every balance from the relays, with no Sattle server involved. The restore page decrypts in the browser and never sends the key anywhere.
 
 **Lightning addresses for everyone else.** Most wallets people already have (Wallet of Satoshi, Phoenix, Blink) can't do NWC. For those, you give Sattle your Lightning address. It fetches the invoice over LNURL-pay, checks the exact amount and network before showing it, and confirms the payment through the address's verify link (LUD-21) or the payer's proof of payment. Either way, the proof has to match the invoice's payment hash.
 
@@ -109,7 +109,7 @@ Nostr (nostr-tools), Nostr Wallet Connect (NIP-47), NIP-44 and NIP-04 encryption
 
 Upload them in this order. The first one becomes the cover image.
 
-1. Group screen with "Om owes you" and members marked **Not joined** (cover)
+1. Group screen on the **Members** tab, with Om and Aman marked **Not joined** (cover)
 2. Guest pay page on a phone: amount, sats, exchange rate and source, QR code, countdown
 3. **Backup on Nostr** card, and the terminal output of `ledger:verify`
 4. Wallet screen warning that an NWC connection grants more than Sattle needs

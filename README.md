@@ -142,7 +142,7 @@ apps/mobile/                 @sattle/mobile: Expo
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name and the people in it.
-      GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
+      GroupDetailScreen.tsx  The balance, then three tabs: expenses, members and their states, settle up.
       AddExpenseScreen.tsx   Live split preview as you type.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
@@ -151,7 +151,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
-      GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
+      GroupSettingsScreen.tsx  Manage: rename the group, its link, its Nostr backup (copy the key, read it back), leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
@@ -479,7 +479,7 @@ The server keeps the ledger in SQLite, so if the server goes away, so would a gr
 
 Entries go through an outbox table, `ledger_entries`. Every few seconds the server signs an entry for anything new, then publishes whatever hasn't gone out. A relay outage or a restart only delays publishing. With `LEDGER_RELAYS` empty, entries are still signed and kept, and they go out once relays are set, history included.
 
-In the app, the group screen's **Backed up on Nostr** card shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all, there are two ways to read the group back. Both fetch the group's entries from the relays, check every signature and the chain, decrypt them, and show the balances and who pays whom.
+In the app, the **Backed up on Nostr** card under **Manage** shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all, there are two ways to read the group back. Both fetch the group's entries from the relays, check every signature and the chain, decrypt them, and show the balances and who pays whom.
 
 - **In the app:** `/restore` on the web, **Restore a group from its backup key** on the welcome screen, or **Read it back** on the backup card. It needs no account and makes no request to the API: the browser asks the relays for the server's entries under the group's tag, and decrypts them itself (`src/ledger/readBack.ts`, which reads with `@sattle/core/nostrLedger`). The key is pasted on the page and never goes in the address. The web app is served from the same VM as the API, so if the VM is gone, use the Android app, a local `npm run web`, or the script below.
 - **In a terminal:**
