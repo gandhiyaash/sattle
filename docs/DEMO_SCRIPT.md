@@ -64,13 +64,13 @@ The story judges should take away, in order:
 ## Scene 4: Om pays from any wallet (1:10–1:55)
 
 **Screen:**
-1. On Om's row, tap **Send pay link** and copy the link.
-2. Open it on the phone, in a plain browser with no app: "Om, you owe Yash ₹333.33", the sats amount, and the breakdown under it. Hold on the breakdown for a beat: **Exchange rate** "1 BTC = ₹…", **Rate from** "CoinGecko, live", and the network fee. Then the QR code and "Rate and invoice locked for 1:29". If **Rate from** says "Demo rate", `PAYMENTS` isn't `nwc`; if it says "Live price unavailable", CoinGecko didn't answer, so wait a minute and open a fresh link.
+1. Tap the share icon in the group's header and copy the group link.
+2. Open it on the phone, in a plain browser with no app. Hold a second on the group page: the spends, who owes what, and the **Join** card. On "Om owes Yash", tap **Pay with Lightning**. The pay page shows "Om, you owe Yash ₹333.33", the sats amount, and the breakdown under it. Hold on the breakdown for a beat: **Exchange rate** "1 BTC = ₹…", **Rate from** "CoinGecko, live", and the network fee. Then the QR code and "Rate and invoice locked for 1:29". If **Rate from** says "Demo rate", `PAYMENTS` isn't `nwc`; if it says "Live price unavailable", CoinGecko didn't answer, so wait a minute and open a fresh link.
 3. Scan the QR code with the paying wallet and pay.
 4. Cut back to browser A: Om's row clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
 
 **Say:**
-> To collect from Om I send a link. He opens it in any browser and gets a Lightning invoice made by my wallet, at a rate pinned for ninety seconds, so nobody pays yesterday's price. He pays with whatever wallet he already has. Sattle checks with my wallet, and only when it says the invoice is paid, with a proof that matches, does the debt clear. Nothing is marked paid on hope.
+> To collect, I post one link in the group chat. Om opens it in any browser, sees what he owes, and gets a Lightning invoice made by my wallet, at a rate pinned for ninety seconds, so nobody pays yesterday's price. He pays with whatever wallet he already has. Sattle checks with my wallet, and only when it says the invoice is paid, with a proof that matches, does the debt clear. Nothing is marked paid on hope.
 
 ## Scene 5: Cash still counts (1:55–2:10)
 

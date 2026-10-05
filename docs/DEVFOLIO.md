@@ -20,7 +20,7 @@ Lightning removes that limit, and Bitcoin bill-splitters exist. But they all ass
 
 Sattle is built around the people who won't install it.
 
-**Only one person needs the app.** Everyone else is a name in the group. To collect from them, you send a pay link. It opens in any browser and shows a Lightning invoice, which they pay from whatever wallet they already use. No signup, no keys, no install.
+**Only one person needs the app.** Everyone else is a name in the group. To collect, you post one link in the group chat. It opens in any browser and shows what was spent and who owes what. Each person taps their debt and pays the Lightning invoice from whatever wallet they already use. To chase one person, you send them a pay link for just their debt. No signup, no keys, no install.
 
 **The ledger is in the money you spent, and the payment is in sats.** A group keeps its expenses in its own currency, rupees by default, because that's what the dinner cost. Splits are whole paise: when a split doesn't divide evenly, the leftover paise go out one at a time in a fixed order, so every share is a whole number and the shares always add up to the total. Sats come in only at the moment of paying. Sattle pins a quote at the live rate for 90 seconds and makes an invoice that expires with it, so nobody pays yesterday's price.
 
@@ -32,7 +32,7 @@ Sattle is built around the people who won't install it.
 
 **UPI and cash still count, as claims.** Not everyone settles in sats. In a rupee group, someone who adds a UPI ID can be paid by UPI. On Android the app opens a UPI app and hears back. On an iPhone or the web the payer gets the UPI ID or a QR code, then taps **I've paid**. Sattle can't see a bank transfer, so that's a claim, not a payment, and it moves no balance until the person owed confirms it. Cash works the same way: the person owed marks the debt settled. It's their word, so it's theirs to give. The person paying can't mark their own debt paid, and nobody else in the group can either. The one exception is a friend who never joined. They have no account to confirm with, so the person paying them can record it. The app always shows these separately from Lightning payments that come with proof.
 
-**Joining needs a yes.** One invite link covers the whole group, and whoever opens it picks their name from the list. A link can be forwarded, so picking a name only makes a request. Someone already in the group sees "Someone wants to join as Om · Code 7051" and lets them in or turns them down.
+**Joining needs a yes.** The same link has a **Join** button for anyone who wants to add spends themselves. They pick their name from the list. A link can be forwarded, so picking a name only makes a request. Someone already in the group sees "Someone wants to join as Om · Code 7051" and lets them in or turns them down.
 
 It runs on Android and the web, against a live server taking real Lightning payments. Open source (MIT). No token.
 
@@ -45,7 +45,8 @@ The Freedom Stack track asks where trust-minimisation still falls short. In Satt
 - **The exchange rate comes from CoinGecko.** Quotes use its live rate, cached for 30 seconds. If it stops answering, Sattle falls back to the last rate it got, and then to a fixed one. A quote only lives 90 seconds, but in an outage the sats amount can be off.
 - **Some Lightning addresses can't tell us they were paid.** When an address has no verify link, Sattle can only confirm the payment with the payer's proof of payment. Without that, the invoice closes as "we couldn't tell" rather than paid.
 - **UPI and cash are claims, not proofs.** A UPI payment counts when the person owed confirms it (or the payer records it, when the person owed never joined). The app shows these differently from Lightning settlements for that reason.
-- **Letting someone in is a person vouching.** An invite link can be forwarded, so a groupmate approves each request. A wrong yes is undone only by that person leaving.
+- **The group link is a key to read the group.** Anyone it's forwarded to can see the spends and who owes what, and is shown a UPI ID when they choose to pay that person. It doesn't expire, so the group can replace it or turn it off. A UPI ID with a phone number in it gets a warning before it's shown, and each person can keep theirs off any group's link.
+- **Letting someone in is a person vouching.** Since the link can be forwarded, a groupmate approves each request to join. A wrong yes is undone only by that person leaving.
 - **Your account is a key on your device.** A name and a random token, with no email, phone or password. Lose the device and you lose the account; there's nothing to recover it with. Next step: Nostr identity (NIP-07 / NIP-46).
 
 ## Challenges I ran into
