@@ -24,8 +24,6 @@ Sattle is built around the people who won't install it, and on Nostr so that no 
 - **The record outlives us.** Every expense and confirmed payment is published to Nostr relays, encrypted with NIP-44 and chained. With the group's backup key, anyone can rebuild the balances from the relays without our server.
 - **The ledger moves on proof.** A debt clears only when the payee's wallet says the invoice was paid, and the preimage matches the payment hash.
 
-_Fill in after the real test: "We used it to settle [what] between [how many] of us. [Name] paid from [wallet] without installing anything."_
-
 ### Only one person needs the app
 
 Everyone else is a name in the group. To collect, you post one link in the group chat. It opens in any browser and shows what was spent and who owes what. Each person taps their debt and pays the Lightning invoice from whatever wallet they already use. To chase one person, you send them a pay link for just their debt. No signup, no keys, no install.
@@ -103,7 +101,7 @@ Nostr (nostr-tools), Nostr Wallet Connect (NIP-47), NIP-44 and NIP-04 encryption
 - Live app: https://sattle.axiosiiitl.dev
 - Source: https://github.com/gandhiyaash/sattle
 - Android APK: https://github.com/gandhiyaash/sattle/releases/latest
-- Demo video: _YouTube link, once recorded (see [DEMO_SCRIPT.md](DEMO_SCRIPT.md))_
+- Demo video: https://github.com/gandhiyaash/sattle/blob/main/docs/demo/sattle-demo.mp4 (1:43, narrated and captioned. It was recorded on a local server, so the payment in it is simulated; the live app takes real Lightning payments.)
 
 ## Screenshots
 

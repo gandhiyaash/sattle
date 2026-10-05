@@ -4,6 +4,8 @@ Split expenses with friends and settle up over Bitcoin Lightning or UPI. Nobody 
 
 Try it at [sattle.axiosiiitl.dev](https://sattle.axiosiiitl.dev). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
 
+Watch the [1:43 demo video](docs/demo/sattle-demo.mp4): one person with the app, a friend paying from a plain browser, and the group rebuilt from Nostr. It was recorded on a local server, so the payment in it is simulated.
+
 A monorepo: an Expo (React Native) app for Android and web (iOS builds from the same code but hasn't been released), a Node API on SQLite, and the domain package both of them share. The app runs against either an in-memory mock or the real API; one env var switches between them.
 
 ## Quick start
