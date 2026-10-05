@@ -51,7 +51,8 @@ describe('MockClient group links', () => {
 
     const before = yash(await c.getGroupGuestView(link.token));
     const first = (await c.payFromGroupLink(link.token, before.ref)).token;
-    await c.openPayLink(first);
+    // As the group page opens it: Lightning was chosen there, and Om takes UPI too.
+    await c.openPayLink(first, 'lightning');
     // The mock's wallet pays on its own; wait for the page to say so.
     await new Promise<void>((done) => {
       const stop = c.onGuestViewUpdate(first, (v) => {
@@ -74,7 +75,7 @@ describe('MockClient group links', () => {
     expect(after.amount).toBe(before.amount);
     const second = (await c.payFromGroupLink(link.token, after.ref)).token;
     expect(second).not.toBe(first);
-    expect((await c.openPayLink(second)).settlement?.status).not.toBe('confirmed');
+    expect((await c.openPayLink(second, 'lightning')).settlement?.status).toBe('created');
   });
 
   it('refuses a debt it never listed, and one whose payee can’t receive', async () => {
