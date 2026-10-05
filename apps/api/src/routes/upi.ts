@@ -8,10 +8,11 @@
  * makes it a settlement like "mark as settled", or says it didn't arrive.
  * It is the payee's word to give, the same rule as checkManualRecorder.
  *
- * A UPI ID often holds a phone number, so it isn't in the member list. Only
- * someone who owes that person right now can read it, and, if that person
- * turns it on, whoever holds one of their groups' shared links (see
- * groupLinks.ts).
+ * A UPI ID often holds a phone number, so it isn't in the member list.
+ * Someone who owes that person right now can read it, and so can whoever
+ * holds one of their groups' shared links, for the debt they choose to pay
+ * (see groupLinks.ts). That second part the person can turn off, for every
+ * group they're in or for one.
  */
 
 import { Hono } from 'hono';
@@ -24,6 +25,7 @@ import {
   type Group,
   type Member,
   type UpiClaim,
+  type UpiOnGroupLink,
   type UpiPayee,
   type UpiProfile,
 } from '@sattle/core';
@@ -40,6 +42,9 @@ const UpiBody = z.object({ upiId: z.string().max(320) });
 
 const OnLinksBody = z.object({ on: z.boolean() });
 
+/** `null` is no choice for this group: it goes back to following the one for all of them. */
+const OnOneLinkBody = z.object({ on: z.boolean().nullable() });
+
 const ClaimBody = z.object({
   fromMemberId: z.string(),
   toMemberId: z.string(),
@@ -51,9 +56,15 @@ const ClaimBody = z.object({
 export const takesUpi = (wallets: WalletStore, member: Member) =>
   Boolean(member.claimedByUserId && wallets.upiId(member.claimedByUserId));
 
-/** Whether this member can be paid by UPI from a shared group link: they have an ID and chose to. */
+/** What applies to this member's group: what they chose for it, or else what they chose for all their groups. */
+const upiOnLinkOf = (wallets: WalletStore, member: Member): UpiOnGroupLink => {
+  const choice = wallets.upiOnLinkChoice(member.id);
+  return { on: choice ?? wallets.upiOnLinks(member.claimedByUserId!), choice };
+};
+
+/** Whether this member can be paid by UPI from their group's shared link: they have an ID and haven't turned that off. */
 export const takesUpiOnLinks = (wallets: WalletStore, member: Member) =>
-  takesUpi(wallets, member) && wallets.upiOnLinks(member.claimedByUserId!);
+  takesUpi(wallets, member) && upiOnLinkOf(wallets, member).on;
 
 export function upiRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
@@ -84,11 +95,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
   /** UpiProfile: the user's own UPI ID, or null, and whether shared links may show it. */
   r.get('/me/upi', (c) => c.json(profileOf(c.get('user').id)));
 
-  /**
-   * Sets the user's own UPI ID, for every group they're in. 400 invalid_input
-   * when it isn't one. A different ID is off the shared links until they say
-   * otherwise, since that choice was made for the old one.
-   */
+  /** Sets the user's own UPI ID, for every group they're in. 400 invalid_input when it isn't one. */
   r.put('/me/upi', async (c) => {
     const parsed = parseUpiId(parse(UpiBody, await c.req.json()).upiId);
     if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
@@ -98,16 +105,37 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
   /**
    * Whether the user's groups' shared links may show their UPI ID, so anyone
-   * holding one can pay them by UPI. 400 invalid_input with no ID to show.
+   * holding one can pay them by UPI. It is on from the start, with nothing to
+   * show until they give an ID; this is how they turn it off, or on again.
    */
   r.put('/me/upi/group-links', async (c) => {
     const user = c.get('user');
     const { on } = parse(OnLinksBody, await c.req.json());
-    if (on && !wallets.upiId(user.id)) {
-      throw new SattleError('invalid_input', 'Add your UPI ID first.');
-    }
     wallets.setUpiOnLinks(user.id, on);
     return c.json(profileOf(user.id));
+  });
+
+  /** UpiOnGroupLink: whether this group's shared link may show the user's UPI ID, and whether they chose that for it alone. */
+  r.get('/me/upi/group-links/:groupId', (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('groupId'), user.id);
+    return c.json(upiOnLinkOf(wallets, repo.memberForUser(g.id, user.id)!));
+  });
+
+  /**
+   * The same choice for one group, which wins over the one for all of them:
+   * off here while on everywhere else, or the other way round. `on: null`
+   * goes back to following it. Returns UpiOnGroupLink. Like the one above it
+   * is only a choice: the link offers UPI when they also have an ID and the
+   * group is in rupees.
+   */
+  r.put('/me/upi/group-links/:groupId', async (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('groupId'), user.id);
+    const { on } = parse(OnOneLinkBody, await c.req.json());
+    const me = repo.memberForUser(g.id, user.id)!;
+    wallets.setUpiOnLinkChoice(me.id, on);
+    return c.json(upiOnLinkOf(wallets, me));
   });
 
   /** Claims already made stay: the payer has paid, and the payee still has to say whether it arrived. */

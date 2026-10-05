@@ -11,11 +11,11 @@ const yashOwesOm = async (c: MockClient) =>
 describe('MockClient UPI', () => {
   it('keeps the user’s own UPI ID, and turns away what isn’t one', async () => {
     const c = client();
-    expect(await c.getUpiId()).toEqual({ upiId: null, onGroupLinks: false });
-    expect(await c.setUpiId(' Yash@OkAxis ')).toEqual({ upiId: 'yash@okaxis', onGroupLinks: false });
-    expect(await c.getUpiId()).toEqual({ upiId: 'yash@okaxis', onGroupLinks: false });
+    expect(await c.getUpiId()).toEqual({ upiId: null, onGroupLinks: true });
+    expect(await c.setUpiId(' Yash@OkAxis ')).toEqual({ upiId: 'yash@okaxis', onGroupLinks: true });
+    expect(await c.getUpiId()).toEqual({ upiId: 'yash@okaxis', onGroupLinks: true });
     await expect(c.setUpiId('yash@walletofsatoshi.com')).rejects.toMatchObject({ code: 'invalid_input' });
-    expect(await c.clearUpiId()).toEqual({ upiId: null, onGroupLinks: false });
+    expect(await c.clearUpiId()).toEqual({ upiId: null, onGroupLinks: true });
   });
 
   it('says who takes UPI in the member list, and gives the ID only to someone who owes them', async () => {

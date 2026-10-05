@@ -23,8 +23,7 @@ import type {
   GroupGuestView,
   GroupLink,
   GuestView,
-  Invite,
-  InviteView,
+  JoinView,
   JoinAs,
   JoinRequest,
   LedgerBackup,
@@ -34,6 +33,7 @@ import type {
   ReceiveAddress,
   Settlement,
   UpiClaim,
+  UpiOnGroupLink,
   UpiPayee,
   UpiProfile,
   User,
@@ -107,28 +107,25 @@ export interface SattleClient {
   /** Public. Returns an unsubscribe function. */
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
 
-  // -- invites --------------------------------------------------------------
+  // -- joining -------------------------------------------------------------
   //
-  // One link for the whole group: whoever opens it picks which of the people
-  // who haven't joined they are, or gives their own name, and asks to join.
-  // Someone already in the group lets them in, so a forwarded link can't be
-  // used to become someone.
+  // The group's link (below) is also how someone asks to join: with the same
+  // token, they pick which of the people who haven't joined they are, or give
+  // their own name. Someone already in the group lets them in, so a forwarded
+  // link can't be used to become someone.
 
-  /** The group's invite, or null when it has none that still works. */
-  getGroupInvite(groupId: string): Promise<Invite | null>;
+  /** Public. Who the group's link offers to join as. Throws `not_found` for a link that was replaced or turned off. */
+  getJoinView(token: string): Promise<JoinView>;
   /**
-   * Makes the group's invite; anyone in the group can. If there was one, it
-   * stops working. Share `${APP_URL}${invitePath(token)}`. Whoever is let in
-   * with it becomes a full member, so it lasts a week.
+   * The group a link is for, when the signed-in user is already in it; null
+   * when they aren't. The link is the one in the group's chat, so the people in
+   * the group open it too, and the join page has nobody to offer them: the app
+   * opens the group instead. Throws as `getJoinView` does for a link that can't be used.
    */
-  createInvite(groupId: string, idempotencyKey?: string): Promise<Invite>;
-  /** Turns the group's invite off. */
-  removeInvite(groupId: string, idempotencyKey?: string): Promise<void>;
-  /** Public. Throws `not_found` for a dead link, `link_expired` once it's too old. */
-  getInvite(token: string): Promise<InviteView>;
+  getJoinedGroup(token: string): Promise<Group | null>;
   /**
-   * The signed-in user asks to join the invite's group, and is in once someone
-   * there says yes. With a `ref`, one of `getInvite`'s, they ask to be that
+   * The signed-in user asks to join the link's group, and is in once someone
+   * there says yes. With a `ref`, one of `getJoinView`'s, they ask to be that
    * member; throws `conflict` if someone has joined as that person since.
    * With a `displayName`, they ask to be added as a new member; throws
    * `conflict` if that name is a member still waiting to be picked. Asking
@@ -152,8 +149,9 @@ export interface SattleClient {
 
   // -- group links ----------------------------------------------------------
   //
-  // One link for the whole group: whoever holds it sees the spends and who
-  // owes whom, and can pay a debt. It can't change anything.
+  // One link for the whole group, and the only one it has: whoever holds it
+  // sees the spends and who owes whom, can pay a debt, and can ask to join.
+  // It can't change anything.
 
   /** The group's link, or null when it has none. */
   getGroupLink(groupId: string): Promise<GroupLink | null>;
@@ -210,7 +208,7 @@ export interface SattleClient {
   removeMember(groupId: string, memberId: string, idempotencyKey?: string): Promise<void>;
   /**
    * Your member becomes a ghost again, with its name and balance, and you
-   * lose the group; an invite brings you back. Throws `conflict` if you're
+   * lose the group; its link brings you back. Throws `conflict` if you're
    * the only one with an account, or a payment to you is under way.
    */
   leaveGroup(groupId: string, idempotencyKey?: string): Promise<void>;
@@ -243,13 +241,21 @@ export interface SattleClient {
 
   /** The user's own UPI ID, for every group they're in. */
   getUpiId(): Promise<UpiProfile>;
-  /** Throws `invalid_input` when it isn't a UPI ID. A different ID is off shared links until turned on again. */
+  /** Throws `invalid_input` when it isn't a UPI ID. */
   setUpiId(upiId: string): Promise<UpiProfile>;
   /**
    * Whether anyone holding one of the user's groups' shared links may be
-   * shown their UPI ID to pay them. Throws `invalid_input` with no ID set.
+   * shown their UPI ID to pay them, in every group they're in. It is on from
+   * the start; this turns it off, or on again.
    */
   setUpiOnGroupLinks(on: boolean): Promise<UpiProfile>;
+  /** The same for one group: what applies to its shared link, and whether the user chose that for it alone. */
+  getUpiOnGroupLink(groupId: string): Promise<UpiOnGroupLink>;
+  /**
+   * Chooses for one group, which wins over the choice for all of them. `null`
+   * goes back to following it.
+   */
+  setUpiOnGroupLink(groupId: string, on: boolean | null): Promise<UpiOnGroupLink>;
   clearUpiId(): Promise<UpiProfile>;
   /**
    * Where to pay a member over UPI. Only for someone who owes them: throws

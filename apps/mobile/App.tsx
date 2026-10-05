@@ -3,7 +3,7 @@ import { Linking, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
-import { SattleError, parseInviteToken } from '@sattle/core';
+import { SattleError, parseGroupLinkToken } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
@@ -21,7 +21,7 @@ import { WelcomeScreen } from './src/ui/WelcomeScreen';
 const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
 /** The path groupLinkPath() builds: /g/<token>. */
 const GROUP_PATH = /^\/g\/([^/]+)\/?$/;
-/** The path invitePath() builds: /join/<token>. */
+/** The path joinPath() builds: /join/<token>. */
 const JOIN_PATH = /^\/join\/([^/]+)\/?$/;
 
 /** The token when this page was opened from a link of that shape. Web only: native has no path. */
@@ -40,8 +40,8 @@ function tokenFromPath(path: RegExp): string | null {
 const guestToken = () => tokenFromPath(GUEST_PATH);
 /** A group link: the whole group, to read and to pay from, for someone with no app. */
 const groupToken = () => tokenFromPath(GROUP_PATH);
-/** An invite, on the web: the app opens on the join screen, which makes an account if there isn't one. */
-const inviteToken = () => tokenFromPath(JOIN_PATH);
+/** Joining with a group's link, on the web: the app opens on the join screen, which makes an account if there isn't one. */
+const joinToken = () => tokenFromPath(JOIN_PATH);
 
 export default function App() {
   const mode = useColorMode();
@@ -58,20 +58,20 @@ export default function App() {
 function Root() {
   const [token] = useState(guestToken);
   const [group] = useState(groupToken);
-  const [invite, setInvite] = useState(inviteToken);
+  const [joining, setJoining] = useState(joinToken);
   // Off the address bar too, so a reload opens the app instead of a used link.
-  const inviteDone = () => {
-    setInvite(null);
+  const joinDone = () => {
+    setJoining(null);
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
   };
-  // Native: the invite link that opened the app, or one tapped while it was already open.
+  // Native: the /join/ link that opened the app, or one tapped while it was already open.
   // The phone only hands the app the links app.json claims, and only once the site vouches
   // for the app in public/.well-known.
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const open = (url: string | null) => {
-      const found = url ? parseInviteToken(url) : null;
-      if (found) setInvite(found);
+      const found = url ? parseGroupLinkToken(url) : null;
+      if (found) setJoining(found);
     };
     Linking.getInitialURL()
       .then(open)
@@ -97,8 +97,8 @@ function Root() {
       </SattleProvider>
     );
   }
-  if (isMock()) return <DemoApp invite={invite} onInviteDone={inviteDone} />;
-  return <AccountGate invite={invite} onInviteDone={inviteDone} />;
+  if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} />;
+  return <AccountGate joining={joining} onJoinDone={joinDone} />;
 }
 
 type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client: SattleClient };
@@ -109,7 +109,7 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client:
  * again. Any other failure, like being offline, keeps the token: the screens
  * show their own errors and retry.
  */
-function AccountGate({ invite, onInviteDone }: { invite: string | null; onInviteDone: () => void }) {
+function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDone: () => void }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
 
   useEffect(() => {
@@ -141,18 +141,18 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
         </Screen>
       );
     case 'none':
-      if (invite) {
-        // Reading an invite needs no account. Picking who they are makes one, under that name, and asks to join.
+      if (joining) {
+        // Seeing who the link offers needs no account. Picking who they are makes one, under that name, and asks to join.
         return (
           <SattleProvider>
             <JoinAsNewScreen
-              token={invite}
+              token={joining}
               // They've asked to join. The app opens on their groups, where the request waits.
               onJoined={(token) => {
-                onInviteDone();
+                onJoinDone();
                 setAccount({ kind: 'ready', client: buildClient(token) });
               }}
-              onSkip={onInviteDone}
+              onSkip={onJoinDone}
             />
           </SattleProvider>
         );
@@ -162,8 +162,8 @@ function AccountGate({ invite, onInviteDone }: { invite: string | null; onInvite
       return (
         <DemoApp
           client={account.client}
-          invite={invite}
-          onInviteDone={onInviteDone}
+          joining={joining}
+          onJoinDone={onJoinDone}
           // The server no longer knows the token, so the device shouldn't keep it.
           onAccountDeleted={async () => {
             await clearToken();

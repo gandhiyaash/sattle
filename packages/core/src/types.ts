@@ -35,12 +35,12 @@ export interface Member {
   /**
    * The server's word on whether a payment to them can go through now. Under
    * real payments only it can tell: their own receiving address is on their
-   * account, not here. Absent from the mock and older servers.
+   * account, not here. Absent from the mock.
    */
   receivable?: boolean;
   /**
    * Whether they've given a UPI ID to be paid at. The ID itself isn't here:
-   * it is only shown to someone who owes them (UpiPayee).
+   * it is shown to someone paying them (UpiPayee).
    */
   upi?: boolean;
 }
@@ -241,42 +241,36 @@ export interface GuestView {
   settlement?: GuestSettlement;
 }
 
-// -- invites ---------------------------------------------------------------
-
-/**
- * A shareable link that lets people into a group: whoever opens /join/<token>
- * picks which of its ghosts they are and, with an account, becomes that
- * member, or adds themselves if they aren't one of them. Unlike a pay link
- * this grants the whole group, to read and to write, so it expires. A group has none until someone in it makes one, and
- * at most one at a time; anyone in the group can replace it or turn it off.
- */
-export interface Invite {
-  token: string;
-  groupId: string;
-  createdAt: string;
-  expiresAt: string;
-}
+// -- joining ---------------------------------------------------------------
+//
+// The group's link (GroupLink) is also how someone asks to join: they open
+// /join/<token> with the same token, pick which of the group's ghosts they
+// are, or add themselves, and someone already in the group lets them in.
 
 /** Someone the join page offers to join as. */
-export interface InviteMember {
-  /** What the page sends back to join as this person. Opaque, and only good with this invite. */
+export interface JoinMember {
+  /** What the page sends back to join as this person. Opaque, and only good with this link. */
   ref: string;
   name: string;
 }
 
-/** Who someone joins as: one of the people the invite offers, or a new member under that name. */
+/** Who someone joins as: one of the people the link offers, or a new member under that name. */
 export type JoinAs = { ref: string } | { displayName: string };
 
 /** Only what the join page may show before someone joins. Names, no ids. */
-export interface InviteView {
+export interface JoinView {
   groupName: string;
-  invitedBy: string;
   /** Everyone in the group who hasn't joined: who the person opening this could be. */
-  members: InviteMember[];
+  members: JoinMember[];
+  /**
+   * The names of the people who have. The page shows them so the whole group is
+   * on it, but they can't be picked: each belongs to an account already.
+   */
+  joined: string[];
 }
 
 /**
- * Asking to join, as the person asking sees it. An invite doesn't let anyone
+ * Asking to join, as the person asking sees it. The link doesn't let anyone
  * in by itself: someone already in the group has to say yes, so a link that
  * was forwarded can't be used to become someone. Once they do, the request is
  * gone and the group is in the asker's list. `declined` stays until the asker
@@ -309,10 +303,12 @@ export interface PendingJoin {
 // -- group links -----------------------------------------------------------
 
 /**
- * A link that shows a whole group to anyone who holds it: every spend, who
- * owes whom, and a way to pay a debt. It can't change anything. A group has
- * none until someone in it makes one, and at most one at a time; anyone in
- * the group can replace it or turn it off.
+ * The group's one link. It shows the whole group to anyone who holds it:
+ * every spend, who owes whom, and a way to pay a debt. It can't change
+ * anything, but its holder can ask to join with it, which someone in the
+ * group has to say yes to. A group has none until someone in it makes one,
+ * and at most one at a time; anyone in the group can replace it or turn it
+ * off. It doesn't run out by itself.
  */
 export interface GroupLink {
   token: string;
@@ -343,7 +339,7 @@ export interface GroupGuestDebt {
   payable: boolean;
   /**
    * Whether the person owed takes UPI from this page: the group is in rupees,
-   * they have a UPI ID, and they chose to be paid that way from shared links.
+   * they have a UPI ID, and they haven't turned that off for shared links.
    * The ID itself isn't here; getGroupLinkUpi gives it for one debt.
    */
   upi?: boolean;
@@ -406,10 +402,20 @@ export interface UpiProfile {
   upiId: string | null;
   /**
    * Whether anyone holding one of their groups' shared links can be shown the
-   * UPI ID to pay them. Off unless they turn it on, since the ID often holds a
-   * phone number and a shared link has no login.
+   * UPI ID to pay them. On unless they turn it off; the ID often holds a phone
+   * number and a shared link has no login, so the app says so where the ID is
+   * added. It covers every group they're in, except one they've chosen for by
+   * itself (UpiOnGroupLink).
    */
   onGroupLinks?: boolean;
+}
+
+/** Whether one group's shared link can show a person's UPI ID. */
+export interface UpiOnGroupLink {
+  /** What applies to this group now. */
+  on: boolean;
+  /** What they chose for this group alone, or null while it follows their choice for all groups. */
+  choice: boolean | null;
 }
 
 /** Who to pay over UPI. Only someone who owes them right now is given this. */

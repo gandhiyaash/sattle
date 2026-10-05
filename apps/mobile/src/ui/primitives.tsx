@@ -8,10 +8,12 @@
  * wifi will see all three.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +22,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatFiat, formatRate, type Quote } from '@sattle/core';
 import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
@@ -41,6 +44,7 @@ export function Screen({
   subtitle,
   onBack,
   right,
+  footer,
   children,
 }: {
   title: string;
@@ -49,11 +53,17 @@ export function Screen({
   subtitle?: string;
   onBack?: () => void;
   right?: React.ReactNode;
+  /** Stays at the bottom while the rest scrolls, for the one thing the screen is there to do. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const s = useStyles();
   const mode = useColorMode();
   const insets = useSafeAreaInsets();
+  // While someone is typing, the footer steps aside: on Android the window shrinks to the
+  // keyboard, and a bar fixed to its bottom would sit over what little is left to type in.
+  const typing = useKeyboardUp();
+  const bar = typing ? null : footer;
   return (
     <View style={s.screen}>
       {/* The app draws under the status bar and the notch, so the header starts below them. */}
@@ -82,13 +92,31 @@ export function Screen({
         {right}
       </View>
       <ScrollView
-        contentContainerStyle={[s.scrollBody, { paddingBottom: space.xxl + insets.bottom }]}
+        // With a footer, that is what keeps clear of the home indicator.
+        contentContainerStyle={[s.scrollBody, { paddingBottom: bar ? space.xl : space.xxl + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         {children}
       </ScrollView>
+      {bar && <View style={[s.footer, { paddingBottom: space.md + insets.bottom }]}>{bar}</View>}
     </View>
   );
+}
+
+/** Whether the on-screen keyboard is up. Always false in a browser, which doesn't say. */
+function useKeyboardUp() {
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    // iOS says before the keyboard moves, so the bar is gone by the time it arrives. Android only says after.
+    const ios = Platform.OS === 'ios';
+    const shown = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setUp(true));
+    const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return up;
 }
 
 /**
@@ -130,6 +158,7 @@ export function Button({
   label,
   hint,
   onPress,
+  href,
   variant = 'secondary',
   disabled,
   busy,
@@ -138,6 +167,16 @@ export function Button({
   label: string;
   hint?: string;
   onPress?: () => void;
+  /**
+   * In a browser, makes the button a real link there, so the browser does the going and
+   * `onPress` isn't needed. That is what gives a phone the chance to hand the address to an
+   * app that claims it. Ignored in the installed app.
+   *
+   * Give one or the other, not both. With both, a browser runs `onPress` and then leaves for
+   * the link anyway, cutting off whatever `onPress` started, and the installed app runs only
+   * `onPress`.
+   */
+  href?: string;
   variant?: 'primary' | 'secondary' | 'quiet';
   disabled?: boolean;
   busy?: boolean;
@@ -147,9 +186,12 @@ export function Button({
   const color = useColors();
   const s = useStyles();
   const isPrimary = variant === 'primary';
+  // react-native-web draws anything with an href as <a>. React Native's own types don't have the prop.
+  const link = href && Platform.OS === 'web' ? ({ href, accessibilityRole: 'link' } as object) : null;
   return (
     <View>
       <Pressable
+        {...link}
         onPress={onPress}
         disabled={disabled || busy}
         style={({ pressed }) => [
@@ -171,6 +213,46 @@ export function Button({
       </Pressable>
       {hint && <Text style={s.btnHint}>{hint}</Text>}
     </View>
+  );
+}
+
+/** Stroked paths on a 24 by 24 grid. */
+const ICONS = {
+  // An arrow leaving a tray.
+  share: 'M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',
+};
+
+/** An action in a header, drawn instead of written. `label` is what a screen reader says in its place. */
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  busy,
+}: {
+  icon: keyof typeof ICONS;
+  label: string;
+  onPress?: () => void;
+  busy?: boolean;
+}) {
+  const color = useColors();
+  const s = useStyles();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      hitSlop={4}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [s.iconBtn, pressed && { backgroundColor: color.surfaceSunken }]}
+    >
+      {busy ? (
+        <ActivityIndicator color={color.ink} />
+      ) : (
+        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+          <Path d={ICONS[icon]} stroke={color.ink} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+        </Svg>
+      )}
+    </Pressable>
   );
 }
 
@@ -395,6 +477,13 @@ const useStyles = makeStyles((color) => ({
   logo: { height: 30, width: 30 * LOGO_ASPECT },
   headerSubtitle: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   scrollBody: { padding: space.lg, gap: space.lg },
+  footer: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.line,
+    backgroundColor: color.paper,
+  },
 
   card: {
     backgroundColor: color.surface,
@@ -432,6 +521,13 @@ const useStyles = makeStyles((color) => ({
     color: color.inkFaint,
     marginTop: space.xs,
     marginLeft: space.xs,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   avatar: {

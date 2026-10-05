@@ -14,12 +14,12 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   computeBalances,
   groupLinkPath,
-  invitePath,
   isInProgress,
   simplifyDebts,
+  UPI_CURRENCY,
   type GroupLink,
-  type Invite,
   type Member,
+  type UpiOnGroupLink,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
@@ -56,8 +56,11 @@ interface Settings {
   paying: boolean;
   /** The group's link, if someone has made one. */
   link: GroupLink | null;
-  /** The group's invite, if it has one that still works. */
-  invite: Invite | null;
+  /**
+   * Whether that link may show the user's UPI ID. Null where there's nothing
+   * to choose: the group isn't in rupees, or they have no UPI ID.
+   */
+  linkUpi: UpiOnGroupLink | null;
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsScreenProps) {
@@ -66,14 +69,15 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
   const keys = useActionKeys();
 
   const { data, loading, error, reload } = useAsync<Settings>(async () => {
-    const [user, group, members, expenses, settlements, link, invite] = await Promise.all([
+    const [user, group, members, expenses, settlements, link, upi, linkUpi] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
       client.getGroupLink(groupId),
-      client.getGroupInvite(groupId),
+      client.getUpiId(),
+      client.getUpiOnGroupLink(groupId),
     ]);
     const named = new Set<string>();
     for (const e of expenses) {
@@ -93,7 +97,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
       settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
       paying: settlements.some(isInProgress),
       link,
-      invite,
+      linkUpi: group.currency === UPI_CURRENCY && upi.upiId ? linkUpi : null,
     };
   }, [groupId]);
 
@@ -154,82 +158,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
         </Text>
       </View>
 
-      <View>
-        <SectionLabel>Invite</SectionLabel>
-        <Card style={{ gap: space.md }}>
-          {data.invite ? (
-            <>
-              <Text style={s.body}>
-                Anyone holding this link can join, as one of the people who haven’t yet or by adding themselves,
-                and from then on see everything in the group and add to it. It stops working a week after it was
-                made.
-              </Text>
-              <Text style={s.url} selectable numberOfLines={1}>
-                {`${APP_URL}${invitePath(data.invite.token)}`}
-              </Text>
-              <ConfirmButton
-                label="Make a new invite"
-                confirmLabel="Yes, replace the invite"
-                hint="The old one stops working for everyone who has it."
-                onConfirm={async () => {
-                  await keys.run('replace-invite', { groupId, old: data.invite!.token }, (k) => client.createInvite(groupId, k));
-                  reload();
-                }}
-              />
-              <ConfirmButton
-                label="Turn off the invite"
-                confirmLabel="Yes, turn it off"
-                onConfirm={async () => {
-                  await keys.run('remove-invite', { groupId, old: data.invite!.token }, (k) => client.removeInvite(groupId, k));
-                  reload();
-                }}
-              />
-            </>
-          ) : (
-            <Text style={s.body}>
-              This group has no invite, so nobody new can join it. Share one from the group screen.
-            </Text>
-          )}
-        </Card>
-      </View>
-
-      <View>
-        <SectionLabel>Group link</SectionLabel>
-        <Card style={{ gap: space.md }}>
-          {data.link ? (
-            <>
-              <Text style={s.body}>
-                Anyone holding this link can see the group’s spends and who owes what, and pay a debt. They can’t
-                change anything.
-              </Text>
-              <Text style={s.url} selectable numberOfLines={1}>
-                {`${APP_URL}${groupLinkPath(data.link.token)}`}
-              </Text>
-              <ConfirmButton
-                label="Make a new link"
-                confirmLabel="Yes, replace the link"
-                hint="The old one stops working for everyone who has it."
-                onConfirm={async () => {
-                  await keys.run('replace-link', { groupId, old: data.link!.token }, (k) => client.createGroupLink(groupId, k));
-                  reload();
-                }}
-              />
-              <ConfirmButton
-                label="Turn off the link"
-                confirmLabel="Yes, turn it off"
-                onConfirm={async () => {
-                  await keys.run('remove-link', { groupId, old: data.link!.token }, (k) => client.removeGroupLink(groupId, k));
-                  reload();
-                }}
-              />
-            </>
-          ) : (
-            <Text style={s.body}>
-              This group has no link, so only the people in it can see it. Share one from the group screen.
-            </Text>
-          )}
-        </Card>
-      </View>
+      <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
 
       <View>
         <SectionLabel>Leave</SectionLabel>
@@ -237,7 +166,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
           <Text style={s.body}>
             {alone
               ? 'You’re the only one here with an account, so nobody could open this group after you. Delete it instead.'
-              : 'You stop seeing this group. Your name and balance stay in it, and anything owed to you can then be marked settled by whoever owes it. An invite brings you back.'}
+              : 'You stop seeing this group. Your name and balance stay in it, and anything owed to you can then be marked settled by whoever owes it. The group’s link brings you back.'}
           </Text>
           {!alone && (
             <ConfirmButton
@@ -275,6 +204,114 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
         </Card>
       </View>
     </Screen>
+  );
+}
+
+/**
+ * The group's one link, which the share icon on the group screen hands out.
+ * Whoever holds it sees the spends and who owes whom and can pay a debt, with
+ * no app and no account, and can ask to join. This is where it is replaced
+ * or turned off: that is how a link that went to the wrong place is taken
+ * back.
+ *
+ * In a rupee group, someone with a UPI ID also chooses here whether this
+ * group's link may show it. Wallet holds that choice for all their groups,
+ * on from the start; this is the same choice for this group alone, and it
+ * wins.
+ */
+function GroupLinkSection({
+  groupId,
+  link: loaded,
+  upi: loadedUpi,
+}: {
+  groupId: string;
+  link: GroupLink | null;
+  upi: UpiOnGroupLink | null;
+}) {
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  // Kept here once loaded, so replacing it or turning it off doesn't blank the screen to read it all again.
+  const [link, setLink] = useState(loaded);
+  const [upi, setUpi] = useState(loadedUpi);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const chooseUpi = async (on: boolean | null) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setUpi(await client.setUpiOnGroupLink(groupId, on));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <SectionLabel>Group link</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {link ? (
+          <>
+            <Text style={s.body}>
+              Anyone holding this link can see the group’s spends and who owes what, and pay a debt, with no app.
+              They can’t change anything. They can ask to join, and someone here has to let them in.
+            </Text>
+            <Text style={s.url} selectable numberOfLines={1}>
+              {`${APP_URL}${groupLinkPath(link.token)}`}
+            </Text>
+            <ConfirmButton
+              label="Make a new link"
+              confirmLabel="Yes, replace the link"
+              hint="The old one stops working for everyone who has it."
+              onConfirm={async () => {
+                setLink(await keys.run('replace-link', { groupId, old: link.token }, (k) => client.createGroupLink(groupId, k)));
+              }}
+            />
+            <ConfirmButton
+              label="Turn off the link"
+              confirmLabel="Yes, turn it off"
+              hint="Nobody can open the group with it or ask to join, until someone shares the group again."
+              onConfirm={async () => {
+                await keys.run('remove-link', { groupId, old: link.token }, (k) => client.removeGroupLink(groupId, k));
+                setLink(null);
+              }}
+            />
+          </>
+        ) : (
+          <Text style={s.body}>
+            This group has no link, so only the people in it can see it and nobody new can ask to join. The share
+            icon on the group screen makes one.
+          </Text>
+        )}
+
+        {upi && (
+          <>
+            <Divider />
+            <Text style={s.label}>Your UPI ID on this group’s link</Text>
+            <Text style={s.body}>
+              {upi.choice === null
+                ? `${upi.on ? 'On' : 'Off'}, as in Wallet for all your groups.`
+                : `${upi.on ? 'On' : 'Off'}, chosen for this group.`}{' '}
+              {upi.on
+                ? 'Someone paying from the link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you, so turn this off if the link has gone further than people you know.'
+                : 'Someone paying from the link, without the app, can’t pay you by UPI. Turn it on and anyone holding the link can see your UPI ID, so only if the link stays with people you know.'}
+            </Text>
+            <Button
+              label={upi.on ? 'Turn off for this group' : 'Turn on for this group'}
+              busy={busy}
+              onPress={() => chooseUpi(!upi.on)}
+            />
+            {upi.choice !== null && (
+              <Button label="Use my Wallet setting here" variant="quiet" disabled={busy} onPress={() => chooseUpi(null)} />
+            )}
+          </>
+        )}
+        {error && <Text style={s.error}>{error}</Text>}
+      </Card>
+    </View>
   );
 }
 
@@ -326,6 +363,7 @@ function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; o
 
 const useStyles = makeStyles((color) => ({
   body: { ...type.body, color: color.inkMuted },
+  label: { ...type.label, color: color.inkMuted },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
   error: { ...type.caption, color: color.danger },
   url: { ...type.amountSm, color: color.inkFaint },

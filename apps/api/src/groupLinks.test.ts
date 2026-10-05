@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupGuestView, GroupLink, GuestView, InviteView, Member, User } from '@sattle/core';
+import type { Expense, Group, GroupGuestView, GroupLink, GuestView, JoinView, Member, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -92,9 +92,10 @@ describe('the group’s link', () => {
   it('never expires by itself, and survives the person who made it leaving', async () => {
     const { db, call, base, riya, signUp, share, view } = await setup();
     const kabir = await signUp('Kabir');
-    const invite = (await call<{ token: string }>('POST', `${base}/invites`, undefined, riya.token)).body.token;
-    const offered = (await call<InviteView>('GET', `/join/${invite}`)).body.members;
-    const asked = await call<{ id: string }>('POST', '/join-requests', { token: invite, ref: offered.find((m) => m.name === 'Kabir')!.ref }, kabir.token);
+    // He asks to join with the link Riya made, is let in, and makes the group a new one.
+    const hers = await share();
+    const offered = (await call<JoinView>('GET', `/join/${hers}`)).body.members;
+    const asked = await call<{ id: string }>('POST', '/join-requests', { token: hers, ref: offered.find((m) => m.name === 'Kabir')!.ref }, kabir.token);
     await call('POST', `/join-requests/${asked.body.id}/approve`, undefined, riya.token);
     const token = await share(kabir.token);
 

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Expense, Group, Invite, InviteView, Member, User, WalletConnection } from '@sattle/core';
+import type { Debt, Expense, Group, GroupLink, JoinView, Member, User, WalletConnection } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -27,7 +27,7 @@ const receiveOnly = (): NwcApi => ({
 
 /**
  * A production-shaped server: no fixtures, no demo user. Riya made "Manali"
- * with Kabir and Aman as ghosts; Kabir has since joined with an invite.
+ * with Kabir and Aman as ghosts; Kabir has since joined with the group's link.
  */
 async function setup() {
   const db = openDb(':memory:');
@@ -50,17 +50,18 @@ async function setup() {
   const kabir = await signUp('Kabir');
   const group = (await call<Group>('POST', '/groups', { name: 'Manali', memberNames: ['Kabir', 'Aman'] }, riya.token)).body;
   const [mRiya, mKabir, mAman] = group.memberIds;
-  const invite = async (as = riya.token) =>
-    (await call<Invite>('POST', `/groups/${group.id}/invites`, undefined, as)).body.token;
+  /** Makes the group's link, which is what people ask to join with. */
+  const link = async (as = riya.token) =>
+    (await call<GroupLink>('POST', `/groups/${group.id}/link`, undefined, as)).body.token;
   /** Who the join page offers, by name. */
-  const offered = async (token: string) => (await call<InviteView>('GET', `/join/${token}`)).body.members;
+  const offered = async (token: string) => (await call<JoinView>('GET', `/join/${token}`)).body.members;
   /** Asks to join as `name`, and Riya lets them in. */
   const joinAs = async (name: string, token: string, as: string) => {
     const ref = (await offered(token)).find((m) => m.name === name)!.ref;
     const asked = await call<{ id: string }>('POST', '/join-requests', { token, ref }, as);
     return call('POST', `/join-requests/${asked.body.id}/approve`, undefined, riya.token);
   };
-  await joinAs('Kabir', await invite(), kabir.token);
+  await joinAs('Kabir', await link(), kabir.token);
 
   const base = `/groups/${group.id}`;
   const addExpense = async (paidByMemberId: string, amount: number, as = riya.token, description = 'Cab') =>
@@ -86,7 +87,7 @@ async function setup() {
   const count = (table: string, where = '1 = 1', ...args: string[]) =>
     (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`).get(...args) as { n: number }).n;
 
-  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, invite, offered, joinAs, addExpense, members, expenses, debts, openPayment, count };
+  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, link, offered, joinAs, addExpense, members, expenses, debts, openPayment, count };
 }
 
 const equally = (ids: string[]) => ({ splitMode: 'equal', parts: ids.map((memberId) => ({ memberId })) });
@@ -207,15 +208,15 @@ describe('DELETE /groups/:id', () => {
   });
 
   it('takes the group and everything in it away from everyone, once it’s settled', async () => {
-    const { call, base, group, riya, kabir, mRiya, invite, addExpense, count } = await setup();
+    const { call, base, group, riya, kabir, mRiya, link, addExpense, count } = await setup();
     const cab = await addExpense(mRiya, 3000);
-    await invite();
+    await link();
     await call('DELETE', `${base}/expenses/${cab.id}`, undefined, riya.token);
 
     expect((await call('DELETE', base, undefined, kabir.token)).status).toBe(200);
     expect((await call('GET', base, undefined, riya.token)).status).toBe(404);
     expect((await call<Group[]>('GET', '/groups', undefined, kabir.token)).body).toEqual([]);
-    for (const table of ['members', 'expenses', 'settlements', 'invites', 'pay_links', 'expense_changes', 'ledger_entries']) {
+    for (const table of ['members', 'expenses', 'settlements', 'group_links', 'pay_links', 'expense_changes', 'ledger_entries']) {
       expect([table, count(table, 'group_id = ?', group.id)]).toEqual([table, 0]);
     }
     expect(count('expense_groups')).toBe(0);
@@ -228,9 +229,9 @@ describe('DELETE /groups/:id', () => {
 });
 
 describe('DELETE /groups/:id/members/:memberId', () => {
-  it('removes a ghost nobody has built anything on, and the invite stops offering them', async () => {
-    const { call, base, kabir, mAman, invite, offered, members } = await setup();
-    const token = await invite();
+  it('removes a ghost nobody has built anything on, and the link stops offering them', async () => {
+    const { call, base, kabir, mAman, link, offered, members } = await setup();
+    const token = await link();
     const aman = (await offered(token)).find((m) => m.name === 'Aman')!.ref;
 
     expect((await call('DELETE', `${base}/members/${mAman}`, undefined, kabir.token)).status).toBe(200);
@@ -273,10 +274,10 @@ describe('POST /groups/:id/leave', () => {
     expect(await debts()).toContainEqual(expect.objectContaining({ fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }));
   });
 
-  it('can be undone with a new invite', async () => {
-    const { call, base, kabir, mKabir, invite, joinAs, members } = await setup();
+  it('can be undone with the group’s link', async () => {
+    const { call, base, kabir, mKabir, link, joinAs, members } = await setup();
     await call('POST', `${base}/leave`, undefined, kabir.token);
-    expect((await joinAs('Kabir', await invite(), kabir.token)).status).toBe(200);
+    expect((await joinAs('Kabir', await link(), kabir.token)).status).toBe(200);
     expect((await members()).find((m) => m.id === mKabir)?.status).toBe('joined');
   });
 
@@ -349,16 +350,16 @@ describe('DELETE /me', () => {
     expect((await call('DELETE', '/me')).status).toBe(401);
   });
 
-  it('ends the account: the token, the wallet connection, and the links it made', async () => {
-    const { call, kabir, invite, count } = await setup();
+  it('ends the account: the token and the wallet connection. The group link they made is the group’s, and stays', async () => {
+    const { call, kabir, link, count } = await setup();
     await call('PUT', '/me/wallet', { nwcUri: URI }, kabir.token);
-    const sent = await invite(kabir.token);
+    const shared = await link(kabir.token);
 
     expect((await call('DELETE', '/me', undefined, kabir.token)).status).toBe(200);
     expect((await call('GET', '/me', undefined, kabir.token)).status).toBe(401);
     expect(count('users', 'id = ?', kabir.user.id)).toBe(0);
     expect(count('wallet_connections')).toBe(0);
-    expect((await call('GET', `/join/${sent}`)).status).toBe(404);
+    expect((await call('GET', `/join/${shared}`)).status).toBe(200);
   });
 
   it('leaves their row in a shared group as a ghost, so the others’ ledger still adds up', async () => {

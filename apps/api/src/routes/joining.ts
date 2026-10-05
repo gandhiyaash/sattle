@@ -1,27 +1,29 @@
 /**
- * Invites: someone in a group shares /join/<token>, and whoever opens it
- * picks which of the group's ghosts they are, or, if the group hasn't listed
- * them, gives their own name. That makes a request, not a member: someone
- * already in the group has to let them in. A link can be forwarded, and
- * whoever holds it could pick anyone's name, including someone who is owed
- * money; the yes is what stops them becoming that person.
+ * Joining: the group's shared link (/g/<token>, see groupLinks.ts) also lets
+ * whoever holds it ask to join. They pick which of the group's ghosts they
+ * are, or, if the group hasn't listed them, give their own name. That makes
+ * a request, not a member: someone already in the group has to let them in.
+ * A link can be forwarded, and whoever holds it could pick anyone's name,
+ * including someone who is owed money; the yes is what stops them becoming
+ * that person.
  *
  * Once let in they are a member like any other, so they can read and write
- * everything in the group, which is also why a token is unguessable, expires,
- * and can be replaced or turned off by anyone in the group. It is one link for
- * the whole group, like the group link: there is none until someone makes one,
- * and only ever one.
+ * everything in the group. The link doesn't run out by itself: anyone in the
+ * group can replace it or turn it off, and the requests waiting on it can be
+ * turned down.
  *
- * /join/ responses carry names only, never member or group ids, and so does
- * what the person asking is shown of their request.
+ * It is the same token throughout: /g/<token> is the page that shows the
+ * group, and /join/<token> is where someone says who they are. /join/
+ * responses carry names only, never member or group ids, and so does what
+ * the person asking is shown of their request.
  */
 
-import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, type Invite, type InviteView, type JoinRequest, type PendingJoin } from '@sattle/core';
+import { SattleError, type JoinView, type JoinRequest, type PendingJoin } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -37,12 +39,6 @@ const JoinBody = z.union([
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Long enough to send, see and act on; short enough that a stray link dies. */
-export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** 16 random bytes, base64url: 22 characters, unguessable. */
-export const newInviteToken = () => randomBytes(16).toString('base64url');
-
 /**
  * What the page sends back to say who someone is. A hash of the link and the
  * member, so it says nothing about who the members are and is no use with
@@ -50,8 +46,6 @@ export const newInviteToken = () => randomBytes(16).toString('base64url');
  */
 const memberRef = (token: string, memberId: string) =>
   createHash('sha256').update(`${token}:${memberId}`).digest('base64url').slice(0, 16);
-
-const isLive = (invite: Invite) => Date.parse(invite.expiresAt) > Date.now();
 
 /**
  * How many people can be waiting on one group. Making accounts is free, so
@@ -62,71 +56,45 @@ export const MAX_PENDING_JOINS = 20;
 /** Four digits, for telling apart two people asking to be the same person. Not a secret. */
 const newJoinCode = () => String(randomInt(0, 10_000)).padStart(4, '0');
 
-export function inviteRoutes({ db, repo, wallets }: Ctx) {
+export function joinRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
-  /**
-   * The invite, if it can still be used.
-   *   unknown, replaced or turned off   → 404 not_found
-   *   older than INVITE_TTL_MS          → 410 link_expired
-   */
+  /** The group's link, if it is still the one that works. 404 not_found once it was replaced or turned off. */
   const live = (token: string) => {
-    const invite = repo.invite(token);
-    if (!invite) throw new SattleError('not_found', 'This invite is no longer valid.');
-    if (!isLive(invite)) throw new SattleError('link_expired', 'This invite has expired. Ask for a new one.');
-    return invite;
+    const link = repo.groupLink(token);
+    if (!link) throw new SattleError('not_found', 'This link is no longer valid.');
+    return link;
   };
 
-  /** Authed, members only. The group's invite, or null when it has none that still works. */
-  r.get('/groups/:id/invites', (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    const invite = repo.inviteFor(g.id);
-    return c.json(invite && isLive(invite) ? invite : null);
+  /** Public, read-only: what the join page shows, who it offers to join as, and who already has. */
+  r.get('/join/:token', (c) => {
+    const link = live(c.req.param('token'));
+    const members = repo.members(link.groupId);
+    const view: JoinView = {
+      groupName: repo.group(link.groupId)!.name,
+      members: members
+        .filter((m) => !m.claimedByUserId)
+        .map((m) => ({ ref: memberRef(link.token, m.id), name: m.displayName })),
+      // Names only, with no ref: there is nothing to send back for someone who can't be picked.
+      joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
+    };
+    return c.json(view);
   });
 
   /**
-   * Authed. Anyone in the group can make its invite. Making one when there is
-   * one already replaces it, and the old link stops working: that is how a
-   * link that went to the wrong place is taken back. Returns 201 Invite.
+   * Authed. The link's group, when the caller is already in it; null when
+   * they aren't. The link is the one in the group's chat, so the people in
+   * the group open it too, and the join page has nobody to offer them: the
+   * app opens the group instead. The Group is only for someone in it. It
+   * isn't under /join/ or /g/, which answer without an account.
+   *   link not usable   → as `live` above
    */
-  r.post('/groups/:id/invites', once, (c) => {
+  r.get('/links/:token/group', (c) => {
+    const link = live(c.req.param('token'));
     const user = c.get('user');
-    const g = repo.groupForUser(c.req.param('id'), user.id);
-    const now = Date.now();
-    const invite = transaction(db, () =>
-      repo.replaceInvite(
-        {
-          token: newInviteToken(),
-          groupId: g.id,
-          createdAt: new Date(now).toISOString(),
-          expiresAt: new Date(now + INVITE_TTL_MS).toISOString(),
-        },
-        user.id
-      )
-    );
-    return c.json(invite, 201);
-  });
-
-  /** Authed. Anyone in the group can turn the invite off. */
-  r.delete('/groups/:id/invites', once, (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    repo.deleteInvite(g.id);
-    return c.json({ ok: true });
-  });
-
-  /** Public, read-only: what the join page shows, and who it offers to join as. */
-  r.get('/join/:token', (c) => {
-    const invite = live(c.req.param('token'));
-    const view: InviteView = {
-      groupName: repo.group(invite.groupId)!.name,
-      invitedBy: repo.memberForUser(invite.groupId, invite.createdByUserId)?.displayName ?? 'Someone',
-      members: repo
-        .members(invite.groupId)
-        .filter((m) => !m.claimedByUserId)
-        .map((m) => ({ ref: memberRef(invite.token, m.id), name: m.displayName })),
-    };
-    return c.json(view);
+    const mine = repo.memberForUser(link.groupId, user.id);
+    return c.json(mine ? repo.groupForUser(link.groupId, user.id) : null);
   });
 
   /** What the person asking is shown: names, no ids. */
@@ -155,7 +123,7 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
   };
 
   /**
-   * Authed. The signed-in user asks to join the invite's group, and gets
+   * Authed. The signed-in user asks to join the link's group, and gets
    * their JoinRequest back (201), `pending`. Nothing is theirs until someone
    * in the group lets them in.
    *
@@ -163,7 +131,7 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
    * the balance already on that name. With a `displayName`, they weren't on
    * the page and ask to be added as a new member. Asking again replaces their
    * last request, so picking the wrong name is fixed by picking the right one.
-   *   invite not usable                     → as `live` above
+   *   link not usable                       → as `live` above
    *   already in this group                 → 409 conflict (one person, one member)
    *   nobody in the group has that ref      → 404 not_found
    *   someone has already joined as them    → 409 conflict
@@ -178,11 +146,11 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
     const { token, ...who } = parse(JoinBody, await c.req.json());
 
     const req = transaction(db, () => {
-      const invite = live(token);
-      if (repo.memberForUser(invite.groupId, user.id)) {
+      const link = live(token);
+      if (repo.memberForUser(link.groupId, user.id)) {
         throw new SattleError('conflict', 'You’re already in this group.');
       }
-      const members = repo.members(invite.groupId);
+      const members = repo.members(link.groupId);
       let memberId: string | undefined;
       let displayName: string;
 
@@ -193,20 +161,20 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
         }
         displayName = who.displayName;
       } else {
-        const member = members.find((m) => memberRef(invite.token, m.id) === who.ref);
+        const member = members.find((m) => memberRef(link.token, m.id) === who.ref);
         if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
         if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
         memberId = member.id;
         displayName = member.displayName;
       }
 
-      const mine = repo.joinRequestsOf(user.id).find((x) => x.groupId === invite.groupId && x.status === 'pending');
-      if (!mine && repo.pendingJoinCount(invite.groupId) >= MAX_PENDING_JOINS) {
+      const mine = repo.joinRequestsOf(user.id).find((x) => x.groupId === link.groupId && x.status === 'pending');
+      if (!mine && repo.pendingJoinCount(link.groupId) >= MAX_PENDING_JOINS) {
         throw new SattleError('conflict', 'Too many people are waiting to join this group. Ask someone in it to look at who’s waiting.');
       }
       return repo.putJoinRequest({
         id: newId('jr'),
-        groupId: invite.groupId,
+        groupId: link.groupId,
         userId: user.id,
         memberId,
         displayName,

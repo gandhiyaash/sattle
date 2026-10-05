@@ -46,19 +46,19 @@ type Route =
 export interface DemoAppProps {
   client?: SattleClient;
   /** The token from a /join/<token> link. Opened with one, the app starts on the join screen; tapped later, it goes there. */
-  invite?: string | null;
+  joining?: string | null;
   /** The join screen is finished with that link, whether or not anyone asked to join. */
-  onInviteDone?: () => void;
+  onJoinDone?: () => void;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
 }
 
-export function DemoApp({ client, invite, onInviteDone, onAccountDeleted }: DemoAppProps) {
+export function DemoApp({ client, joining, onJoinDone, onAccountDeleted }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
       <Navigator
-        invite={invite ?? null}
-        onInviteDone={onInviteDone}
+        joining={joining ?? null}
+        onJoinDone={onJoinDone}
         onAccountDeleted={onAccountDeleted}
       />
     </SattleProvider>
@@ -66,18 +66,18 @@ export function DemoApp({ client, invite, onInviteDone, onAccountDeleted }: Demo
 }
 
 function Navigator({
-  invite,
-  onInviteDone,
+  joining,
+  onJoinDone,
   onAccountDeleted,
 }: {
-  invite: string | null;
-  onInviteDone?: () => void;
+  joining: string | null;
+  onJoinDone?: () => void;
   onAccountDeleted?: () => void;
 }) {
   const sheet = useSheet();
   const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>(
-    invite ? { name: 'join', token: invite } : { name: 'groups' }
+    joining ? { name: 'join', token: joining } : { name: 'groups' }
   );
   const [settling, setSettling] = useState<{
     debt: Debt;
@@ -88,8 +88,8 @@ function Navigator({
   const [nonce, setNonce] = useState(0);
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
-    if (invite) setRoute({ name: 'join', token: invite });
-  }, [invite]);
+    if (joining) setRoute({ name: 'join', token: joining });
+  }, [joining]);
 
   const refresh = () => setNonce((n) => n + 1);
 
@@ -113,13 +113,17 @@ function Navigator({
             key={route.token}
             token={route.token}
             onBack={() => {
-              onInviteDone?.();
+              onJoinDone?.();
               setRoute({ name: 'groups' });
             }}
             onAsked={() => {
-              onInviteDone?.();
+              onJoinDone?.();
               refresh();
               setRoute({ name: 'groups' });
+            }}
+            onAlreadyIn={(groupId) => {
+              onJoinDone?.();
+              setRoute({ name: 'group', groupId });
             }}
           />
         );
@@ -247,7 +251,7 @@ function Navigator({
         route={route}
         onNavigate={(next) => {
           // A tab is a way off the join screen too. Left set, the link would do nothing when tapped again.
-          if (route.name === 'join') onInviteDone?.();
+          if (route.name === 'join') onJoinDone?.();
           setRoute(next);
         }}
       />

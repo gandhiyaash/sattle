@@ -32,7 +32,7 @@ export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
   onOpenWallet: () => void;
   onNewGroup?: () => void;
-  /** Opens the screen that takes an invite link. */
+  /** Opens the screen that takes a group's link. */
   onJoin?: () => void;
 }
 
@@ -79,8 +79,7 @@ export function GroupsListScreen({
     );
   }, []);
 
-  // A server from before join requests has no such route: nothing is waiting there.
-  const asked = useAsync(() => client.getMyJoinRequests().catch((): JoinRequest[] => []), []);
+  const asked = useAsync(() => client.getMyJoinRequests(), []);
   const waiting = asked.data?.filter((r) => r.status === 'pending').length ?? 0;
   const seen = useRef(waiting);
 
@@ -230,7 +229,8 @@ function WaitingToJoin({ request, onChanged }: { request: JoinRequest; onChanged
       </View>
       {declined ? (
         <Text style={s.waitingBody}>
-          Nobody let you in as {request.name}. If that is you, ask someone in {request.groupName} for a new invite.
+          Nobody let you in as {request.name}. If that is you, ask again from the group’s link, and tell someone in{' '}
+          {request.groupName} your code.
         </Text>
       ) : (
         <>

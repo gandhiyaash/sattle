@@ -28,7 +28,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  invitePath,
+  groupLinkPath,
   liveInvoiceFor,
   onlyRail,
   parseLightningAddress,
@@ -71,7 +71,7 @@ export interface SettleFlow {
   cancelAddressEntry: () => void;
   savePayoutAddress: (raw: string) => Promise<void>;
   clearError: () => void;
-  /** The group's invite, worded for the recipient. Throws if it can't; nothing else in the flow changes. */
+  /** The group's link, worded to invite the recipient. Throws if it can't; nothing else in the flow changes. */
   createInvite: (groupName: string) => Promise<{ url: string; message: string; sentNote: string }>;
   /** Set on the `upi` step. */
   upi: UpiSession | null;
@@ -85,25 +85,25 @@ export interface SettleFlow {
   leaveUpi: () => void;
 }
 
-/** Base for every link the app hands out: invites and pay links. */
+/** Base for every link the app hands out: the group's link and pay links. */
 export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081';
 
 /**
- * The group's invite link, made now if it has none that still works, and the
- * line to show once it has been sent.
+ * The group's link, made now if it has none, and the line to show once it has
+ * been sent. It is the group's one link: whoever opens it sees the group, can
+ * pay what they owe, and can ask to join.
  *
- * Looking first is what makes a retry safe: an invite made by an attempt whose
+ * Looking first is what makes a retry safe: a link made by an attempt whose
  * reply was lost is found here. So making one takes a fresh request key every
- * time, and can never be answered with a saved reply naming an invite that has
+ * time, and can never be answered with a saved reply naming a link that has
  * since been turned off. It is also why sharing again hands out the same link
  * instead of killing the one already in the chat.
  */
-export async function inviteLink(client: SattleClient, groupId: string) {
-  const invite = (await client.getGroupInvite(groupId)) ?? (await client.createInvite(groupId));
-  const days = Math.max(1, Math.ceil((Date.parse(invite.expiresAt) - Date.now()) / 86_400_000));
+export async function groupLinkToShare(client: SattleClient, groupId: string) {
+  const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
   return {
-    url: `${APP_URL}${invitePath(invite.token)}`,
-    sentNote: `Sent. It works ${days === 1 ? 'until tomorrow' : `for ${days} more days`}.`,
+    url: `${APP_URL}${groupLinkPath(link.token)}`,
+    sentNote: 'Sent. It works until someone in the group turns it off.',
   };
 }
 
@@ -284,10 +284,10 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
 
     createInvite: async (groupName) => {
       if (!recipient) throw new Error('There’s nobody to invite.');
-      const { url, sentNote } = await inviteLink(client, debt.groupId);
+      const { url, sentNote } = await groupLinkToShare(client, debt.groupId);
       return {
         url,
-        message: `${recipient.displayName}, join "${groupName}" on Sattle so I can pay you back: ${url}`,
+        message: `${recipient.displayName}, join "${groupName}" on Sattle so I can pay you back. Open this and tap Join: ${url}`,
         sentNote,
       };
     },

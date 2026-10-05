@@ -36,10 +36,11 @@ export function createWalletStore(db: Db) {
     receiveAddress: db.prepare('SELECT receive_address FROM users WHERE id = ?'),
     setReceiveAddress: db.prepare('UPDATE users SET receive_address = ? WHERE id = ?'),
     upiId: db.prepare('SELECT upi_id FROM users WHERE id = ?'),
-    // A new ID, or none, starts with it off the shared links: showing it there is a choice made for one ID.
-    setUpiId: db.prepare('UPDATE users SET upi_id = ?, upi_on_links = CASE WHEN upi_id IS ? THEN upi_on_links ELSE 0 END WHERE id = ?'),
+    setUpiId: db.prepare('UPDATE users SET upi_id = ? WHERE id = ?'),
     upiOnLinks: db.prepare('SELECT upi_on_links FROM users WHERE id = ?'),
     setUpiOnLinks: db.prepare('UPDATE users SET upi_on_links = ? WHERE id = ?'),
+    upiOnLinkChoice: db.prepare('SELECT upi_on_link FROM members WHERE id = ?'),
+    setUpiOnLinkChoice: db.prepare('UPDATE members SET upi_on_link = ? WHERE id = ?'),
     remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
     unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
   };
@@ -87,22 +88,32 @@ export function createWalletStore(db: Db) {
       q.setReceiveAddress.run(address, userId);
     },
 
-    /** The user's own UPI ID, if they've set one. Shown only to someone who owes them, or on shared links if they allow it. */
+    /** The user's own UPI ID, if they've set one. Shown to someone who owes them, and on shared links unless they turn that off. */
     upiId(userId: string): string | undefined {
       return (q.upiId.get(userId) as { upi_id: string | null } | undefined)?.upi_id ?? undefined;
     },
 
     setUpiId(userId: string, upiId: string | null) {
-      q.setUpiId.run(upiId, upiId, userId);
+      q.setUpiId.run(upiId, userId);
     },
 
-    /** Whether they let shared group links show their UPI ID. Off until they turn it on. */
+    /** Whether shared group links may show their UPI ID, in every group they're in. On until they turn it off. */
     upiOnLinks(userId: string): boolean {
       return Boolean((q.upiOnLinks.get(userId) as { upi_on_links: number } | undefined)?.upi_on_links);
     },
 
     setUpiOnLinks(userId: string, on: boolean) {
       q.setUpiOnLinks.run(on ? 1 : 0, userId);
+    },
+
+    /** What they chose for one group's link, which wins over upiOnLinks. Null while that group follows it. */
+    upiOnLinkChoice(memberId: string): boolean | null {
+      const v = (q.upiOnLinkChoice.get(memberId) as { upi_on_link: number | null } | undefined)?.upi_on_link;
+      return v === null || v === undefined ? null : Boolean(v);
+    },
+
+    setUpiOnLinkChoice(memberId: string, on: boolean | null) {
+      q.setUpiOnLinkChoice.run(on === null ? null : on ? 1 : 0, memberId);
     },
 
     /** The secret, for the payment backend only. Never put it in a response. */

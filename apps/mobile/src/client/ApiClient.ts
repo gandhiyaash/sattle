@@ -22,8 +22,7 @@ import {
   type GroupGuestView,
   type GroupLink,
   type GuestView,
-  type Invite,
-  type InviteView,
+  type JoinView,
   type JoinRequest,
   type PendingJoin,
   type JoinAs,
@@ -34,6 +33,7 @@ import {
   type ReceiveAddress,
   type Settlement,
   type UpiClaim,
+  type UpiOnGroupLink,
   type UpiPayee,
   type UpiProfile,
   type User,
@@ -190,17 +190,11 @@ export class ApiClient implements SattleClient {
     return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/proof`, { preimage }, idempotencyKey);
   }
 
-  getGroupInvite(groupId: string) {
-    return this.request<Invite | null>('GET', `/groups/${groupId}/invites`);
+  getJoinView(token: string) {
+    return this.request<JoinView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  createInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Invite>('POST', `/groups/${groupId}/invites`, undefined, idempotencyKey);
-  }
-  async removeInvite(groupId: string, idempotencyKey = newIdempotencyKey()) {
-    await this.request('DELETE', `/groups/${groupId}/invites`, undefined, idempotencyKey);
-  }
-  getInvite(token: string) {
-    return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
+  getJoinedGroup(token: string) {
+    return this.request<Group | null>('GET', `/links/${encodeURIComponent(token)}/group`);
   }
   askToJoin(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
     return this.request<JoinRequest>('POST', '/join-requests', { token, ...as }, idempotencyKey);
@@ -296,6 +290,12 @@ export class ApiClient implements SattleClient {
   }
   setUpiOnGroupLinks(on: boolean) {
     return this.request<UpiProfile>('PUT', '/me/upi/group-links', { on });
+  }
+  getUpiOnGroupLink(groupId: string) {
+    return this.request<UpiOnGroupLink>('GET', `/me/upi/group-links/${groupId}`);
+  }
+  setUpiOnGroupLink(groupId: string, on: boolean | null) {
+    return this.request<UpiOnGroupLink>('PUT', `/me/upi/group-links/${groupId}`, { on });
   }
   clearUpiId() {
     return this.request<UpiProfile>('DELETE', '/me/upi');

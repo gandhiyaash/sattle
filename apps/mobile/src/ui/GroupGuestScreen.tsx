@@ -13,8 +13,10 @@
  * and the page can't tell who is looking, so every debt gets the same
  * buttons: paying someone else's is allowed and harmless.
  *
- * Someone in the group who wants to add spends needs the invite instead,
- * which is a different link; the page says so at the bottom.
+ * It is also the way in. Join opens /join/<token>, with the same token,
+ * where someone says which of the people in the group they are and asks to
+ * join; someone already in it lets them in (JoinScreen). For someone who has
+ * joined, that opens the group.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -23,6 +25,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   SattleError,
   formatFiat,
+  joinPath,
   upiPayUri,
   type GroupGuestDebt,
   type GroupGuestExpense,
@@ -179,6 +182,17 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
         )}
       </View>
 
+      <Card style={s.joinCard}>
+        <Text style={s.joinTitle}>In this group?</Text>
+        <Text style={s.body}>
+          Join it to add what you’ve spent and settle up in the app. You pick your name, and someone in the group
+          lets you in. Already joined? This opens the group.
+        </Text>
+        {/* A real link, not a change of screen: Back returns here, and a phone with the app installed
+            can hand /join/ links to it. This page is only ever shown in a browser. */}
+        <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+      </Card>
+
       <View>
         <SectionLabel>Spends</SectionLabel>
         {spends.length === 0 ? (
@@ -195,17 +209,9 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
         )}
       </View>
 
-      <Card style={{ gap: space.xs }}>
-        <Text style={s.joinTitle}>In this group?</Text>
-        <Text style={s.body}>
-          This link only shows the group and lets you pay. To add spends, ask someone in it for the invite link: you
-          pick your name, they let you in, and you can use the app from then on.
-        </Text>
-      </Card>
-
       <Text style={s.note}>
-        You’re seeing this group through a shared link. You can pay what you owe from here, but only the people in the
-        group can change it.
+        You’re seeing this group through its shared link. You can pay what you owe from here, but only the people in
+        the group can change it.
       </Text>
     </Screen>
   );
@@ -337,6 +343,8 @@ const useStyles = makeStyles((color) => ({
   indentedBlock: { marginLeft: 36 + space.md },
   payButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   caption: { ...type.caption, color: color.inkMuted },
+  // The other thing the page is for, after paying: set apart, so it isn't read as one more debt.
+  joinCard: { gap: space.sm, backgroundColor: color.accentWash, borderColor: color.accent },
   joinTitle: { ...type.body, fontWeight: '600', color: color.ink },
   spend: { padding: space.lg, gap: space.sm },
   spendTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },

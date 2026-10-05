@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, Invite, InviteView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
+import type { Expense, Group, GroupLink, JoinView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
 import { SimulatedPayments } from './payments';
-import { INVITE_TTL_MS, MAX_PENDING_JOINS } from './routes/invites';
+import { MAX_PENDING_JOINS } from './routes/joining';
 
-/** A production-shaped server: no fixtures, no demo user. Riya has a group with two ghosts. */
+/**
+ * A production-shaped server: no fixtures, no demo user. Riya has a group with two ghosts.
+ * `link` makes the group's link, which is what people ask to join with.
+ */
 async function setup() {
   const db = openDb(':memory:');
   const app = createApp({
@@ -35,8 +38,8 @@ async function setup() {
   const [, kabir, aman] = group.memberIds;
   const base = `/groups/${group.id}`;
 
-  const invite = (as = riya.token) => call<Invite>('POST', `${base}/invites`, undefined, as);
-  const page = (token: string) => call<InviteView>('GET', `/join/${token}`);
+  const link = (as = riya.token) => call<GroupLink>('POST', `${base}/link`, undefined, as);
+  const page = (token: string) => call<JoinView>('GET', `/join/${token}`);
   /** What the page would send back for the person with that name. */
   const refOf = async (token: string, name: string) => (await page(token)).body.members.find((m) => m.name === name)!.ref;
   /** Asks to join as the person with that ref. Nothing changes in the group until someone lets them in. */
@@ -62,34 +65,17 @@ async function setup() {
   const members = async (as = riya.token) => (await call<Member[]>('GET', `${base}/members`, undefined, as)).body;
 
   return {
-    db, call, signUp, riya, group, base, kabir, aman, invite, page, refOf,
+    db, call, signUp, riya, group, base, kabir, aman, link, page, refOf,
     ask, askAsNew, approve, decline, waiting, mine, join, joinAs, joinAsNew, members,
   };
 }
 
-describe('POST /groups/:id/invites', () => {
-  it('gives a member of the group a link for the whole group, good for a week', async () => {
-    const { invite, group } = await setup();
-    const before = Date.now();
-    const res = await invite();
-    expect(res.status).toBe(201);
-    expect(res.body).toEqual({ token: expect.any(String), groupId: group.id, createdAt: expect.any(String), expiresAt: expect.any(String) });
-    expect(res.body.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(Date.parse(res.body.expiresAt) - before).toBeGreaterThanOrEqual(INVITE_TTL_MS);
-    expect(Date.parse(res.body.expiresAt) - Date.now()).toBeLessThanOrEqual(INVITE_TTL_MS);
-  });
-
-  it('is refused for someone outside the group, without saying the group exists', async () => {
-    const { invite, signUp } = await setup();
-    const stranger = await signUp('Stranger');
-    expect((await invite(stranger.token)).status).toBe(404);
-  });
-
-  it('replaces the last one, so a link sent to the wrong place can be taken back', async () => {
-    const { signUp, invite, page, join, joinAs, members, kabir } = await setup();
-    const first = (await invite()).body.token;
+describe('the group link, for joining', () => {
+  it('stops being a way in once it is replaced, so a link sent to the wrong place can be taken back', async () => {
+    const { signUp, link, page, join, joinAs, members, kabir } = await setup();
+    const first = (await link()).body.token;
     const ref = (await page(first)).body.members[0].ref;
-    const second = (await invite()).body.token;
+    const second = (await link()).body.token;
     const k = await signUp('Kabir');
 
     expect((await page(first)).status).toBe(404);
@@ -97,72 +83,47 @@ describe('POST /groups/:id/invites', () => {
     expect((await members()).find((m) => m.id === kabir)?.status).toBe('ghost');
     expect((await joinAs('Kabir', second, k.token)).status).toBe(200);
   });
-});
 
-describe('GET /groups/:id/invites', () => {
-  it('is null until someone makes one, then the one that works', async () => {
-    const { call, base, invite, riya } = await setup();
-    expect((await call('GET', `${base}/invites`, undefined, riya.token)).body).toBeNull();
-    const made = (await invite()).body;
-    expect((await call('GET', `${base}/invites`, undefined, riya.token)).body).toEqual(made);
-  });
-
-  it('is null again once the invite has expired, so the next share makes a new one', async () => {
-    const { db, call, base, invite, riya } = await setup();
-    const { token } = (await invite()).body;
-    db.prepare('UPDATE invites SET expires_at = ? WHERE token = ?').run(new Date(Date.now() - 1000).toISOString(), token);
-    expect((await call('GET', `${base}/invites`, undefined, riya.token)).body).toBeNull();
-    expect((await invite()).status).toBe(201);
-  });
-
-  it('is 404 for someone who isn’t in the group', async () => {
-    const { call, base, invite, signUp } = await setup();
-    await invite();
-    expect((await call('GET', `${base}/invites`, undefined, (await signUp('Stranger')).token)).status).toBe(404);
-  });
-});
-
-describe('DELETE /groups/:id/invites', () => {
-  it('turns the link off for everyone holding it, and anyone in the group can', async () => {
-    const { call, base, signUp, invite, page, joinAs, refOf, join, riya } = await setup();
-    const { token } = (await invite()).body;
+  it('stops being a way in once it is turned off, and anyone in the group can do that', async () => {
+    const { call, base, signUp, link, page, joinAs, refOf, join } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await joinAs('Kabir', token, k.token);
     const amanRef = await refOf(token, 'Aman');
 
-    expect((await call('DELETE', `${base}/invites`, undefined, k.token)).status).toBe(200);
+    expect((await call('DELETE', `${base}/link`, undefined, k.token)).status).toBe(200);
     expect((await page(token)).status).toBe(404);
     expect((await join(token, amanRef, (await signUp('Aman')).token)).status).toBe(404);
-    expect((await call('GET', `${base}/invites`, undefined, riya.token)).body).toBeNull();
   });
 
-  it('is 404 for someone who isn’t in the group, and leaves the link working', async () => {
-    const { call, base, signUp, invite, page } = await setup();
-    const { token } = (await invite()).body;
-    expect((await call('DELETE', `${base}/invites`, undefined, (await signUp('Stranger')).token)).status).toBe(404);
+  it('doesn’t run out by itself', async () => {
+    const { db, signUp, link, page, joinAs } = await setup();
+    const { token } = (await link()).body;
+    db.prepare('UPDATE group_links SET created_at = ?').run('2020-01-01T00:00:00.000Z');
     expect((await page(token)).status).toBe(200);
+    expect((await joinAs('Kabir', token, (await signUp('Kabir')).token)).status).toBe(200);
   });
 });
 
 describe('GET /join/:token', () => {
   it('shows names to anyone holding the link, and nothing else', async () => {
-    const { invite, page } = await setup();
-    const { token } = (await invite()).body;
+    const { link, page } = await setup();
+    const { token } = (await link()).body;
     const res = await page(token);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       groupName: 'Manali',
-      invitedBy: 'Riya',
       members: [
         { ref: expect.any(String), name: 'Kabir' },
         { ref: expect.any(String), name: 'Aman' },
       ],
+      joined: ['Riya'],
     });
   });
 
   it('offers only the people who haven’t joined, by a ref that isn’t their id', async () => {
-    const { signUp, invite, page, joinAs, group } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, page, joinAs, group } = await setup();
+    const { token } = (await link()).body;
     const refs = (await page(token)).body.members.map((m) => m.ref);
     expect(new Set(refs).size).toBe(2);
     for (const ref of refs) expect(group.memberIds).not.toContain(ref);
@@ -171,10 +132,23 @@ describe('GET /join/:token', () => {
     expect((await page(token)).body.members.map((m) => m.name)).toEqual(['Aman']);
   });
 
+  it('names the people who have joined, so the page shows the whole group, with nothing to pick them by', async () => {
+    const { signUp, link, page, refOf, ask, joinAs, joinAsNew } = await setup();
+    const { token } = (await link()).body;
+    await joinAs('Kabir', token, (await signUp('Kabir')).token);
+    await joinAsNew(token, 'Dev', (await signUp('Dev')).token);
+    // Asking isn't joining: Aman stays someone to pick until he's let in.
+    await ask(token, await refOf(token, 'Aman'), (await signUp('Aman')).token);
+
+    const { body } = await page(token);
+    expect(body.joined).toEqual(['Riya', 'Kabir', 'Dev']);
+    expect(body.members.map((m) => m.name)).toEqual(['Aman']);
+  });
+
   it('gives the same person a different ref on a new link', async () => {
-    const { invite, refOf } = await setup();
-    const old = await refOf((await invite()).body.token, 'Kabir');
-    expect(await refOf((await invite()).body.token, 'Kabir')).not.toBe(old);
+    const { link, refOf } = await setup();
+    const old = await refOf((await link()).body.token, 'Kabir');
+    expect(await refOf((await link()).body.token, 'Kabir')).not.toBe(old);
   });
 
   it('is 404 for a token nobody made', async () => {
@@ -183,10 +157,37 @@ describe('GET /join/:token', () => {
   });
 });
 
+describe('GET /links/:token/group', () => {
+  it('is the group for someone already in it, and null for someone who isn’t, or who has only asked', async () => {
+    const { call, signUp, link, refOf, ask, approve, group, riya } = await setup();
+    const { token } = (await link()).body;
+    const path = `/links/${token}/group`;
+
+    expect((await call<Group>('GET', path, undefined, riya.token)).body).toMatchObject({ id: group.id, name: 'Manali' });
+
+    const k = await signUp('Kabir');
+    expect(await call('GET', path, undefined, k.token)).toEqual({ status: 200, body: null });
+    const asked = await ask(token, await refOf(token, 'Kabir'), k.token);
+    expect(await call('GET', path, undefined, k.token)).toEqual({ status: 200, body: null });
+    await approve(asked.body.id);
+    expect((await call<Group>('GET', path, undefined, k.token)).body.id).toBe(group.id);
+  });
+
+  it('needs an account, and a link that still works', async () => {
+    const { call, base, link, riya } = await setup();
+    const { token } = (await link()).body;
+    expect((await call('GET', `/links/${token}/group`)).status).toBe(401);
+    expect((await call('GET', '/links/nope/group', undefined, riya.token)).status).toBe(404);
+
+    await call('DELETE', `${base}/link`, undefined, riya.token);
+    expect((await call('GET', `/links/${token}/group`, undefined, riya.token)).status).toBe(404);
+  });
+});
+
 describe('POST /join-requests', () => {
   it('asks to be the person picked, and changes nothing in the group until someone says yes', async () => {
-    const { call, signUp, invite, refOf, ask, waiting, mine, members, base, kabir } = await setup();
-    const { token } = (await invite()).body;
+    const { call, signUp, link, refOf, ask, waiting, mine, members, base, kabir } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir S');
 
     const asked = await ask(token, await refOf(token, 'Kabir'), k.token);
@@ -215,26 +216,26 @@ describe('POST /join-requests', () => {
   });
 
   it('needs an account', async () => {
-    const { call, invite, refOf, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { call, link, refOf, waiting } = await setup();
+    const { token } = (await link()).body;
     const ref = await refOf(token, 'Kabir');
     expect((await call('POST', '/join-requests', { token, ref })).status).toBe(401);
     expect(await waiting()).toEqual([]);
   });
 
   it('needs to be told who the person is', async () => {
-    const { call, signUp, invite, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { call, signUp, link, waiting } = await setup();
+    const { token } = (await link()).body;
     expect((await call('POST', '/join-requests', { token }, (await signUp('Kabir')).token)).status).toBe(400);
     expect(await waiting()).toEqual([]);
   });
 
   it('is 404 for a ref nobody in the group has, and for one from another link', async () => {
-    const { call, signUp, invite, refOf, ask, waiting, riya } = await setup();
+    const { call, signUp, link, refOf, ask, waiting, riya } = await setup();
     const other = (await call<Group>('POST', '/groups', { name: 'Flat', memberNames: ['Dev'] }, riya.token)).body;
-    const theirs = (await call<Invite>('POST', `/groups/${other.id}/invites`, undefined, riya.token)).body.token;
+    const theirs = (await call<GroupLink>('POST', `/groups/${other.id}/link`, undefined, riya.token)).body.token;
     const dev = await refOf(theirs, 'Dev');
-    const { token } = (await invite()).body;
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
 
     expect((await ask(token, 'nope', k.token)).status).toBe(404);
@@ -242,28 +243,16 @@ describe('POST /join-requests', () => {
     expect(await waiting()).toEqual([]);
   });
 
-  it('stops working after a week', async () => {
-    const { db, signUp, invite, page, refOf, ask } = await setup();
-    const { token } = (await invite()).body;
-    const ref = await refOf(token, 'Kabir');
-    db.prepare('UPDATE invites SET expires_at = ? WHERE token = ?').run(new Date(Date.now() - 1000).toISOString(), token);
-
-    expect((await page(token)).status).toBe(410);
-    const res = await ask(token, ref, (await signUp('Kabir')).token);
-    expect(res.status).toBe(410);
-    expect(res.body).toMatchObject({ code: 'link_expired' });
-  });
-
   it('won’t give one person two members of the same group', async () => {
-    const { invite, refOf, ask, riya } = await setup();
-    const { token } = (await invite()).body;
+    const { link, refOf, ask, riya } = await setup();
+    const { token } = (await link()).body;
     const res = await ask(token, await refOf(token, 'Kabir'), riya.token);
     expect(res.status).toBe(409);
   });
 
   it('lets several people ask to be the same person, so a stranger asking first can’t lock them out', async () => {
-    const { signUp, invite, refOf, ask, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, waiting } = await setup();
+    const { token } = (await link()).body;
     const ref = await refOf(token, 'Kabir');
     const mallory = await ask(token, ref, (await signUp('Mallory')).token);
     const kabir = await ask(token, ref, (await signUp('Kabir')).token);
@@ -275,8 +264,8 @@ describe('POST /join-requests', () => {
   });
 
   it('replaces the last request when the same person asks again, as someone else', async () => {
-    const { signUp, invite, refOf, ask, waiting, mine } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, waiting, mine } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await ask(token, await refOf(token, 'Aman'), k.token);
     const again = await ask(token, await refOf(token, 'Kabir'), k.token);
@@ -286,8 +275,8 @@ describe('POST /join-requests', () => {
   });
 
   it('answers a retry of the same request with the same request', async () => {
-    const { signUp, invite, refOf, ask, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, waiting } = await setup();
+    const { token } = (await link()).body;
     const ref = await refOf(token, 'Kabir');
     const k = await signUp('Kabir');
     const key = { 'idempotency-key': 'ask-1' };
@@ -299,8 +288,8 @@ describe('POST /join-requests', () => {
   });
 
   it('lets someone who isn’t on the list ask to be added under their own name', async () => {
-    const { signUp, invite, askAsNew, waiting, members } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, askAsNew, waiting, members } = await setup();
+    const { token } = (await link()).body;
     const asked = await askAsNew(token, '  Dev  ', (await signUp('Dev')).token);
     expect(asked.status).toBe(201);
     expect(asked.body).toMatchObject({ name: 'Dev', status: 'pending' });
@@ -309,8 +298,8 @@ describe('POST /join-requests', () => {
   });
 
   it('won’t start a second row beside a name that is still waiting to be picked', async () => {
-    const { signUp, invite, askAsNew, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, askAsNew, waiting } = await setup();
+    const { token } = (await link()).body;
     const res = await askAsNew(token, 'kabir ', (await signUp('Kabir')).token);
     expect(res.status).toBe(409);
     expect(res.body).toMatchObject({ code: 'conflict', message: 'Kabir is already in this group. Pick that name to join as them.' });
@@ -318,8 +307,8 @@ describe('POST /join-requests', () => {
   });
 
   it('turns away an empty or overlong name, or a dead link', async () => {
-    const { call, signUp, invite, askAsNew } = await setup();
-    const { token } = (await invite()).body;
+    const { call, signUp, link, askAsNew } = await setup();
+    const { token } = (await link()).body;
     const d = await signUp('Dev');
     expect((await call('POST', '/join-requests', { token, displayName: 'Dev' })).status).toBe(401);
     expect((await askAsNew(token, '   ', d.token)).status).toBe(400);
@@ -328,8 +317,8 @@ describe('POST /join-requests', () => {
   });
 
   it(`stops at ${MAX_PENDING_JOINS} people waiting, so a leaked link can’t bury the real request`, async () => {
-    const { signUp, invite, askAsNew, ask, refOf, waiting, decline } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, askAsNew, ask, refOf, waiting, decline } = await setup();
+    const { token } = (await link()).body;
     for (let i = 0; i < MAX_PENDING_JOINS; i++) {
       expect((await askAsNew(token, `Bot ${i}`, (await signUp(`Bot ${i}`)).token)).status).toBe(201);
     }
@@ -345,14 +334,14 @@ describe('POST /join-requests', () => {
 
 describe('POST /join-requests/:id/approve', () => {
   it('makes the person the ghost they picked: a member who can read the group and add to it', async () => {
-    const { call, signUp, invite, joinAs, members, group, base, kabir, aman, riya, mine } = await setup();
+    const { call, signUp, link, joinAs, members, group, base, kabir, aman, riya, mine } = await setup();
     await call<Expense>(
       'POST',
       `${base}/expenses`,
       { description: 'Cab', amount: 3000, paidByMemberId: group.memberIds[0], splitMode: 'equal', parts: group.memberIds.map((memberId) => ({ memberId })) },
       riya.token
     );
-    const { token } = (await invite()).body;
+    const { token } = (await link()).body;
     const k = await signUp('Kabir S');
 
     const joined = await joinAs('Kabir', token, k.token);
@@ -378,8 +367,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('can be done by anyone in the group, and by nobody outside it, including the person asking', async () => {
-    const { signUp, invite, joinAs, refOf, ask, approve, members, aman } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, joinAs, refOf, ask, approve, members, aman } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await joinAs('Kabir', token, k.token);
 
@@ -394,8 +383,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('turns down everyone else who asked to be that person', async () => {
-    const { signUp, invite, refOf, ask, approve, waiting, mine, members, kabir } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, approve, waiting, mine, members, kabir } = await setup();
+    const { token } = (await link()).body;
     const ref = await refOf(token, 'Kabir');
     const m = await signUp('Mallory');
     const k = await signUp('Kabir');
@@ -410,8 +399,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('adds someone who gave their own name as a new member, after everyone else', async () => {
-    const { call, base, signUp, invite, page, joinAsNew, members } = await setup();
-    const { token } = (await invite()).body;
+    const { call, base, signUp, link, page, joinAsNew, members } = await setup();
+    const { token } = (await link()).body;
     const d = await signUp('Dev');
 
     expect((await joinAsNew(token, 'Dev', d.token)).status).toBe(200);
@@ -430,8 +419,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('still lets people in once everyone listed has joined, and allows a name someone already goes by', async () => {
-    const { signUp, invite, joinAs, joinAsNew, page, members } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, joinAs, joinAsNew, page, members } = await setup();
+    const { token } = (await link()).body;
     await joinAs('Kabir', token, (await signUp('Kabir')).token);
     await joinAs('Aman', token, (await signUp('Aman')).token);
     expect((await page(token)).body.members).toEqual([]);
@@ -441,8 +430,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('offers only the people nobody has been let in as', async () => {
-    const { signUp, invite, page, refOf, ask, joinAs } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, page, refOf, ask, joinAs } = await setup();
+    const { token } = (await link()).body;
     await ask(token, await refOf(token, 'Aman'), (await signUp('Aman')).token);
     // Asking isn't joining: Aman is still offered.
     expect((await page(token)).body.members.map((m) => m.name)).toEqual(['Kabir', 'Aman']);
@@ -451,11 +440,11 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('drops the address a groupmate typed, so the member chooses where they get paid', async () => {
-    const { call, signUp, invite, joinAs, members, riya, kabir } = await setup();
+    const { call, signUp, link, joinAs, members, riya, kabir } = await setup();
     // Riya could type her own address for Kabir. Once he has joined, a
     // payment proven to that address must not count as paying him.
     expect((await call('PUT', `/members/${kabir}/payout-address`, { address: 'riya@getalby.com' }, riya.token)).status).toBe(200);
-    const { token } = (await invite()).body;
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     expect((await joinAs('Kabir', token, k.token)).status).toBe(200);
     expect((await members()).find((m) => m.id === kabir)?.lightningAddress).toBeUndefined();
@@ -467,8 +456,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('marks someone with a wallet connected nwc_linked, like their other groups', async () => {
-    const { db, signUp, invite, joinAs, members, kabir } = await setup();
-    const { token } = (await invite()).body;
+    const { db, signUp, link, joinAs, members, kabir } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     db.prepare(
       `INSERT INTO wallet_connections (user_id, nwc_uri, wallet_pubkey, methods, alias, connected_at)
@@ -479,8 +468,8 @@ describe('POST /join-requests/:id/approve', () => {
   });
 
   it('answers a retry of the same approval with the member, not "not found"', async () => {
-    const { signUp, invite, refOf, ask, approve, kabir } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, approve, kabir } = await setup();
+    const { token } = (await link()).body;
     const asked = (await ask(token, await refOf(token, 'Kabir'), (await signUp('Kabir')).token)).body;
     const key = { 'idempotency-key': 'approve-1' };
     expect((await approve(asked.id, undefined, key)).status).toBe(200);
@@ -489,28 +478,28 @@ describe('POST /join-requests/:id/approve', () => {
     expect(again.body.id).toBe(kabir);
   });
 
-  it('still works after the invite has expired or been turned off: the yes is what counts', async () => {
-    const { call, base, signUp, invite, refOf, ask, approve, riya } = await setup();
-    const { token } = (await invite()).body;
+  it('still works after the link has been turned off: the yes is what counts', async () => {
+    const { call, base, signUp, link, refOf, ask, approve, riya } = await setup();
+    const { token } = (await link()).body;
     const asked = (await ask(token, await refOf(token, 'Kabir'), (await signUp('Kabir')).token)).body;
-    await call('DELETE', `${base}/invites`, undefined, riya.token);
+    await call('DELETE', `${base}/link`, undefined, riya.token);
     expect((await approve(asked.id)).status).toBe(200);
   });
 
-  it('lets the new member share the invite, and replace it', async () => {
-    const { call, base, signUp, invite, joinAs } = await setup();
-    const { token } = (await invite()).body;
+  it('lets the new member share the link, and replace it', async () => {
+    const { call, base, signUp, link, joinAs } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await joinAs('Kabir', token, k.token);
-    expect((await call<Invite>('GET', `${base}/invites`, undefined, k.token)).body.token).toBe(token);
-    expect((await invite(k.token)).status).toBe(201);
+    expect((await call<GroupLink>('GET', `${base}/link`, undefined, k.token)).body.token).toBe(token);
+    expect((await link(k.token)).status).toBe(201);
   });
 });
 
 describe('POST /join-requests/:id/decline', () => {
   it('turns the request down for good: the person asking sees it, and nothing in the group changed', async () => {
-    const { signUp, invite, refOf, ask, decline, approve, waiting, mine, members, kabir } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, decline, approve, waiting, mine, members, kabir } = await setup();
+    const { token } = (await link()).body;
     const m = await signUp('Mallory');
     const asked = (await ask(token, await refOf(token, 'Kabir'), m.token)).body;
 
@@ -522,8 +511,8 @@ describe('POST /join-requests/:id/decline', () => {
   });
 
   it('is 404 for someone outside the group', async () => {
-    const { signUp, invite, refOf, ask, decline, waiting } = await setup();
-    const { token } = (await invite()).body;
+    const { signUp, link, refOf, ask, decline, waiting } = await setup();
+    const { token } = (await link()).body;
     const asked = (await ask(token, await refOf(token, 'Kabir'), (await signUp('Kabir')).token)).body;
     expect((await decline(asked.id, (await signUp('Stranger')).token)).status).toBe(404);
     expect(await waiting()).toHaveLength(1);
@@ -532,8 +521,8 @@ describe('POST /join-requests/:id/decline', () => {
 
 describe('join requests and people going', () => {
   it('turns down a request for someone who is then removed from the group', async () => {
-    const { call, base, signUp, invite, refOf, ask, approve, waiting, mine, riya, aman } = await setup();
-    const { token } = (await invite()).body;
+    const { call, base, signUp, link, refOf, ask, approve, waiting, mine, riya, aman } = await setup();
+    const { token } = (await link()).body;
     const a = await signUp('Aman');
     const asked = (await ask(token, await refOf(token, 'Aman'), a.token)).body;
 
@@ -544,8 +533,8 @@ describe('join requests and people going', () => {
   });
 
   it('goes with the account that asked, and with the group', async () => {
-    const { call, base, signUp, invite, refOf, ask, waiting, riya, db } = await setup();
-    const { token } = (await invite()).body;
+    const { call, base, signUp, link, refOf, ask, waiting, riya, db } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await ask(token, await refOf(token, 'Kabir'), k.token);
     expect((await call('DELETE', '/me', undefined, k.token)).status).toBe(200);
@@ -559,8 +548,8 @@ describe('join requests and people going', () => {
 
 describe('DELETE /join-requests/:id', () => {
   it('lets the person asking take it back, or clear one that was turned down, and nobody else', async () => {
-    const { call, signUp, invite, refOf, ask, decline, waiting, mine, riya } = await setup();
-    const { token } = (await invite()).body;
+    const { call, signUp, link, refOf, ask, decline, waiting, mine, riya } = await setup();
+    const { token } = (await link()).body;
     const k = await signUp('Kabir');
     const asked = (await ask(token, await refOf(token, 'Kabir'), k.token)).body;
 
