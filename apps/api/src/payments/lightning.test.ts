@@ -7,7 +7,7 @@ import type { Settlement } from '@sattle/core';
 import { createApp } from '../app';
 import { openDb, seedIfEmpty, type Db } from '../db';
 import { NwcError, type MakeInvoiceParams, type NwcApi, type NwcInvoice } from '../nwc';
-import type { RateService } from '../rates';
+import { RateUnavailableError, type RateService } from '../rates';
 import { LightningPayments } from './lightning';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
@@ -26,7 +26,14 @@ let backend: LightningPayments | undefined;
 let lookup: () => Partial<NwcInvoice> | Error;
 let lookups: number;
 
-const rates: RateService = { rate: async (currency) => ({ currency, rateFiatPerBtc: 8_000_000, source: 'live' }) };
+/** Set to make every price source fail, with no earlier rate to fall back on. */
+let noPrice = false;
+const rates: RateService = {
+  rate: async (currency) => {
+    if (noPrice) throw new RateUnavailableError(currency);
+    return { currency, rateFiatPerBtc: 8_000_000, source: 'live', provider: 'CoinGecko' };
+  },
+};
 
 function fakeNwc(): NwcApi {
   opened++;
@@ -102,6 +109,7 @@ beforeEach(() => {
   db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = 'demo'`).run();
   minted = [];
   mintError = undefined;
+  noPrice = false;
   repeatHash = undefined;
   opened = 0;
   backend?.close();
@@ -153,6 +161,16 @@ describe('LightningPayments', () => {
     mintError = new NwcError('TIMEOUT', 'slow');
     const s = await settled((await omPaysYash()).body.id);
     expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash’s wallet didn’t answer. Nothing moved.' });
+  });
+
+  it('fails without minting when there is no price to quote at', async () => {
+    noPrice = true;
+    const s = await settled((await omPaysYash()).body.id);
+    expect(s).toMatchObject({
+      status: 'failed',
+      failureReason: 'We couldn’t get a Bitcoin price just now. Nothing moved. Try again in a minute.',
+    });
+    expect(minted).toEqual([]);
   });
 
   it('does not take Lightning-address payments it could never confirm', async () => {

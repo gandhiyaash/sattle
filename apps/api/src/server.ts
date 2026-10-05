@@ -50,7 +50,10 @@ let lightning: LightningPayments | undefined;
 // One client for checking receive addresses and minting from them, so the
 // pay details fetched on save are reused. `bc` is mainnet; LIGHTNING_NETWORK=tbs for signet.
 const lnurl = realPayments ? new LnurlClient({ network: env.LIGHTNING_NETWORK || 'bc' }) : undefined;
-const rates = createRateService({ fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 9_000_000) } });
+// No fixed rate unless one is set: when every source is down and none has answered yet, a payment fails rather than guess.
+const rates = createRateService(
+  env.RATE_FALLBACK_INR_PER_BTC ? { fallback: { INR: num(env.RATE_FALLBACK_INR_PER_BTC, 0) } } : {}
+);
 
 // Unset or empty: entries are signed and kept, and go out once relays are set.
 const ledgerRelays = (env.LEDGER_RELAYS ?? '').split(',').map((r) => r.trim()).filter(Boolean);

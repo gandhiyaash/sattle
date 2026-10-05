@@ -41,7 +41,7 @@ import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
 import { NwcError, preimageMatches, type NwcApi } from '../nwc';
 import type { PaymentBackend } from '../payments';
-import { quoteRateSource, type RateService } from '../rates';
+import { quoteRateSource, RateUnavailableError, type RateService } from '../rates';
 import type { Repo } from '../repo';
 import type { WalletStore } from '../walletStore';
 
@@ -207,7 +207,13 @@ export class LightningPayments implements PaymentBackend {
       return this.fail(s.id, `${payee.displayName} hasn’t connected a wallet to receive yet. Nothing moved.`);
     }
 
-    const rate = await rates.rate(s.currency);
+    let rate;
+    try {
+      rate = await rates.rate(s.currency);
+    } catch (e) {
+      if (!(e instanceof RateUnavailableError)) throw e;
+      return this.fail(s.id, 'We couldn’t get a Bitcoin price just now. Nothing moved. Try again in a minute.');
+    }
     const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, quoteRateSource(rate), this.now());
 
     if (uri) return this.mintNwc(s, payee.displayName, uri, quote);

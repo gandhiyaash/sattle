@@ -15,7 +15,7 @@ import { LightningPayments } from './payments/lightning';
 import type { RateService } from './rates';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
-const rates: RateService = { rate: async (currency) => ({ currency, rateFiatPerBtc: 8_000_000, source: 'live' }) };
+const rates: RateService = { rate: async (currency) => ({ currency, rateFiatPerBtc: 8_000_000, source: 'live', provider: 'CoinGecko' }) };
 
 let db: Db;
 let backend: LightningPayments | undefined;
