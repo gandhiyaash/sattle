@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   EVERY_CURRENCY,
-  NO_CURRENCY_YET,
-  isChosen,
   parseCurrencyPrefs,
   serializeCurrencyPrefs,
   startNewGroupsIn,
@@ -14,10 +12,16 @@ import {
 const rupees: CurrencyPrefs = { uses: ['INR'], newGroups: 'INR' };
 const bitcoin: CurrencyPrefs = { uses: ['BTC'], newGroups: 'BTC' };
 
+describe('EVERY_CURRENCY', () => {
+  it('is where everyone starts: both, with new groups in rupees', () => {
+    expect(EVERY_CURRENCY).toEqual({ uses: ['INR', 'BTC'], newGroups: 'INR' });
+  });
+});
+
 describe('toggleCurrency', () => {
-  it('starts new groups in the one currency picked', () => {
-    expect(toggleCurrency(NO_CURRENCY_YET, 'BTC')).toEqual(bitcoin);
-    expect(toggleCurrency(NO_CURRENCY_YET, 'INR')).toEqual(rupees);
+  it('turns one off, leaving new groups in the other', () => {
+    expect(toggleCurrency(EVERY_CURRENCY, 'BTC')).toEqual(rupees);
+    expect(toggleCurrency(EVERY_CURRENCY, 'INR')).toEqual(bitcoin);
   });
 
   it('keeps what new groups start in when a second currency is added', () => {
@@ -30,11 +34,9 @@ describe('toggleCurrency', () => {
     expect(toggleCurrency({ uses: ['INR', 'BTC'], newGroups: 'BTC' }, 'INR')).toEqual(bitcoin);
   });
 
-  it('can untick the last one, which leaves nothing chosen', () => {
-    const none = toggleCurrency(rupees, 'INR');
-    expect(none.uses).toEqual([]);
-    expect(isChosen(none)).toBe(false);
-    expect(isChosen(rupees)).toBe(true);
+  it('won’t turn off the last one: a group has to be kept in something', () => {
+    expect(toggleCurrency(rupees, 'INR')).toEqual(rupees);
+    expect(toggleCurrency(bitcoin, 'BTC')).toEqual(bitcoin);
   });
 });
 
@@ -55,13 +57,13 @@ describe('parseCurrencyPrefs', () => {
     }
   });
 
-  it('is nothing when nothing usable was saved, so the tour asks again', () => {
+  it('is nothing when nothing usable was saved, which leaves them with both', () => {
     expect(parseCurrencyPrefs(null)).toBeNull();
     expect(parseCurrencyPrefs('')).toBeNull();
     expect(parseCurrencyPrefs('not json')).toBeNull();
     expect(parseCurrencyPrefs('"INR"')).toBeNull();
     expect(parseCurrencyPrefs('{"uses":"INR"}')).toBeNull();
-    expect(parseCurrencyPrefs(serializeCurrencyPrefs(NO_CURRENCY_YET))).toBeNull();
+    expect(parseCurrencyPrefs('{"uses":[],"newGroups":"INR"}')).toBeNull();
     expect(parseCurrencyPrefs('{"uses":["USD"],"newGroups":"USD"}')).toBeNull();
   });
 

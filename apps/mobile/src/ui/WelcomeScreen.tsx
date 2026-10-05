@@ -38,7 +38,7 @@ export function WelcomeScreen({ onReady }: { onReady: (token: string) => void })
   };
 
   return (
-    <Screen title="Sattle" brand subtitle="Split bills with friends. Only one of you needs the app.">
+    <Screen title="Sattle" brand subtitle="Split bills in sats. Only one of you needs the app.">
       <Card style={{ gap: space.sm }}>
         <Text style={s.label}>What should your friends call you?</Text>
         <TextInput

@@ -1,32 +1,27 @@
 /**
- * First launch: what Sattle is, in three screens, then the one question the
- * rest of the app turns on.
+ * First launch: what Sattle is, in three screens.
  *
  * Each screen makes one point and shows it the way the app itself will, built
  * from the same cards and rows, so the group screen is already familiar when
- * someone reaches it. Skip jumps over the explaining but never over the
- * question: which currencies they use decides what a new group is kept in and
- * which ways to pay they are shown at all (currencyPrefs.ts). Nothing is
- * ticked for them, because either answer hides half the app.
+ * someone reaches it: splitting, that only one of them needs the app, and the
+ * ways to settle up. It asks nothing and changes nothing. Every way to pay is
+ * offered afterwards exactly as before, by what the person owed has set up.
  *
- * It is shown once. Answering is what ends it, and the answer is what the
- * device remembers; someone who closes the app halfway gets it again.
+ * It is shown once. Reaching the end or skipping is what the device
+ * remembers (tourStore); someone who closes the app halfway gets it again.
  */
 
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { NO_CURRENCY_YET, isChosen, type CurrencyPrefs } from '../prefs/currencyPrefs';
-import { CurrencyPicker } from './CurrencyPicker';
 import { Amount, Avatar, Badge, Button, Card, Divider, Screen } from './primitives';
 import { makeStyles, radius, space, type } from './theme';
 
-const STEPS = ['split', 'no_app', 'settle', 'currencies'] as const;
+const STEPS = ['split', 'no_app', 'settle'] as const;
 const LAST = STEPS.length - 1;
 
-export function OnboardingScreen({ onDone }: { onDone: (prefs: CurrencyPrefs) => void }) {
+export function OnboardingScreen({ onDone }: { onDone: () => void }) {
   const [at, setAt] = useState(0);
-  const [prefs, setPrefs] = useState(NO_CURRENCY_YET);
   const step = STEPS[at];
 
   return (
@@ -36,13 +31,13 @@ export function OnboardingScreen({ onDone }: { onDone: (prefs: CurrencyPrefs) =>
       title="Sattle"
       brand
       onBack={at > 0 ? () => setAt(at - 1) : undefined}
-      // On the last step, the room Skip took, so the header doesn't move when it goes.
-      right={at < LAST ? <Button label="Skip" variant="quiet" onPress={() => setAt(LAST)} /> : <View style={styles.noSkip} />}
+      // On the last step the button below ends the tour, so Skip goes. Its room stays, so the header doesn't move.
+      right={at < LAST ? <Button label="Skip" variant="quiet" onPress={onDone} /> : <View style={styles.noSkip} />}
       footer={
         at < LAST ? (
           <Button label="Next" variant="primary" onPress={() => setAt(at + 1)} />
         ) : (
-          <Button label="Continue" variant="primary" disabled={!isChosen(prefs)} onPress={() => onDone(prefs)} />
+          <Button label="Continue" variant="primary" onPress={onDone} />
         )
       }
     >
@@ -50,14 +45,6 @@ export function OnboardingScreen({ onDone }: { onDone: (prefs: CurrencyPrefs) =>
       {step === 'split' && <Split />}
       {step === 'no_app' && <NoApp />}
       {step === 'settle' && <Settle />}
-      {step === 'currencies' && (
-        <Step
-          title="What do you use?"
-          body="Pick one or both. Sattle only shows what goes with your choice, and you can change it later under Account."
-        >
-          <CurrencyPicker prefs={prefs} onChange={setPrefs} />
-        </Step>
-      )}
     </Screen>
   );
 }
@@ -145,15 +132,21 @@ function Settle() {
     >
       <Card style={{ gap: space.md }}>
         <Way
+          title="Bitcoin, over Lightning"
+          body="From any Lightning wallet. A rupee debt is turned into sats at the live rate, and it’s settled when the payment goes through."
+        />
+        <Divider />
+        <Way
           title="UPI"
           body="From GPay, PhonePe or any UPI app. It’s settled once the person you paid confirms it arrived."
         />
         <Divider />
-        <Way title="Bitcoin, over Lightning" body="From any Lightning wallet. It’s settled when the payment goes through." />
-        <Divider />
         <Way title="Cash, or anything else" body="The person who was paid marks it settled." />
       </Card>
-      <Text style={s.note}>A balance only moves once a payment is confirmed. Next, you choose which of these you use.</Text>
+      <Text style={s.note}>
+        You’re offered whichever of these the person you owe has set up, and a balance only moves once the payment is
+        confirmed. To get paid yourself, add a UPI ID, a Lightning wallet or a Lightning address under Wallet.
+      </Text>
     </Step>
   );
 }

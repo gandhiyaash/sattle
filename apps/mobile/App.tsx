@@ -7,7 +7,7 @@ import { SattleError, parseGroupLinkToken } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
-import { chooseCurrencies, useCurrencyChoice } from './src/prefs/useCurrencyPrefs';
+import { useCurrenciesRead } from './src/prefs/useCurrencyPrefs';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
@@ -17,6 +17,7 @@ import { JoinAsNewScreen } from './src/ui/JoinScreen';
 import { OnboardingScreen } from './src/ui/OnboardingScreen';
 import { Loading, Screen } from './src/ui/primitives';
 import { useColorMode } from './src/ui/theme';
+import { readToured, writeToured } from './src/ui/tourStore';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** The path payLinkPath() builds: /s/<token>. */
@@ -61,7 +62,18 @@ function Root() {
   const [token] = useState(guestToken);
   const [group] = useState(groupToken);
   const [joining, setJoining] = useState(joinToken);
-  const currencies = useCurrencyChoice();
+  const currenciesRead = useCurrenciesRead();
+  // Whether this device has been shown the tour. Undefined until it has said.
+  const [toured, setToured] = useState<boolean>();
+  useEffect(() => {
+    // If the device can't say, show it: seeing the tour twice costs less than never seeing it.
+    readToured().then(setToured, () => setToured(false));
+  }, []);
+  const endTour = () => {
+    setToured(true);
+    // If that can't be kept, the tour comes round once more.
+    void writeToured().catch(() => {});
+  };
   // Off the address bar too, so a reload opens the app instead of a used link.
   const joinDone = () => {
     setJoining(null);
@@ -100,11 +112,10 @@ function Root() {
       </SattleProvider>
     );
   }
-  // The device is still saying whether this is a first launch.
-  if (currencies === undefined) return <Starting />;
-  // First launch: how it works, then which currencies they use. A /join/ link that
-  // brought them here is kept, and is where they go once they've answered.
-  if (currencies === null) return <OnboardingScreen onDone={chooseCurrencies} />;
+  if (toured === undefined || !currenciesRead) return <Starting />;
+  // First launch: how it works, in three screens. A /join/ link that brought them
+  // here is kept, and is where they go once it's over.
+  if (!toured) return <OnboardingScreen onDone={endTour} />;
   if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} />;
   return <AccountGate joining={joining} onJoinDone={joinDone} />;
 }

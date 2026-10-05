@@ -1,7 +1,7 @@
 /**
  * Where this device keeps which currencies its owner uses. Web: localStorage,
- * guarded the same way as the account token; losing it means the first-launch
- * tour asks again.
+ * guarded the same way as the account token; losing it puts them back where
+ * everyone starts, with both.
  *
  * Native uses currencyStore.native.ts instead; Metro picks that file on iOS
  * and Android.

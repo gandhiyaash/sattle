@@ -10,7 +10,7 @@ import { payWays, type PayWays } from '@sattle/core';
 import { EVERY_CURRENCY, parseCurrencyPrefs, serializeCurrencyPrefs, type CurrencyPrefs } from './currencyPrefs';
 import { readCurrencies, writeCurrencies } from './currencyStore';
 
-/** Undefined until the device has answered; null when they have never chosen. */
+/** Undefined until the device has answered; null when they have never changed it. */
 let choice: CurrencyPrefs | null | undefined;
 const listeners = new Set<() => void>();
 
@@ -25,10 +25,10 @@ export function chooseCurrencies(next: CurrencyPrefs) {
   void writeCurrencies(serializeCurrencyPrefs(next)).catch(() => {});
 }
 
-// A read that fails is treated as never having chosen: the tour asks again.
+// A read that fails is treated as never having changed it: they use both.
 readCurrencies()
   .then(parseCurrencyPrefs, () => null)
-  // Unless they answered in the meantime.
+  // Unless they changed it in the meantime.
   .then((saved) => choice === undefined && apply(saved));
 
 function subscribe(listener: () => void) {
@@ -38,14 +38,17 @@ function subscribe(listener: () => void) {
   };
 }
 
-/** For the gate at launch: undefined while reading, null when the tour hasn't been finished. */
-export function useCurrencyChoice(): CurrencyPrefs | null | undefined {
-  return useSyncExternalStore(subscribe, () => choice);
+/**
+ * Whether the device has said what they use. The app waits for it at launch,
+ * so someone who turned a currency off isn't shown it for a moment first.
+ */
+export function useCurrenciesRead(): boolean {
+  return useSyncExternalStore(subscribe, () => choice !== undefined);
 }
 
-/** What they use. Before they've chosen, everything. */
+/** What they use. Unless they have changed it, both. */
 export function useCurrencyPrefs(): CurrencyPrefs {
-  return useCurrencyChoice() ?? EVERY_CURRENCY;
+  return useSyncExternalStore(subscribe, () => choice) ?? EVERY_CURRENCY;
 }
 
 /** Which ways to pay to show them: in one group, or with no `groupCurrency`, across the app. */

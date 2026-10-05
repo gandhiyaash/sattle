@@ -22,7 +22,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app asks your name and makes a device account, and you start with no groups. Either way a first launch opens on a short tour that ends by asking which currencies you use; see [First launch and currencies](#first-launch-and-currencies).
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
 
 Try these flows:
 
@@ -137,8 +137,9 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, the currencies you use, and deleting the account.
-      OnboardingScreen.tsx   First launch: three screens on how it works, then which currencies you use.
-      CurrencyPicker.tsx     That question, asked the same way at the end of the tour and under Account.
+      OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
+      tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
+      CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -206,19 +207,23 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 ## First launch and currencies
 
-The first time the app opens it shows a four-step tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, the ways to settle up, and then one question, **What do you use?** Rupees, Bitcoin, or both. **Skip** jumps to the question, never past it, and nothing is ticked beforehand. The answer is what ends the tour and what the device remembers, so it is shown once; a `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
 
-The answer does two things.
+Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
 
-- **A new group is kept in it.** Someone who uses one currency is never asked. Someone who uses both picks per group, starting from the one they said new groups start in. A group kept in bitcoin is counted in sats everywhere: amounts are typed and shown as whole sats, and settling one needs no exchange rate.
-- **The app only shows what goes with it.** Rupees bring UPI and bitcoin brings Lightning. Someone who chose rupees alone sees no wallet connection, Lightning address, invoice, pay link or sats anywhere, and the trust screen leaves out the rows about them. Someone who chose bitcoin alone sees no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
+A group is kept in one currency, picked when it is made and never changed: rupees, or bitcoin. A group kept in bitcoin is counted in sats everywhere: amounts are typed and shown as whole sats, and settling one needs no exchange rate.
+
+Under **Account**, **Currencies** lets someone turn one of the two off. Nobody is asked to; it is there for someone who only ever uses one. Turning one off does two things.
+
+- **New groups aren't offered in it.** Someone who uses one currency is never asked which. Someone who uses both picks per group, starting from the one they said new groups start in.
+- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice, pay link or sats anywhere, and the trust screen leaves out the rows about them. With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
 
 Two things are never hidden, because hiding them would strand someone:
 
-- **Lightning, in a group kept in bitcoin.** Nothing else can settle it, so it shows there whatever was chosen. If people owe someone in such a group and they don't use bitcoin yet, **Set up getting paid** turns it on for them and says so.
-- **Anything already set up.** A connected wallet, a Lightning address or a UPI ID stays on the Wallet screen until its owner removes it, even after they stop using that currency. Other people can still pay them that way, so they have to be able to see it and take it away.
+- **Lightning, in a group kept in bitcoin.** Nothing else can settle it, so it shows there whatever was chosen. If people owe someone in such a group and they have bitcoin turned off, **Set up getting paid** turns it back on for them and says so.
+- **Anything already set up.** A connected wallet, a Lightning address or a UPI ID stays on the Wallet screen until its owner removes it, even with that currency turned off. Other people can still pay them that way, so they have to be able to see it and take it away.
 
-The choice is changed under **Account**, where a currency left out at the start is added; the last one can't be turned off. It is kept on the device (`prefs/currencyStore`) and never sent to the server, which is why it changes what is shown and not what is allowed: the server still takes UPI for a rupee group and Lightning for any group, whoever asks.
+The last currency can't be turned off. The choice is kept on the device (`prefs/currencyStore`) and never sent to the server, which is why it changes what is shown and not what is allowed: the server still takes UPI for a rupee group and Lightning for any group, whoever asks.
 
 ## The API
 
@@ -267,7 +272,7 @@ Android hands the app the link only when the site vouches for it. `apps/mobile/p
 
 ### Paying by UPI
 
-A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet, unless they said they don't use rupees (see [First launch and currencies](#first-launch-and-currencies)).
+A rupee debt can also be paid over UPI, outside Lightning. Someone adds their UPI ID under **Wallet**; whoever owes them in a group kept in INR then sees **Pay by UPI** in the settle sheet, unless they have turned rupees off (see [First launch and currencies](#first-launch-and-currencies)).
 
 The payer is only asked when there is something to choose. **Pay by UPI** is offered only for someone who has added a UPI ID. Without one, **Pay** opens straight on the Lightning invoice (`onlyRail`). It never opens a UPI app by itself: someone who takes UPI and has no wallet still gets **Pay by UPI** to tap. Neither is required of anyone: an account is only a name. Someone with neither can't be paid here yet, and whoever owes them is told so and can remind them. An invoice still out for the debt, from the sheet before it was closed or from a pay link, is picked up, not asked for a second time, since the server makes one at a time.
 

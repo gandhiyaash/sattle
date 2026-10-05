@@ -1,11 +1,11 @@
 /**
- * Which currencies someone uses, and which one a new group starts in.
+ * Which currencies someone uses, and which one a new group starts in. It
+ * sits under Account, with both ticked until they say otherwise.
  *
- * The same control ends the first-launch tour and sits under Account, so the
- * question is asked and changed in the same words. Each currency says what
- * comes with it, because that is what is really being chosen: rupees bring
- * UPI and bitcoin brings Lightning, and whatever isn't ticked the app stops
- * showing (payWays).
+ * Each currency says what comes with it, because that is what is really
+ * being chosen: rupees bring UPI and bitcoin brings Lightning, and whatever
+ * isn't ticked the app stops showing (payWays). The last one left can't be
+ * unticked.
  */
 
 import React from 'react';
@@ -28,12 +28,9 @@ export const currencyNames = (uses: readonly SupportedCurrency[]) =>
 export function CurrencyPicker({
   prefs,
   onChange,
-  keepOne,
 }: {
   prefs: CurrencyPrefs;
   onChange: (next: CurrencyPrefs) => void;
-  /** The last currency left can't be turned off. Under Account, where there must always be a choice. */
-  keepOne?: boolean;
 }) {
   const color = useColors();
   const s = useStyles();
@@ -44,7 +41,8 @@ export function CurrencyPicker({
       <Card style={{ padding: 0 }}>
         {OPTIONS.map((o, i) => {
           const on = prefs.uses.includes(o.currency);
-          const fixed = Boolean(keepOne && on && prefs.uses.length === 1);
+          // The last one left stays on.
+          const fixed = on && prefs.uses.length === 1;
           return (
             <View key={o.currency}>
               {i > 0 && <Divider />}
@@ -101,8 +99,7 @@ function outcome({ uses }: CurrencyPrefs): string {
     return 'You pick the currency for each new group. A rupee group can be settled by UPI or over Lightning, a bitcoin group over Lightning.';
   }
   if (rupees) return 'Your groups are in rupees and settled by UPI. Sattle keeps everything to do with Bitcoin out of your way.';
-  if (bitcoin) return 'Your groups are in sats and settled over Lightning. Sattle keeps UPI out of your way.';
-  return 'Pick at least one to carry on.';
+  return 'Your groups are in sats and settled over Lightning. Sattle keeps UPI out of your way.';
 }
 
 const useStyles = makeStyles((color) => ({

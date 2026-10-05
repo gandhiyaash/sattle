@@ -3,9 +3,9 @@
  *
  * An account here is a name and a key on this device, so there is little to
  * manage. Which currencies they use is the one setting for the whole app, as
- * opposed to one group's (GroupSettingsScreen): it is where the answer given
- * at the end of the first-launch tour is changed, and a currency left out
- * there is added. Deleting the account is the one thing that can't be taken
+ * opposed to one group's (GroupSettingsScreen): everyone starts with both,
+ * and this is where one is turned off or added back. Deleting the account is
+ * the one thing that can't be taken
  * back, and it reaches into every group, so the screen spells out what goes
  * and what stays before the second tap.
  */
@@ -49,7 +49,7 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
       {/* Kept on this device, so there is nothing to wait for and nothing here that can fail. */}
       <View>
         <SectionLabel>Currencies</SectionLabel>
-        <CurrencyPicker prefs={prefs} onChange={chooseCurrencies} keepOne />
+        <CurrencyPicker prefs={prefs} onChange={chooseCurrencies} />
         <Text style={s.note}>
           Turning one off only hides it. A group keeps its currency, so one kept in bitcoin still shows Lightning.
           What you’ve set up to get paid stays until you remove it in Wallet.
