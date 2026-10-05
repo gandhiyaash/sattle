@@ -8,12 +8,15 @@ import { nowIso, type Repo } from './repo';
 
 /**
  * Reachable without signing in: the guest pay page under /s/, the group page
- * under /g/, who its link offers to join as under /join/, and making an
- * account. Asking to join is not here: that needs an account, so it lives at
+ * under /g/, who its link offers to join as under /join/, making an
+ * account, and signing in with Nostr under /auth/. Asking to join is not here: that needs an account, so it lives at
  * POST /join-requests. Making or removing a group link isn't either:
  * /groups/:id/link.
  */
-const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts'];
+const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts', '/auth/'];
+
+/** Where a sign-in key is replaced. The one route an old key can reach, and only for a replay. */
+export const REPLACE_KEY_PATH = '/me/token';
 
 export const isPublic = (path: string) => PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p));
 
@@ -23,7 +26,14 @@ export function auth(repo: Repo, demoUserId?: string): MiddlewareHandler<AppEnv>
     const header = c.req.header('authorization');
     let user: User | undefined;
     if (header?.startsWith('Bearer ')) {
-      user = repo.userByToken(header.slice(7));
+      const token = header.slice(7);
+      user = repo.userByToken(token);
+      // The key a device held when it asked for a new one, retrying because the answer was
+      // lost. It gets that answer replayed, and nothing else: see POST /me/token.
+      if (!user && c.req.method === 'POST' && c.req.path === REPLACE_KEY_PATH) {
+        user = repo.userByPreviousToken(token);
+        if (user) c.set('replacedKey', true);
+      }
     } else if (demoUserId) {
       user = repo.userById(demoUserId);
     }

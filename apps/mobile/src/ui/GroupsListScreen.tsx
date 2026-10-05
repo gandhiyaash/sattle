@@ -241,7 +241,9 @@ function WaitingToJoin({ request, onChanged }: { request: JoinRequest; onChanged
       ) : (
         <>
           <Text style={s.waitingBody}>
-            Someone in {request.groupName} has to let you in. If they ask, tell them your code:
+            {request.takesOver
+              ? `Someone in ${request.groupName}, or the device you joined with, has to let you in. Then you’re ${request.name} here again, and the old device leaves the group. If they ask, tell them your code:`
+              : `Someone in ${request.groupName} has to let you in. If they ask, tell them your code:`}
           </Text>
           <Text style={s.code} selectable accessibilityLabel={`Code ${request.code.split('').join(' ')}`}>
             {request.code}

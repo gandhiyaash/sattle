@@ -5,6 +5,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { npubEncode } from 'nostr-tools/nip19';
+
 import {
   LEDGER_STATUSES,
   SattleError,
@@ -31,7 +33,11 @@ const opt = <T>(v: unknown) => (v === null || v === undefined ? undefined : (v a
 export const newId = (prefix: string) => `${prefix}-${randomUUID()}`;
 export const nowIso = () => new Date().toISOString();
 
-const toUser = (r: Row): User => ({ id: r.id as string, displayName: r.display_name as string });
+const toUser = (r: Row): User => ({
+  id: r.id as string,
+  displayName: r.display_name as string,
+  ...(r.nostr_pubkey ? { npub: npubEncode(r.nostr_pubkey as string) } : {}),
+});
 
 const toMember = (r: Row): Member => ({
   id: r.id as string,
@@ -104,6 +110,8 @@ export interface StoredJoinRequest extends Omit<JoinRequest, 'groupName' | 'name
   userId: string;
   memberId?: string;
   displayName: string;
+  /** Who has the name they asked for, when someone had joined as it: letting them in takes it from that account. */
+  replacesUserId?: string;
 }
 
 const toJoinRequest = (r: Row): StoredJoinRequest => ({
@@ -112,15 +120,30 @@ const toJoinRequest = (r: Row): StoredJoinRequest => ({
   userId: r.user_id as string,
   memberId: opt(r.member_id),
   displayName: r.display_name as string,
+  replacesUserId: opt(r.replaces_user_id),
   code: r.code as string,
   status: r.status as JoinRequest['status'],
   createdAt: r.created_at as string,
 });
 
+/** How long a replaced sign-in key can still fetch the answer it missed. Long enough for a retry, no longer. */
+export const PREVIOUS_TOKEN_MS = 10 * 60_000;
+
 export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
     userByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
+    userByNostr: db.prepare('SELECT * FROM users WHERE nostr_pubkey = ?'),
+    tokenOf: db.prepare('SELECT token FROM users WHERE id = ?'),
+    setNostr: db.prepare('UPDATE users SET nostr_pubkey = ? WHERE id = ?'),
+    insertChallenge: db.prepare('INSERT INTO nostr_challenges (challenge, expires_at) VALUES (?, ?)'),
+    takeChallenge: db.prepare('DELETE FROM nostr_challenges WHERE challenge = ? AND expires_at > ?'),
+    purgeChallenges: db.prepare('DELETE FROM nostr_challenges WHERE expires_at <= ?'),
+    liveChallenges: db.prepare('SELECT COUNT(*) AS n FROM nostr_challenges'),
+    userByPreviousToken: db.prepare('SELECT * FROM users WHERE previous_token = ? AND previous_token_until > ?'),
+    replaceToken: db.prepare(
+      'UPDATE users SET previous_token = token, previous_token_until = ?, token = ? WHERE id = ?'
+    ),
     insertUser: db.prepare('INSERT INTO users (id, display_name, token) VALUES (?, ?, ?)'),
     groupsForUser: db.prepare(
       `SELECT g.* FROM expense_groups g
@@ -227,16 +250,17 @@ export function createRepo(db: Db) {
     pendingJoinCount: db.prepare(`SELECT COUNT(*) AS n FROM join_requests WHERE group_id = ? AND status = 'pending'`),
     // One per person per group: asking again replaces the last, whatever became of it.
     upsertJoinRequest: db.prepare(
-      `INSERT INTO join_requests (id, group_id, user_id, member_id, display_name, code, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+      `INSERT INTO join_requests (id, group_id, user_id, member_id, display_name, code, status, created_at, replaces_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
        ON CONFLICT (group_id, user_id) DO UPDATE SET id = excluded.id, member_id = excluded.member_id,
-         display_name = excluded.display_name, code = excluded.code, status = 'pending', created_at = excluded.created_at`
+         display_name = excluded.display_name, code = excluded.code, status = 'pending', created_at = excluded.created_at,
+         replaces_user_id = excluded.replaces_user_id`
     ),
     setJoinRequestStatus: db.prepare('UPDATE join_requests SET status = ? WHERE id = ?'),
     deleteJoinRequest: db.prepare('DELETE FROM join_requests WHERE id = ?'),
     // Everyone else asking to be a member who has just been let in, or removed, can't be them now.
     declineJoinRequestsFor: db.prepare(
-      `UPDATE join_requests SET status = 'declined', member_id = NULL WHERE member_id = ?`
+      `UPDATE join_requests SET status = 'declined', member_id = NULL, replaces_user_id = NULL WHERE member_id = ?`
     ),
     deleteUpiClaimsOfMember: db.prepare('DELETE FROM upi_claims WHERE from_member_id = ? OR to_member_id = ?'),
     deleteUpiClaimsOfUser: db.prepare(
@@ -291,9 +315,37 @@ export function createRepo(db: Db) {
       const r = q.userByToken.get(token) as Row | undefined;
       return r && toUser(r);
     },
+    /** The account whose sign-in key this was until it was replaced, in the last few minutes. Only good for replaying that replacement. */
+    userByPreviousToken: (token: string) => {
+      const r = q.userByPreviousToken.get(token, nowIso()) as Row | undefined;
+      return r && toUser(r);
+    },
+    /** The account a Nostr key (hex) is linked to. */
+    userByNostr: (pubkey: string) => {
+      const r = q.userByNostr.get(pubkey) as Row | undefined;
+      return r && toUser(r);
+    },
+    /** The account's sign-in key, for someone who has just proved they are it. */
+    tokenOf: (userId: string) => (q.tokenOf.get(userId) as { token: string }).token,
+    /** Links a Nostr key (hex) to the account, or unlinks it with null. */
+    setNostr(userId: string, pubkey: string | null) {
+      q.setNostr.run(pubkey, userId);
+    },
+    /** A new one-time challenge, good until `expiresAt`. Expired ones are cleared first. Returns how many are live. */
+    addChallenge(challenge: string, expiresAt: string): number {
+      q.purgeChallenges.run(nowIso());
+      q.insertChallenge.run(challenge, expiresAt);
+      return (q.liveChallenges.get() as { n: number }).n;
+    },
+    /** Uses up a challenge. False if it was never handed out, was used already, or has expired. */
+    takeChallenge: (challenge: string) => q.takeChallenge.run(challenge, nowIso()).changes === 1,
     insertUser(u: User, token: string): User {
       q.insertUser.run(u.id, u.displayName, token);
       return u;
+    },
+    /** A new sign-in key. The old one stops working; it is kept a few minutes only so a lost answer can be replayed. */
+    replaceToken(userId: string, token: string) {
+      q.replaceToken.run(new Date(Date.now() + PREVIOUS_TOKEN_MS).toISOString(), token, userId);
     },
     /**
      * Removes the account and what only it could use: its pay links, its
@@ -369,6 +421,16 @@ export function createRepo(db: Db) {
     /** Hands a ghost to a user. False if someone already has it. */
     claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
       return q.claimMember.run(userId, status, id).changes === 1;
+    },
+    /**
+     * Hands a member from the account that has it to another, as if the first
+     * left and the second was let in as the ghost. False, and nothing changes,
+     * if `fromUserId` no longer has it.
+     */
+    handOverMember(id: string, fromUserId: string, toUserId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
+      if (repo.member(id)?.claimedByUserId !== fromUserId) return false;
+      repo.unclaimMember(id);
+      return repo.claimMember(id, toUserId, status);
     },
     /** The reverse: the member is a ghost again, with its name, history and balance. The group's link can hand it back. */
     unclaimMember(id: string) {
@@ -554,7 +616,16 @@ export function createRepo(db: Db) {
     joinRequestsOf: (userId: string) => (q.joinRequestsOfUser.all(userId) as Row[]).map(toJoinRequest),
     /** Takes the place of the user's last request for this group. */
     putJoinRequest(r: Omit<StoredJoinRequest, 'status'>) {
-      q.upsertJoinRequest.run(r.id, r.groupId, r.userId, r.memberId ?? null, r.displayName, r.code, r.createdAt);
+      q.upsertJoinRequest.run(
+        r.id,
+        r.groupId,
+        r.userId,
+        r.memberId ?? null,
+        r.displayName,
+        r.code,
+        r.createdAt,
+        r.replacesUserId ?? null
+      );
       return repo.joinRequest(r.id)!;
     },
     declineJoinRequest(id: string) {

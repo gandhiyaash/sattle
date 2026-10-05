@@ -9,7 +9,7 @@
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
- *    of a line in a README. One link, from the share icon in the header, is
+ *    of a line in a README. One link, from Invite in the header, is
  *    for all of them. A member nothing has been built on yet can be removed
  *    from their row; that is the server's rule (groupRules.ts), not a choice
  *    made here.
@@ -66,7 +66,7 @@ import {
   SectionLabel,
   Segmented,
 } from './primitives';
-import { share } from './share';
+import { copyText, share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 /** The three parts of a group, one showing at a time. */
@@ -129,7 +129,7 @@ export function GroupDetailScreen({
   const keys = useActionKeys();
   const mode = usePaymentMode();
   const prefs = useCurrencyPrefs();
-  /** What the share icon last did. The link stays on screen, so it can be copied by hand. */
+  /** What Invite last did. The link stays on screen, so it can be copied by hand. */
   const [shared, setShared] = useState<LinkState>({ kind: 'idle' });
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
@@ -244,7 +244,7 @@ export function GroupDetailScreen({
       right={
         <View style={s.headerActions}>
           <Button label="Manage" variant="quiet" onPress={onManage} />
-          <IconButton icon="share" label="Share this group" busy={shared.kind === 'busy'} onPress={shareGroup} />
+          <Button label="Invite" busy={shared.kind === 'busy'} onPress={shareGroup} />
         </View>
       }
       footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
@@ -523,7 +523,13 @@ function JoinRequestCard({
         <Avatar name={request.name} dim />
         <View style={{ flex: 1 }}>
           <Text style={s.debtText}>
-            {request.existing ? `Someone wants to join as ${request.name}` : `${request.name} wants to join`}
+            {request.replacing === 'you'
+              ? 'Someone wants to take over your place'
+              : request.replacing
+                ? `Someone says they’re ${request.name}, on a new device`
+                : request.existing
+                  ? `Someone wants to join as ${request.name}`
+                  : `${request.name} wants to join`}
           </Text>
           <Text style={s.memberMeta}>
             Code {request.code} · {ago(request.createdAt)}
@@ -532,11 +538,7 @@ function JoinRequestCard({
         </View>
       </View>
       <Text style={[s.linkNote, s.indented]}>
-        {twin
-          ? `More than one person is asking to be ${request.name}. Ask ${request.name} which code they see, and let in only that one.`
-          : request.existing
-            ? `They’ll see everything in ${groupName} and take over ${request.name}’s balance. Let them in only if you know it’s ${request.name}: if unsure, ask which code they see.`
-            : `They’ll see everything in ${groupName} and can add to it.`}
+        {joinRequestNote(request, twin, groupName)}
       </Text>
       <View style={[s.joinActions, s.indented]}>
         <Button label="Let in" variant="primary" busy={busy === 'approve'} disabled={busy !== null} onPress={() => act('approve')} />
@@ -545,6 +547,24 @@ function JoinRequestCard({
       {error && <Text style={[s.linkError, s.indented]}>{error}</Text>}
     </Card>
   );
+}
+
+/** What letting this person in would do, under who they are. */
+function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string): string {
+  const { name } = request;
+  if (request.replacing === 'you') {
+    return `If it’s you, on a new phone or browser, let them in: that one becomes ${name}, and this device leaves ${groupName}. If it isn’t you, tap Not them.`;
+  }
+  if (request.replacing) {
+    return `${name} has joined already. Letting them in hands ${name}’s place to this new account, and the old one leaves ${groupName}. Do it only if you’ve checked with ${name}, say by asking which code they see.`;
+  }
+  if (twin) {
+    return `More than one person is asking to be ${name}. Ask ${name} which code they see, and let in only that one.`;
+  }
+  if (request.existing) {
+    return `They’ll see everything in ${groupName} and take over ${name}’s balance. Let them in only if you know it’s ${name}: if unsure, ask which code they see.`;
+  }
+  return `They’ll see everything in ${groupName} and can add to it.`;
 }
 
 /** "just now", "5 min ago", "2 h ago", "3 days ago". */
@@ -627,24 +647,30 @@ function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean
 }
 
 /**
- * What the share icon just did, at the top of the screen. The icon has no
- * room to say what the link is, so this does: whoever opens it sees the group
- * and can pay, and can ask to join, which someone here has to say yes to.
- * Replacing it and turning it off are under Manage.
+ * What Invite just did, at the top of the screen. The button has no room to
+ * say what the link is, so this does: whoever opens it sees the group and can
+ * pay, and can ask to join, which someone here has to say yes to. The link
+ * has a copy button beside it, for sending it somewhere the share sheet
+ * didn't reach. Replacing it and turning it off are under Manage.
  */
 function Shared({ url, note, onHide }: { url: string; note: string; onHide: () => void }) {
   const s = useStyles();
+  /** What the copy button last did, in place of the share sheet's note. */
+  const [copied, setCopied] = useState<string | null>(null);
   return (
     <Card style={{ gap: space.xs }}>
       <View style={s.sharedTop}>
-        <Text style={[s.linkNote, { flex: 1 }]}>{note}</Text>
+        <Text style={[s.linkNote, { flex: 1 }]}>{copied ?? note}</Text>
         <Pressable onPress={onHide} hitSlop={12} accessibilityRole="button">
           <Text style={s.sharedHide}>Hide</Text>
         </Pressable>
       </View>
-      <Text style={s.linkUrl} selectable numberOfLines={1}>
-        {url}
-      </Text>
+      <View style={s.sharedTop}>
+        <Text style={[s.linkUrl, { flex: 1 }]} selectable numberOfLines={1}>
+          {url}
+        </Text>
+        <IconButton icon="copy" label="Copy link" onPress={async () => setCopied(await copyText(url))} />
+      </View>
       <Text style={s.linkNote}>
         One link for everyone. Whoever opens it sees what’s been split and who owes what, and can pay what they owe
         with no app. They can also ask to join from it: you or anyone here lets them in. Replace it or turn it off

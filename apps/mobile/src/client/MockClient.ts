@@ -46,6 +46,7 @@ import {
   type UpiOnGroupLink,
   type UpiPayee,
   type UpiProfile,
+  type User,
   type WalletConnection,
 } from '@sattle/core';
 import type { SattleClient } from './SattleClient';
@@ -102,6 +103,8 @@ export class MockClient implements SattleClient {
     code: string;
     status: JoinRequest['status'];
     createdAt: string;
+    /** Who had the name when they asked for it, as the server keeps it. */
+    replacesUserId?: string;
   }> = [
     {
       id: 'jr-demo-aman',
@@ -580,6 +583,9 @@ export class MockClient implements SattleClient {
           .filter((m) => !m.claimedByUserId)
           .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
         joined: members.filter((m) => m.claimedByUserId).map((m) => m.displayName),
+        rejoin: members
+          .filter((m) => m.claimedByUserId)
+          .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
       };
     });
   }
@@ -610,6 +616,7 @@ export class MockClient implements SattleClient {
       }
       let memberId: string | undefined;
       let displayName: string;
+      let replacesUserId: string | undefined;
       if ('displayName' in as) {
         displayName = as.displayName.trim();
         const waiting = members.find((m) => !m.claimedByUserId && m.displayName.trim().toLowerCase() === displayName.toLowerCase());
@@ -619,9 +626,9 @@ export class MockClient implements SattleClient {
       } else {
         const member = members.find((m) => this.memberRef(token, m.id) === as.ref);
         if (!member) throw new SattleError('not_found', 'That person is no longer in this group.');
-        if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
         memberId = member.id;
         displayName = member.displayName;
+        replacesUserId = member.claimedByUserId;
       }
       const req = {
         id: this.id('jr'),
@@ -632,6 +639,7 @@ export class MockClient implements SattleClient {
         code: String(Math.floor(Math.random() * 10_000)).padStart(4, '0'),
         status: 'pending' as const,
         createdAt: this.now(),
+        replacesUserId,
       };
       this.joinRequests = [...this.joinRequests.filter((x) => !(x.groupId === g.id && x.userId === me.id)), req];
       return this.asSeenByAsker(req);
@@ -646,6 +654,7 @@ export class MockClient implements SattleClient {
       code: req.code,
       status: req.status,
       createdAt: req.createdAt,
+      ...(req.replacesUserId && { takesOver: true }),
     };
   }
 
@@ -675,7 +684,18 @@ export class MockClient implements SattleClient {
       this.findGroup(groupId);
       return this.joinRequests
         .filter((x) => x.groupId === groupId && x.status === 'pending')
-        .map((x) => ({ id: x.id, name: x.displayName, existing: Boolean(x.memberId), code: x.code, createdAt: x.createdAt }));
+        .map((x) => {
+          const holder = x.memberId ? this.members.find((m) => m.id === x.memberId)?.claimedByUserId : undefined;
+          const replacing = x.replacesUserId && holder === x.replacesUserId ? holder : undefined;
+          return {
+            id: x.id,
+            name: x.displayName,
+            existing: Boolean(x.memberId),
+            code: x.code,
+            createdAt: x.createdAt,
+            ...(replacing && { replacing: replacing === fixtures.currentUser.id ? ('you' as const) : ('someone' as const) }),
+          };
+        });
     });
   }
 
@@ -695,7 +715,10 @@ export class MockClient implements SattleClient {
         return added;
       }
       const member = this.members.find((m) => m.id === req.memberId)!;
-      if (member.claimedByUserId) throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
+      // A takeover hands the name over only while the account it named still has it.
+      if (member.claimedByUserId && member.claimedByUserId !== req.replacesUserId) {
+        throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
+      }
       member.claimedByUserId = req.userId;
       member.status = 'joined';
       delete member.lightningAddress; // as the API: a groupmate typed it, not them
@@ -1251,6 +1274,23 @@ export class MockClient implements SattleClient {
   }
 
   // -- account --------------------------------------------------------------
+
+  /** The mock's one user isn't an account, so there's nothing to sign in to. */
+  linkNostr(): Promise<User> {
+    return this.call((): User => {
+      throw new SattleError('invalid_input', 'The demo has no account to link a Nostr key to.');
+    });
+  }
+  unlinkNostr(): Promise<User> {
+    return this.call(() => fixtures.currentUser);
+  }
+
+  /** The mock's one user isn't an account: there is no token to replace. */
+  replaceSignInKey(idempotencyKey?: string): Promise<string> {
+    return this.call((): string => {
+      throw new SattleError('invalid_input', 'The demo has no sign-in key. It runs without an account.');
+    }, idempotencyKey);
+  }
 
   /** The mock's one user isn't an account: there is no token, and nothing to delete. */
   deleteAccount(): Promise<void> {

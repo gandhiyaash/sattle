@@ -67,7 +67,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 ## Scene 4: Om pays from any wallet (1:10–1:55)
 
 **Screen:**
-1. Tap the share icon in the group's header and copy the group link.
+1. Tap **Invite** in the group's header and copy the group link.
 2. Open it on the phone, in a plain browser with no app. Hold a second on the group page: the spends, who owes what, and the **Join** card. On "Om owes Yash", tap **Pay with Lightning**. The pay page shows "Om, you owe Yash ₹333.33", the sats amount, and the breakdown under it. Hold on the breakdown for a beat: **Exchange rate** "1 BTC = ₹…", **Rate from** "CoinGecko, live", and the network fee. Then the QR code and "Rate and invoice locked for 1:29". If **Rate from** says "Demo rate", `PAYMENTS` isn't `nwc`; **Rate from** can also name Blockchain.com or Coinbase, if CoinGecko didn't answer.
 3. Scan the QR code with the paying wallet and pay.
 4. Cut back to browser A, on **Settle up**: Om's row clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
@@ -101,7 +101,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 **Screen:** a text card with three short lines, or the in-app trust screen:
 - The server signs the ledger and stores your wallet connection string.
 - Exchange rate from CoinGecko, with Blockchain.com and Coinbase as backups.
-- Accounts are a key on your device, with no recovery yet.
+- Accounts are a key on your device. Save it to sign in elsewhere; lose it and the account is gone.
 
 Close on the logo, the repo URL, "Open source. No token."
 

@@ -16,6 +16,11 @@ export type Currency = 'INR' | 'BTC' | string;
 export interface User {
   id: string;
   displayName: string;
+  /**
+   * The Nostr key linked to the account, as npub: signing in with it opens
+   * the account on any device. Only ever shown to the account itself.
+   */
+  npub?: string;
 }
 
 /**
@@ -268,9 +273,15 @@ export interface JoinView {
   members: JoinMember[];
   /**
    * The names of the people who have. The page shows them so the whole group is
-   * on it, but they can't be picked: each belongs to an account already.
+   * on it. Each belongs to an account already, so picking one isn't joining.
    */
   joined: string[];
+  /**
+   * The same people, to pick for taking a place back: someone who joined, then
+   * lost the phone or browser they joined with. Letting them in hands the
+   * name to the new account. Absent from servers older than this.
+   */
+  rejoin?: JoinMember[];
 }
 
 /**
@@ -292,6 +303,8 @@ export interface JoinRequest {
   code: string;
   status: 'pending' | 'declined';
   createdAt: string;
+  /** They asked for a name someone has joined as: their own, on a device they no longer have. */
+  takesOver?: boolean;
 }
 
 /** Someone waiting to be let into a group, as the people already in it see them. */
@@ -302,6 +315,12 @@ export interface PendingJoin {
   existing: boolean;
   code: string;
   createdAt: string;
+  /**
+   * Someone has joined as that name, and letting this person in hands it to
+   * them: 'you' when it's the name of whoever is looking. Absent for a ghost
+   * or someone new.
+   */
+  replacing?: 'you' | 'someone';
 }
 
 // -- group links -----------------------------------------------------------

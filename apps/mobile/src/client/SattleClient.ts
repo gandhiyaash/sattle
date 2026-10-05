@@ -284,6 +284,24 @@ export interface SattleClient {
    * go. Throws `conflict` while a payment to you is under way.
    */
   deleteAccount(): Promise<void>;
+
+  /**
+   * A new sign-in key for this account, returned as the token. The old one
+   * stops working at once, on every device signed in with it. Pass the same
+   * `idempotencyKey` to retry: with the old token, a retry still gets the
+   * answer it missed, for a few minutes.
+   */
+  replaceSignInKey(idempotencyKey?: string): Promise<string>;
+
+  /**
+   * Links a Nostr key to this account, with a proof the key signed (see
+   * @sattle/core nostrAuth and ApiClient's nostrChallenge). Signing in with
+   * it then opens the account anywhere. Answers the User, with its npub.
+   * Throws `conflict` if another account has the key.
+   */
+  linkNostr(event: unknown): Promise<User>;
+  /** Unlinks the account's Nostr key. Answers the User. */
+  unlinkNostr(): Promise<User>;
 }
 
 export function newIdempotencyKey(): string {
