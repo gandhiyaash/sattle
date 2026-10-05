@@ -28,6 +28,24 @@ export function parseUpiId(raw: string): ParsedUpiId {
   return { ok: true, upiId: input };
 }
 
+/** A mobile number as a UPI ID carries it: ten digits from 6 to 9, bare or after 91 or 0. */
+const MOBILE_NUMBER = /^(?:91|0)?[6-9]\d{9}$/;
+
+/**
+ * Whether a UPI ID gives away a phone number. Many do: the ID a UPI app
+ * hands out first is often the mobile number the account is registered to,
+ * as in 98xxxxxx10@ybl. Whoever is shown the ID then has the number, so the
+ * app says so before one is saved. It only says so: the ID is as good as any
+ * other for being paid at.
+ *
+ * Each run of digits before the @ is read whole, so the ten digits inside a
+ * longer account number aren't taken for one.
+ */
+export function upiIdHasPhoneNumber(upiId: string): boolean {
+  const name = upiId.trim().split('@')[0];
+  return (name.match(/\d+/g) ?? []).some((digits) => MOBILE_NUMBER.test(digits));
+}
+
 /**
  * The link a UPI app opens to pay someone: who, how much, and a note. The
  * same text is what the QR code holds. `amount` is in paise.

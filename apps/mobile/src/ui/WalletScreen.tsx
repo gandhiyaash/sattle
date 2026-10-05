@@ -20,7 +20,14 @@
 import React, { useEffect, useState } from 'react';
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import type { PayWays, ReceiveAddress, UpiProfile, WalletConnection } from '@sattle/core';
+import {
+  parseUpiId,
+  upiIdHasPhoneNumber,
+  type PayWays,
+  type ReceiveAddress,
+  type UpiProfile,
+  type WalletConnection,
+} from '@sattle/core';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
@@ -362,6 +369,11 @@ function ReceiveAtAddress({
  * groups' shared links, unless they turn that off. It says so before the ID
  * is saved, since that is on from the start. The switch here is for all
  * their groups; Manage, in a group, has the same one for that group alone.
+ *
+ * A UPI ID is often a mobile number, and everyone shown the ID then has the
+ * number. So when the one being typed has a number in it, the card says who
+ * would see it and that an ID without one can be had. It only warns: the ID
+ * works as well as any other, and Save anyway saves it.
  */
 function UpiIdCard({ current }: { current: AsyncState<UpiProfile> }) {
   const color = useColors();
@@ -392,6 +404,10 @@ function UpiIdCard({ current }: { current: AsyncState<UpiProfile> }) {
     }
   };
   const save = () => input.trim() && run(() => client.setUpiId(input.trim()));
+
+  // Only once it reads as a whole UPI ID, so the warning doesn't come and go as digits are typed.
+  const typed = parseUpiId(input);
+  const hasPhone = typed.ok && upiIdHasPhoneNumber(typed.upiId);
 
   return (
     <View>
@@ -434,7 +450,26 @@ function UpiIdCard({ current }: { current: AsyncState<UpiProfile> }) {
               autoCorrect={false}
               keyboardType="email-address"
             />
-            <Button label="Save" variant="primary" busy={busy} disabled={!input.trim()} onPress={save} />
+            {hasPhone && (
+              <View style={s.warning}>
+                <Text style={s.warningTitle}>This UPI ID has a phone number in it</Text>
+                <Text style={s.warningBody}>
+                  {/* Before one is saved, shared links are on: that is where a new ID starts. */}
+                  {upiId === null || onLinks
+                    ? 'People in your groups who owe you are shown this ID, and so is anyone holding one of your groups’ shared links. All of them would see the number.'
+                    : 'People in your groups who owe you are shown this ID, and so is anyone holding the shared link of a group you turned that on for. All of them would see the number.'}{' '}
+                  You can have a UPI ID with no phone number in it: most UPI apps let you add another, like
+                  name@okhdfcbank, in their UPI settings. You can still save this one.
+                </Text>
+              </View>
+            )}
+            <Button
+              label={hasPhone ? 'Save anyway' : 'Save'}
+              variant="primary"
+              busy={busy}
+              disabled={!input.trim()}
+              onPress={save}
+            />
             {editing && <Button label="Cancel" variant="quiet" onPress={() => setEditing(false)} />}
           </View>
         )}

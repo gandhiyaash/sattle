@@ -282,6 +282,7 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 - A debt has at most one claim; claiming again replaces it. While one is pending, the payer's **Pay** button waits, so they don't pay twice.
 - The claim can't be for more than is owed, and confirming is refused if less than that is owed by then.
 - A UPI ID often contains a phone number, so it isn't in the member list. `GET /groups/:id/members` only says who takes UPI; `GET /groups/:id/members/:memberId/upi` gives the ID, and only to someone who owes that person right now.
+- Wallet says so before such an ID is saved. When the one being typed has a mobile number in it (`upiIdHasPhoneNumber`), a warning says who would see the number, and that most UPI apps let you add an ID without one. It only warns: **Save anyway** saves it. An ID with no number in it gets no warning.
 - Only a member who has joined can be paid this way. A ghost has no account to put a UPI ID on and nobody to confirm.
 - It is offered under real and simulated payments alike, and someone who can only be paid by UPI isn't shown as blocked.
 - UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
