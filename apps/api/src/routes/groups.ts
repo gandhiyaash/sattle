@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, parseLightningAddress, resolveParts, type Expense, type Group } from '@sattle/core';
+import { SattleError, parseLightningAddress, resolveParts, sameExpense, type Expense, type Group } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -173,13 +173,15 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
   };
 
   r.post('/groups/:id/expenses', once, async (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     const input = readExpense(g, await c.req.json());
     const expense: Expense = {
       id: newId('e'),
       ...input,
       parts: resolveParts(input, g.currency),
       createdAt: nowIso(),
+      addedByMemberId: repo.memberForUser(g.id, user.id)!.id,
     };
     return c.json(repo.insertExpense(expense), 201);
   });
@@ -188,7 +190,8 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
    * Replaces what an expense says: what it was, how much, who paid, who it's
    * split between. Only the person who paid may (400 invalid_input for anyone
    * else), since it's their money the expense says is owed back; what a ghost
-   * paid, anyone in the group may change. Returns the Expense.
+   * paid, anyone in the group may change. Returns the Expense. Saving one as
+   * it already stood changes nothing, so nothing is noted for it.
    */
   r.put('/groups/:id/expenses/:expenseId', once, async (c) => {
     const user = c.get('user');
@@ -198,7 +201,9 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const expense = transaction(db, () => {
       const current = findExpense(g, c.req.param('expenseId'));
       checkExpenseOwner(repo, current, user.id);
-      return repo.updateExpense({ ...current, ...input, parts: resolveParts(input, g.currency) });
+      const next = { ...current, ...input, parts: resolveParts(input, g.currency) };
+      if (sameExpense(current, next)) return current;
+      return repo.updateExpense(next, current, repo.memberForUser(g.id, user.id)!.id);
     });
     return c.json(expense);
   });
@@ -210,7 +215,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     transaction(db, () => {
       const current = findExpense(g, c.req.param('expenseId'));
       checkExpenseOwner(repo, current, user.id);
-      repo.deleteExpense(current);
+      repo.deleteExpense(current, repo.memberForUser(g.id, user.id)!.id);
     });
     return c.json({ ok: true });
   });

@@ -12,6 +12,7 @@ import {
   NWC_REQUIRED_METHODS,
   SattleError,
   TERMINAL_STATUSES,
+  buildHistory,
   buildQuote,
   canChangeExpense,
   canReceive,
@@ -21,6 +22,7 @@ import {
   parseLightningAddress,
   parseUpiId,
   resolveParts,
+  sameExpense,
   simplifyDebts,
   toGuestSettlement,
   type CreateGroupInput,
@@ -28,6 +30,7 @@ import {
   type CreateSettlementInput,
   type CreateUpiClaimInput,
   type Expense,
+  type ExpenseChange,
   type ExpenseInput,
   type Group,
   type GroupGuestView,
@@ -76,6 +79,8 @@ export class MockClient implements SattleClient {
   private groups: Group[];
   private members: Member[];
   private expenses: Expense[];
+  /** Every edit and removal, in the order they were made, as the server notes them. The history is read off these. */
+  private expenseChanges: Array<ExpenseChange & { groupId: string }> = [];
   private settlements: Settlement[];
   private payLinks: PayLink[];
   /** token → the settlement that link last opened */
@@ -332,6 +337,15 @@ export class MockClient implements SattleClient {
     });
   }
 
+  /** Built the way the server builds it, from the same three lists. */
+  getHistory(groupId: string) {
+    return this.call(() => {
+      this.findGroup(groupId);
+      const here = (x: { groupId: string }) => x.groupId === groupId;
+      return buildHistory(this.expenses.filter(here), this.expenseChanges.filter(here), this.settlements.filter(here));
+    });
+  }
+
   // -- writes ---------------------------------------------------------------
 
   addExpense(input: ExpenseInput, idempotencyKey?: string) {
@@ -347,6 +361,7 @@ export class MockClient implements SattleClient {
         ...input,
         parts: resolveParts(input, g.currency),
         createdAt: this.now(),
+        addedByMemberId: this.myMember(g.id)?.id,
       };
       this.expenses.push(expense);
       return expense;
@@ -381,6 +396,7 @@ export class MockClient implements SattleClient {
         rail: 'manual',
         status: 'manually_confirmed',
         note: input.note,
+        recordedByMemberId: this.myMember(g.id)?.id,
         createdAt: this.now(),
         updatedAt: this.now(),
       };
@@ -906,6 +922,17 @@ export class MockClient implements SattleClient {
     return e;
   }
 
+  /** Notes an edit or a removal, with how the expense read before and who did it, as the server does. */
+  private noteChange(groupId: string, change: Pick<ExpenseChange, 'expenseId' | 'before' | 'after'>) {
+    this.expenseChanges.push({
+      ...structuredClone(change),
+      id: this.id('ch'),
+      groupId,
+      byMemberId: this.myMember(groupId)?.id,
+      at: this.now(),
+    });
+  }
+
   private checkExpenseOwner(expense: Expense) {
     const payer = this.members.find((m) => m.id === expense.paidByMemberId);
     if (!canChangeExpense(payer, fixtures.currentUser.id)) {
@@ -931,7 +958,12 @@ export class MockClient implements SattleClient {
       if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
       const current = this.findExpense(g.id, expenseId);
       this.checkExpenseOwner(current);
-      return Object.assign(current, { ...input, parts: resolveParts(input, g.currency) });
+      const before = { ...current };
+      const next = { ...current, ...input, parts: resolveParts(input, g.currency) };
+      // Saved as it already stood: that isn't a change, so nothing is noted.
+      if (sameExpense(before, next)) return current;
+      this.noteChange(g.id, { expenseId, before, after: next });
+      return Object.assign(current, next);
     }, idempotencyKey);
   }
 
@@ -940,6 +972,7 @@ export class MockClient implements SattleClient {
       const current = this.findExpense(groupId, expenseId);
       this.checkExpenseOwner(current);
       this.expenses = this.expenses.filter((e) => e !== current);
+      this.noteChange(groupId, { expenseId, before: current });
     }, idempotencyKey);
   }
 
@@ -967,6 +1000,7 @@ export class MockClient implements SattleClient {
       this.groups = this.groups.filter((x) => x !== g);
       this.members = this.members.filter((x) => !mine(x));
       this.expenses = this.expenses.filter((x) => !mine(x));
+      this.expenseChanges = this.expenseChanges.filter((x) => !mine(x));
       this.settlements = this.settlements.filter((x) => !mine(x));
       this.payLinks = this.payLinks.filter((x) => !mine(x));
       this.groupLinks = this.groupLinks.filter((x) => !mine(x));
@@ -1230,6 +1264,7 @@ export class MockClient implements SattleClient {
         rail: 'upi',
         status: 'manually_confirmed',
         note: claim.reference ? `Paid by UPI, ref ${claim.reference}` : 'Paid by UPI',
+        recordedByMemberId: payee.id,
         createdAt: this.now(),
         updatedAt: this.now(),
       };

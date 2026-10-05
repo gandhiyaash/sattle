@@ -24,7 +24,9 @@
  *    where Lightning is the only way there is.
  *
  * Add expense stays at the bottom of the screen however far the list has
- * scrolled: it is what the screen is opened for most.
+ * scrolled: it is what the screen is opened for most. On Settle up that place
+ * is History's instead. What gets asked there is whether something was paid,
+ * and when, and the history is where that is written down.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -87,6 +89,8 @@ export interface GroupDetailScreenProps {
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
   onManage: () => void;
+  /** Opens the group's history: every expense added, changed or removed, and every debt settled. */
+  onHistory: () => void;
   /** Opens Wallet, where the user sets up how they get paid. */
   onOpenWallet: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string, currency: string) => void;
@@ -119,6 +123,7 @@ export function GroupDetailScreen({
   onAddExpense,
   onEditExpense,
   onManage,
+  onHistory,
   onOpenWallet,
   onSettle,
 }: GroupDetailScreenProps) {
@@ -263,7 +268,14 @@ export function GroupDetailScreen({
           <Button label="Invite" busy={shared.kind === 'busy'} onPress={shareGroup} />
         </View>
       }
-      footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
+      footer={
+        tab === 'settle' ? (
+          // Not the accent: on this tab that is for paying.
+          <Button label="History" onPress={onHistory} />
+        ) : (
+          <Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />
+        )
+      }
     >
       {shared.kind === 'failed' && <ErrorState message={shared.message} />}
 
@@ -592,7 +604,7 @@ function ago(iso: string): string {
 }
 
 /** How an expense was divided, e.g. "split by shares, 3 ways". */
-function splitSummary(expense: Expense, nameOf: (id: string) => string): string {
+export function splitSummary(expense: Expense, nameOf: (id: string) => string): string {
   const n = expense.parts.length;
   if (n === 1) return `all for ${nameOf(expense.parts[0].memberId)}`;
   switch (expense.splitMode) {

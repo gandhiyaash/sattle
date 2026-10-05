@@ -48,7 +48,7 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql', '011_unique_payment_hash.sql', '012_address_invoices.sql', '013_receive_address.sql', '014_upi.sql', '015_join_requests.sql', '016_one_group_link.sql', '017_take_over.sql', '018_nostr_sign_in.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql', '011_unique_payment_hash.sql', '012_address_invoices.sql', '013_receive_address.sql', '014_upi.sql', '015_join_requests.sql', '016_one_group_link.sql', '017_take_over.sql', '018_nostr_sign_in.sql', '019_history.sql']);
   });
 
   it('010 clears the addresses joined members inherited as ghosts, and keeps ghosts’ own', () => {
@@ -106,5 +106,33 @@ describe('migrations', () => {
     // And someone new starts on too.
     db.prepare(`INSERT INTO users (id, display_name) VALUES ('u-new', 'New')`).run();
     expect(db.prepare(`SELECT upi_on_links FROM users WHERE id = 'u-new'`).get()).toEqual({ upi_on_links: 1 });
+  });
+
+  it('019 gives each change made before it the reading from the change before, and leaves an expense’s first with none', () => {
+    const { db } = setup();
+    // A database from before it: changes that only say how the expense read afterwards.
+    db.prepare('DELETE FROM schema_migrations WHERE name = ?').run('019_history.sql');
+    db.exec(`
+      ALTER TABLE expense_changes DROP COLUMN expense_before;
+      ALTER TABLE expense_changes DROP COLUMN by_member_id;
+      ALTER TABLE expenses DROP COLUMN added_by_member_id;
+      ALTER TABLE settlements DROP COLUMN recorded_by_member_id;
+      INSERT INTO expense_changes (group_id, expense_id, expense, created_at) VALUES
+        ('g-goa', 'e-cabs', '{"amount":1}', '2026-01-01T00:00:00.000Z'),
+        ('g-goa', 'e-villa', '{"amount":9}', '2026-01-02T00:00:00.000Z'),
+        ('g-goa', 'e-cabs', '{"amount":2}', '2026-01-03T00:00:00.000Z'),
+        ('g-goa', 'e-cabs', NULL, '2026-01-04T00:00:00.000Z');
+    `);
+    migrate(db);
+
+    expect(db.prepare('SELECT expense_id, expense, expense_before, by_member_id FROM expense_changes ORDER BY id').all()).toEqual([
+      { expense_id: 'e-cabs', expense: '{"amount":1}', expense_before: null, by_member_id: null },
+      { expense_id: 'e-villa', expense: '{"amount":9}', expense_before: null, by_member_id: null },
+      { expense_id: 'e-cabs', expense: '{"amount":2}', expense_before: '{"amount":1}', by_member_id: null },
+      { expense_id: 'e-cabs', expense: null, expense_before: '{"amount":2}', by_member_id: null },
+    ]);
+    // What was there before it says nothing about who, and still reads.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM expenses WHERE added_by_member_id IS NOT NULL').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM settlements WHERE recorded_by_member_id IS NOT NULL').get()).toEqual({ n: 0 });
   });
 });

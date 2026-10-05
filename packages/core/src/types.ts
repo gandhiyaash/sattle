@@ -95,6 +95,8 @@ export interface Expense {
   splitMode: SplitMode;
   parts: ResolvedPart[];
   createdAt: string;
+  /** Who put it in, which needn't be who paid. Absent for one added before that was kept. */
+  addedByMemberId?: string;
 }
 
 export interface Balance {
@@ -190,7 +192,15 @@ export interface Settlement {
   preimage?: string;
   note?: string;
   failureReason?: string;
+  /**
+   * Whose word settled it, when it was settled on someone's word: whoever
+   * marked it settled, or confirmed that the UPI payment arrived. Absent for a
+   * Lightning payment, which nobody vouches for, and for one recorded before
+   * this was kept.
+   */
+  recordedByMemberId?: string;
   createdAt: string;
+  /** When it last changed status. Once it is settled, that is when it was paid or marked as paid. */
   updatedAt: string;
 }
 
@@ -201,6 +211,47 @@ export interface CreateSettlementInput {
   amount: number;
   rail: Rail;
 }
+
+// -- history ---------------------------------------------------------------
+//
+// Everything that has happened to a group's money, in the order it happened.
+// Nothing here is stored as a history: it is read off the expenses, the
+// changes made to them, and the settlements (buildHistory).
+
+/** An expense edited or removed, as it was noted when it happened. */
+export interface ExpenseChange {
+  id: string;
+  expenseId: string;
+  /** How it read before. Absent for a change noted before that was kept. */
+  before?: Expense;
+  /** How it reads after. Absent when it was removed. */
+  after?: Expense;
+  byMemberId?: string;
+  at: string;
+}
+
+interface HistoryEntryBase {
+  id: string;
+  /** When it happened. For a settlement, when it was paid or marked as paid. */
+  at: string;
+  /**
+   * Who did it: added, changed or removed the expense, or gave their word that
+   * a debt was paid. Absent for a Lightning payment, and for anything from
+   * before this was kept.
+   */
+  byMemberId?: string;
+}
+
+export type HistoryEntry = HistoryEntryBase &
+  (
+    | { kind: 'expense_added'; expense: Expense }
+    /** `expense` is how it read after the change. */
+    | { kind: 'expense_changed'; expense: Expense; before?: Expense }
+    /** `before` is what was removed. */
+    | { kind: 'expense_removed'; before?: Expense }
+    /** A debt paid. Only settlements the ledger counts: one that failed or ran out isn't here. */
+    | { kind: 'settled'; settlement: Settlement }
+  );
 
 // -- groups ----------------------------------------------------------------
 

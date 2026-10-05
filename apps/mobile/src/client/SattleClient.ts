@@ -23,6 +23,7 @@ import type {
   GroupGuestView,
   GroupLink,
   GuestView,
+  HistoryEntry,
   JoinView,
   JoinAs,
   JoinRequest,
@@ -87,6 +88,14 @@ export interface SattleClient {
 
   /** The group's ledger on Nostr, and the key that reads it back without this server. Members only. */
   getLedgerBackup(groupId: string): Promise<LedgerBackup>;
+
+  /**
+   * What has happened in the group, newest first: every expense added,
+   * changed or removed, and every debt settled, each with when and, where
+   * someone did it, who. A settlement comes whole, so a Lightning payment
+   * has its proof on it. Payments that didn't finish aren't here. Members only.
+   */
+  getHistory(groupId: string): Promise<HistoryEntry[]>;
 
   // -- pay links ------------------------------------------------------------
 

@@ -14,7 +14,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { Debt, Expense, Member } from '@sattle/core';
+import type { Debt, Expense, HistoryEntry, Member } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
@@ -23,6 +23,7 @@ import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
+import { HistoryEntrySheet, HistoryScreen } from './HistoryScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
 import { AboveBottomBar } from './primitives';
@@ -39,6 +40,7 @@ type Route =
   | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
   | { name: 'editExpense'; groupId: string; members: Member[]; currency: string; expense: Expense; userId: string }
   | { name: 'groupSettings'; groupId: string }
+  | { name: 'history'; groupId: string }
   | { name: 'wallet' }
   | { name: 'account' }
   | { name: 'join'; token?: string }
@@ -81,8 +83,6 @@ function Navigator({
   onAccountDeleted?: () => void;
   onKeyReplaced?: (token: string) => void;
 }) {
-  const sheet = useSheet();
-  const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>(
     joining ? { name: 'join', token: joining } : { name: 'groups' }
   );
@@ -92,6 +92,8 @@ function Navigator({
     groupName: string;
     currency: string;
   } | null>(null);
+  // The entry of a group's history that is open in full, over the list it was tapped in.
+  const [viewing, setViewing] = useState<{ entry: HistoryEntry; members: Member[]; currency: string } | null>(null);
   const [nonce, setNonce] = useState(0);
   // Held here, not in the group screen, which is built again after every payment and every change.
   const [groupTab, setGroupTab] = useState<GroupTab>('expenses');
@@ -168,6 +170,7 @@ function Navigator({
               setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
             }
             onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
+            onHistory={() => setRoute({ name: 'history', groupId: route.groupId })}
             onOpenWallet={() => setRoute({ name: 'wallet' })}
             onSettle={(debt, members, groupName, currency) => setSettling({ debt, members, groupName, currency })}
           />
@@ -216,6 +219,16 @@ function Navigator({
           />
         );
 
+      case 'history':
+        return (
+          <HistoryScreen
+            groupId={route.groupId}
+            // Back to Settle up, which is where it was opened from: the tab is still held above.
+            onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
+            onOpen={(entry, members, currency) => setViewing({ entry, members, currency })}
+          />
+        );
+
       case 'addExpense':
         return (
           <AddExpenseScreen
@@ -257,29 +270,31 @@ function Navigator({
     <View style={{ flex: 1 }}>
       <AboveBottomBar>{body}</AboveBottomBar>
 
-      <Modal
-        visible={settling !== null}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSettling(null)}
-      >
-        <Pressable style={sheet.backdrop} onPress={() => setSettling(null)} />
-        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
-        <View style={[sheet.container, { paddingBottom: insets.bottom }]}>
-          {settling && (
-            <SettleUpSheet
-              debt={settling.debt}
-              members={settling.members}
-              groupName={settling.groupName}
-              currency={settling.currency}
-              onClose={() => {
-                setSettling(null);
-                refresh();
-              }}
-            />
-          )}
-        </View>
-      </Modal>
+      <Sheet visible={settling !== null} onClose={() => setSettling(null)}>
+        {settling && (
+          <SettleUpSheet
+            debt={settling.debt}
+            members={settling.members}
+            groupName={settling.groupName}
+            currency={settling.currency}
+            onClose={() => {
+              setSettling(null);
+              refresh();
+            }}
+          />
+        )}
+      </Sheet>
+
+      <Sheet visible={viewing !== null} onClose={() => setViewing(null)}>
+        {viewing && (
+          <HistoryEntrySheet
+            entry={viewing.entry}
+            members={viewing.members}
+            currency={viewing.currency}
+            onClose={() => setViewing(null)}
+          />
+        )}
+      </Sheet>
 
       <UpdateBanner />
       <DemoBar
@@ -291,6 +306,19 @@ function Navigator({
         }}
       />
     </View>
+  );
+}
+
+/** Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button. */
+function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+  const sheet = useSheet();
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={sheet.backdrop} onPress={onClose} />
+      {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
+      <View style={[sheet.container, { paddingBottom: insets.bottom }]}>{children}</View>
+    </Modal>
   );
 }
 

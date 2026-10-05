@@ -231,6 +231,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
       return repo.insertSettlement({
         ...newSettlement(g, claim, 'upi', 'manually_confirmed'),
         note: claim.reference ? `Paid by UPI, ref ${claim.reference}` : 'Paid by UPI',
+        recordedByMemberId: payee.id,
       });
     });
     return c.json(settlement);
