@@ -51,6 +51,8 @@ export function CurrencyPicker({
                 disabled={fixed}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on, disabled: fixed }}
+                // A browser is told separately: react-native-web doesn't read accessibilityState.
+                aria-checked={on}
                 accessibilityLabel={`${o.name}. ${o.detail}`}
                 style={({ pressed }) => [
                   s.row,

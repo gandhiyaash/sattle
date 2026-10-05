@@ -325,6 +325,8 @@ export function Segmented<T extends string>({
             style={[s.segment, selected && s.segmentSelected]}
             accessibilityRole="radio"
             accessibilityState={{ selected }}
+            // A browser is told separately: react-native-web doesn't read accessibilityState.
+            aria-checked={selected}
           >
             <Text style={[s.segmentLabel, selected && s.segmentLabelSelected]}>{o.label}</Text>
           </Pressable>
