@@ -7,7 +7,7 @@ import type { Settlement } from '@sattle/core';
 import { createApp } from '../app';
 import { openDb, seedIfEmpty, type Db } from '../db';
 import { NwcError, type MakeInvoiceParams, type NwcApi, type NwcInvoice } from '../nwc';
-import type { RateService } from '../rates';
+import { RateUnavailableError, type RateService } from '../rates';
 import { LightningPayments } from './lightning';
 
 const URI = `nostr+walletconnect://${'a'.repeat(64)}?relay=wss://relay.example&secret=${'b'.repeat(64)}`;
@@ -28,10 +28,13 @@ let lookups: number;
 
 /** How many times the rate source was asked. */
 let rateLookups: number;
+/** Set to make every price source fail, with no earlier rate to fall back on. */
+let noPrice = false;
 const rates: RateService = {
   rate: async (currency) => {
     rateLookups++;
-    return { currency, rateFiatPerBtc: 8_000_000, source: 'live' };
+    if (noPrice) throw new RateUnavailableError(currency);
+    return { currency, rateFiatPerBtc: 8_000_000, source: 'live', provider: 'CoinGecko' };
   },
 };
 
@@ -109,6 +112,7 @@ beforeEach(() => {
   db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = 'demo'`).run();
   minted = [];
   mintError = undefined;
+  noPrice = false;
   repeatHash = undefined;
   opened = 0;
   backend?.close();
@@ -154,6 +158,16 @@ describe('LightningPayments', () => {
     expect(rateLookups).toBe(0);
   });
 
+  it('still asks for it when no price source answers: a debt in sats needs no price', async () => {
+    db.prepare(`UPDATE expense_groups SET currency = 'BTC' WHERE id = 'g-flat'`).run();
+    noPrice = true;
+
+    const s = await settled((await omPaysYash('invoice', 15_000)).body.id);
+    expect(s).toMatchObject({ status: 'awaiting_payment', destination: 'lnbc1real' });
+    expect(s.quote).toMatchObject({ amountSat: 15_000 });
+    expect(rateLookups).toBe(0);
+  });
+
   it('lets the invoice expire no later than the quote', async () => {
     const s = await settled((await omPaysYash()).body.id);
     const quoteLeft = (Date.parse(s.quote!.expiresAt) - NOW) / 1000;
@@ -173,6 +187,16 @@ describe('LightningPayments', () => {
     mintError = new NwcError('TIMEOUT', 'slow');
     const s = await settled((await omPaysYash()).body.id);
     expect(s).toMatchObject({ status: 'failed', failureReason: 'Yash’s wallet didn’t answer. Nothing moved.' });
+  });
+
+  it('fails without minting when there is no price to quote at', async () => {
+    noPrice = true;
+    const s = await settled((await omPaysYash()).body.id);
+    expect(s).toMatchObject({
+      status: 'failed',
+      failureReason: 'We couldn’t get a Bitcoin price just now. Nothing moved. Try again in a minute.',
+    });
+    expect(minted).toEqual([]);
   });
 
   it('does not take Lightning-address payments it could never confirm', async () => {

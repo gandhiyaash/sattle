@@ -62,7 +62,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `ALLOW_SIMULATED_PAYMENTS` | | `true` says a production server simulates on purpose, for a public demo, and silences that warning |
 | `LIGHTNING_NETWORK` | `bc` | network address invoices must be on: `bc` mainnet, `tbs` signet, `tb` testnet, `bcrt` regtest |
 | `LEDGER_RELAYS` | empty | comma-separated relays the group ledger is published to. Empty: entries are signed and kept, not sent. See [The ledger on Nostr](#the-ledger-on-nostr) |
-| `RATE_FALLBACK_INR_PER_BTC` | `9000000` | rate used if CoinGecko has never answered |
+| `RATE_FALLBACK_INR_PER_BTC` | unset | fixed rate used only if no price source (CoinGecko, Blockchain.com, Coinbase) has ever answered. Unset, that payment fails instead |
 | `SIM_*` | | timings, rate and forced failure for the simulated payment backend |
 
 ## Layout
@@ -99,7 +99,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   bolt11.ts                  Reads an invoice's payment hash, amount, description hash and expiry.
   safeFetch.ts               Every request to a typed address: https only, no private IPs, no redirects, capped.
   proof.ts                   Checks a preimage against the payment hash.
-  rates.ts                   Live INR/BTC from CoinGecko, cached 30s, with a fallback.
+  rates.ts                   Live BTC price from CoinGecko, Blockchain.com or Coinbase, cached 30s.
   backup.ts                  Database backups: before every deploy, or by hand.
   nostrLedger.ts             The ledger on Nostr: signed, encrypted, chained entries, and reading them back.
   scripts/ledgerVerify.ts    Rebuilds a group's balances from relays alone.

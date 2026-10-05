@@ -582,7 +582,10 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  *   Joining             routes/joining.ts: POST /join-requests makes a request, not a
  *                       member; only POST /join-requests/:id/approve, by someone in
  *                       the group, claims the member
- *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS;
+ *   Exchange rate       rates.ts: CoinGecko, then Blockchain.com, then Coinbase; then the last
+ *                       rate any of them gave; then a fixed rate if the server has one,
+ *                       and RateUnavailableError if it hasn't, which fails the payment
+ *                       (payments/lightning.ts). QUOTE_TTL_MS;
  *                       for a group kept in bitcoin, buildSatsQuote in quote.ts and
  *                       quote() in payments/lightning.ts, which never asks for a rate
  *
@@ -684,7 +687,7 @@ export function TrustModel({ ways }: { ways: PayWays }) {
             <Divider />
             <Row
               title="The exchange rate"
-              body="A debt in a group kept in rupees is paid in sats. The server takes the rate from CoinGecko and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If CoinGecko is down, it uses the last rate it had, or a fixed one. A group kept in bitcoin is owed in sats already, so it is paid as it stands and no rate is used."
+              body="A debt in a group kept in rupees is paid in sats. The server takes the rate from CoinGecko, or from Blockchain.com or Coinbase when it is down, and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If none of them answers, it uses the last rate it had. With no rate at all the payment doesn't go through, unless the server has been given a fixed one to use. A group kept in bitcoin is owed in sats already, so it is paid as it stands and no rate is used."
             />
           </>
         )}

@@ -59,7 +59,7 @@ The Freedom Stack track asks where trust-minimisation still falls short. In Satt
 - **The server signs the ledger.** Groups, expenses and settlements live in our SQLite database, and each expense and confirmed settlement is mirrored to Nostr relays. If we disappear, any member with the backup key can rebuild the balances. But the server signs every entry, so the record proves what Sattle said, not what each member agreed to. Relays can't read entries, but they can see our pubkey, a per-group tag and when each entry was made.
 - **Your account is a key on your device.** A name and a random token, with no email, phone or password. Lose the device and you lose the account; there's nothing to recover it with.
 - **The server holds your NWC connection string.** It's never returned in any response and never logged, and with the recommended permissions it can only create invoices, not spend. But it is a secret we store.
-- **The exchange rate comes from CoinGecko.** Quotes use its live rate, cached for 30 seconds. If it stops answering, Sattle falls back to the last rate it got, and then to a fixed one. A quote only lives 90 seconds, but in an outage the sats amount can be off.
+- **The exchange rate comes from a price API.** Quotes use CoinGecko's live rate, cached for 30 seconds, and ask Blockchain.com and then Coinbase when it's down. If all three are down, Sattle uses the last rate it got. If none has ever answered, the payment fails rather than use a made-up price. A quote only lives 90 seconds, but in a long outage the sats amount can be off.
 - **Some Lightning addresses can't tell us they were paid.** When an address has no verify link, Sattle can only confirm the payment with the payer's proof of payment. Without that, the invoice closes as "we couldn't tell" rather than paid.
 - **UPI and cash are claims, not proofs.** A UPI payment counts when the person owed confirms it (or the payer records it, when the person owed never joined). The app shows these differently from Lightning settlements for that reason.
 - **The group link is a key to read the group.** Anyone it's forwarded to can see the spends and who owes what, and is shown a UPI ID when they choose to pay that person. It doesn't expire, so the group can replace it or turn it off. A UPI ID with a phone number in it gets a warning before it's shown, and each person can keep theirs off any group's link.
@@ -73,7 +73,7 @@ Each step moves trust from our server to keys the members hold:
 2. **Lightning addresses from Nostr profiles.** A member who signs in gets paid at the `lud16` in their own signed profile, with nothing to type.
 3. **Members sign their own entries.** The record then proves what each member agreed to, and the server becomes just an indexer.
 4. **Pay requests as NIP-17 direct messages,** so chasing a debt doesn't need WhatsApp.
-5. **Smaller fixes:** encrypt the NWC connection string at rest, and take the exchange rate as the median of several sources.
+5. **Smaller fixes:** encrypt the NWC connection string at rest, and take the exchange rate as the median of our three sources rather than the first that answers.
 
 ## Challenges I ran into
 
@@ -89,13 +89,13 @@ One honest limit: with real payments on, paying a ghost's address isn't wired up
 
 **A proof that proves the wrong thing.** Receiving with a Lightning address looked like a small feature. Then the review turned up a hole. A preimage proves an invoice was paid, not that the money reached the person owed. With NWC that's the same thing, because the invoice comes from the payee's own wallet. With an address, it's whoever typed it. Anyone could put their own address on a ghost, wait for the ghost to join, pay themselves, and hold a valid proof. So joining now clears an address a groupmate typed, and only the member can set a new one. Two more fixes came out of the same review. A payment hash can belong to only one settlement, so an address that hands out the same invoice twice can't clear two debts with one payment. And every request to an address goes through a fetch that rejects private IPs (checked after DNS, to stop rebinding), redirects, slow answers and oversized bodies, because the address is something a user typed.
 
-**Paying at the right price.** A debt is in rupees and the payment is in sats, so the conversion happens at the worst possible moment: while someone is standing there with their phone out. Sattle pins a quote for 90 seconds and asks the payee's wallet for an invoice that expires no later than the quote. Otherwise a guest could pay an old invoice at a stale rate after a fresh one had been made. The rate service caches the rate for 30 seconds and shares a single request among everyone waiting, so a burst of pay links doesn't hammer the source. When the source is down, quoting still works on the last good rate rather than blocking the payment.
+**Paying at the right price.** A debt is in rupees and the payment is in sats, so the conversion happens at the worst possible moment: while someone is standing there with their phone out. Sattle pins a quote for 90 seconds and asks the payee's wallet for an invoice that expires no later than the quote. Otherwise a guest could pay an old invoice at a stale rate after a fresh one had been made. The rate service caches the rate for 30 seconds and shares a single request among everyone waiting, so a burst of pay links doesn't hammer the source. When CoinGecko is down it asks Blockchain.com, then Coinbase, and when all three are down, quoting still works on the last good rate rather than blocking the payment.
 
 **Knowing a payment really happened.** Lightning has no callback when your invoice gets paid. Sattle polls the payee's wallet over NWC (`lookup_invoice`) and picks up pending payments again after a server restart. An invoice that looks expired gets a 30-second grace period before it's marked expired, because a payment can land right at the edge.
 
 ## Technologies used
 
-Nostr (nostr-tools), Nostr Wallet Connect (NIP-47), NIP-44 and NIP-04 encryption, Nostr relays, Bitcoin Lightning, BOLT11, Lightning Address, LNURL-pay, LUD-21 verify, UPI, TypeScript, React Native (Expo), Kotlin (Expo module), Node.js, Hono, SQLite, CoinGecko, Vitest
+Nostr (nostr-tools), Nostr Wallet Connect (NIP-47), NIP-44 and NIP-04 encryption, Nostr relays, Bitcoin Lightning, BOLT11, Lightning Address, LNURL-pay, LUD-21 verify, UPI, TypeScript, React Native (Expo), Kotlin (Expo module), Node.js, Hono, SQLite, CoinGecko, Blockchain.com and Coinbase price APIs, Vitest
 
 ## Links
 

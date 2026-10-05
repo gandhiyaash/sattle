@@ -44,7 +44,7 @@ import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
 import { NwcError, preimageMatches, type NwcApi } from '../nwc';
 import type { PaymentBackend } from '../payments';
-import { quoteRateSource, type RateService } from '../rates';
+import { quoteRateSource, RateUnavailableError, type RateService } from '../rates';
 import type { Repo } from '../repo';
 import type { WalletStore } from '../walletStore';
 
@@ -210,13 +210,23 @@ export class LightningPayments implements PaymentBackend {
       return this.fail(s.id, `${payee.displayName} hasn’t connected a wallet to receive yet. Nothing moved.`);
     }
 
-    const quote = await this.quote(s);
+    let quote: Quote;
+    try {
+      quote = await this.quote(s);
+    } catch (e) {
+      if (!(e instanceof RateUnavailableError)) throw e;
+      return this.fail(s.id, 'We couldn’t get a Bitcoin price just now. Nothing moved. Try again in a minute.');
+    }
 
     if (uri) return this.mintNwc(s, payee.displayName, uri, quote);
     return this.mintAddress(s, payee.displayName, address!, quote);
   }
 
-  /** A debt in sats is quoted as it stands. Anything else is converted at the rate of the moment. */
+  /**
+   * A debt in sats is quoted as it stands, so it needs no price and goes through when every
+   * source of one is down. Anything else is converted at the rate of the moment, and throws
+   * RateUnavailableError when there is none.
+   */
   private async quote(s: Settlement): Promise<Quote> {
     if (isBitcoin(s.currency)) return buildSatsQuote(s.amount, this.now());
     const rate = await this.deps.rates.rate(s.currency);
