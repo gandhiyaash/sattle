@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canReceive, onlyRail, resolveSettlementOptions } from './settlementOptions';
+import { canReceive, onlyRail, payWays, resolveSettlementOptions } from './settlementOptions';
 import type { Member } from './types';
 
 const member = (over: Partial<Member>): Member => ({
@@ -99,6 +99,86 @@ describe('resolveSettlementOptions and UPI', () => {
 
   it('never offers it for a ghost: there is nobody to confirm it arrived', () => {
     expect(options(member({ upi: true }), 'simulated', 'INR').rails.map((r) => r.rail)).not.toContain('upi');
+  });
+});
+
+describe('payWays', () => {
+  it('shows someone who uses both everything a rupee group can be paid with', () => {
+    expect(payWays(['INR', 'BTC'], 'INR')).toEqual({ lightning: true, upi: true });
+  });
+
+  it('hides Lightning from someone who only uses rupees, and UPI from someone who only uses bitcoin', () => {
+    expect(payWays(['INR'], 'INR')).toEqual({ lightning: false, upi: true });
+    expect(payWays(['BTC'], 'INR')).toEqual({ lightning: true, upi: false });
+  });
+
+  it('shows Lightning in a group kept in bitcoin whatever they chose: nothing else can pay it', () => {
+    expect(payWays(['INR'], 'BTC')).toEqual({ lightning: true, upi: false });
+    expect(payWays(['INR', 'BTC'], 'BTC')).toEqual({ lightning: true, upi: false });
+  });
+
+  it('goes by what they use alone where there is no group', () => {
+    expect(payWays(['INR'])).toEqual({ lightning: false, upi: true });
+    expect(payWays(['BTC'])).toEqual({ lightning: true, upi: false });
+  });
+});
+
+describe('resolveSettlementOptions for someone who chose what they use', () => {
+  const both = member({ status: 'nwc_linked', claimedByUserId: 'u-aman', upi: true, receivable: true });
+  const walletOnly = member({ status: 'nwc_linked', claimedByUserId: 'u-aman', receivable: true });
+  const upiOnly = member({ status: 'joined', claimedByUserId: 'u-aman', upi: true });
+  const options = (recipient: Member, uses: string[], mode: 'real' | 'simulated' = 'real', currency = 'INR') =>
+    resolveSettlementOptions({ recipient, walletAvailable: true, mode, currency, ways: payWays(uses, currency) });
+  const offered = (...args: Parameters<typeof options>) => options(...args).rails.map((r) => r.rail);
+
+  it('offers only UPI to someone who doesn’t use bitcoin', () => {
+    expect(offered(both, ['INR'])).toEqual(['upi', 'manual']);
+    expect(options(both, ['INR']).blocked).toBeUndefined();
+  });
+
+  it('offers them no Lightning under simulated payments either', () => {
+    expect(offered(member({ status: 'joined', claimedByUserId: 'u-aman', upi: true }), ['INR'], 'simulated')).toEqual([
+      'upi',
+      'manual',
+    ]);
+    expect(offered(ghostWithAddress, ['INR'], 'simulated')).toEqual(['manual']);
+  });
+
+  it('blocks them, asking for a UPI ID, when the person owed only takes Lightning', () => {
+    const o = options(walletOnly, ['INR']);
+    expect(o.rails.map((r) => r.rail)).toEqual(['manual']);
+    expect(o.blocked?.remedies).toEqual(['remind']);
+    expect(o.blocked?.message).toContain('UPI ID');
+    expect(o.blocked?.message).not.toMatch(/wallet|Lightning/);
+  });
+
+  it('never asks them to add a ghost’s Lightning address', () => {
+    const o = options(ghost, ['INR'], 'simulated');
+    expect(o.blocked?.remedies).toEqual(['invite', 'mark_settled']);
+    expect(o.blocked?.message).not.toMatch(/Lightning/);
+  });
+
+  it('offers only Lightning to someone who doesn’t use rupees, and opens straight on it', () => {
+    expect(offered(both, ['BTC'])).toEqual(['invoice', 'manual']);
+    expect(onlyRail(options(both, ['BTC']))).toBe('invoice');
+  });
+
+  it('blocks them, with no word of UPI, when the person owed only takes UPI', () => {
+    const o = options(upiOnly, ['BTC']);
+    expect(o.blocked?.remedies).toEqual(['remind']);
+    expect(o.blocked?.message).not.toContain('UPI');
+    expect(o.rails.find((r) => r.rail === 'manual')?.detail).not.toContain('UPI');
+  });
+
+  it('offers Lightning in a group kept in bitcoin even to someone who only uses rupees', () => {
+    expect(offered(both, ['INR'], 'real', 'BTC')).toEqual(['invoice', 'manual']);
+    expect(options(both, ['INR'], 'real', 'BTC').blocked).toBeUndefined();
+  });
+
+  it('tells someone who uses both that a UPI ID would do, in a rupee group only', () => {
+    const waiting = member({ status: 'joined', claimedByUserId: 'u-aman' });
+    expect(options(waiting, ['INR', 'BTC']).blocked?.message).toContain('add a UPI ID, connect a wallet');
+    expect(options(waiting, ['INR', 'BTC'], 'real', 'BTC').blocked?.message).not.toContain('UPI');
   });
 });
 

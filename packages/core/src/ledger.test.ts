@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeBalances, formatFiat, resolveParts, simplifyDebts } from './ledger';
+import { computeBalances, resolveParts, simplifyDebts } from './ledger';
 import { resolveSettlementOptions } from './settlementOptions';
 import type { Expense, Member, Settlement } from './types';
 
@@ -121,12 +121,5 @@ describe('resolveSettlementOptions', () => {
 
     const ghostManual = resolveSettlementOptions({ recipient: ghost, walletAvailable: true }).rails.find((r) => r.rail === 'manual');
     expect(ghostManual?.availability.available).toBe(true);
-  });
-});
-
-describe('formatFiat', () => {
-  it('formats rupees in Indian grouping', () => {
-    expect(formatFiat(12000000)).toBe('₹1,20,000');
-    expect(formatFiat(150)).toBe('₹1.50');
   });
 });

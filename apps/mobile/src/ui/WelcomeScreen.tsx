@@ -1,5 +1,6 @@
 /**
- * First launch: a name, and that's the account.
+ * A name, and that's the account. On a first launch it follows the tour
+ * (OnboardingScreen); it comes back on its own after an account is deleted.
  *
  * No email, phone or password, the same thing we ask of everyone else in a
  * group. The server hands back a token and this device keeps it, which is
@@ -37,7 +38,7 @@ export function WelcomeScreen({ onReady }: { onReady: (token: string) => void })
   };
 
   return (
-    <Screen title="Sattle" brand subtitle="Split bills in sats. Only one of you needs the app.">
+    <Screen title="Sattle" brand subtitle="Split bills with friends. Only one of you needs the app.">
       <Card style={{ gap: space.sm }}>
         <Text style={s.label}>What should your friends call you?</Text>
         <TextInput

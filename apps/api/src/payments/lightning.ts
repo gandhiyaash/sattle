@@ -3,6 +3,9 @@
  * invoice that pays the payee directly, and store its payment hash. The
  * server never holds funds.
  *
+ * A group kept in bitcoin is owed in sats already, so its quote uses no rate
+ * and the rate source is never asked.
+ *
  * Where the invoice comes from, in order of preference:
  *   1. The payee's NWC connection: minted on their own wallet.
  *   2. The payee's Lightning address (LNURL-pay), for wallets that can't do
@@ -35,7 +38,7 @@
  *                       groupmate, so a payment to it proves nothing
  */
 
-import { buildQuote, type Member, type Settlement } from '@sattle/core';
+import { buildQuote, buildSatsQuote, isBitcoin, type Member, type Quote, type Settlement } from '@sattle/core';
 
 import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
@@ -194,7 +197,7 @@ export class LightningPayments implements PaymentBackend {
   }
 
   private async mint(s: Settlement) {
-    const { repo, rates } = this.deps;
+    const { repo } = this.deps;
 
     if (s.rail !== 'invoice' && s.rail !== 'in_app') {
       return this.fail(s.id, 'Paying a Lightning address isn’t connected to real payments yet. Nothing moved.');
@@ -207,14 +210,20 @@ export class LightningPayments implements PaymentBackend {
       return this.fail(s.id, `${payee.displayName} hasn’t connected a wallet to receive yet. Nothing moved.`);
     }
 
-    const rate = await rates.rate(s.currency);
-    const quote = buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, quoteRateSource(rate), this.now());
+    const quote = await this.quote(s);
 
     if (uri) return this.mintNwc(s, payee.displayName, uri, quote);
     return this.mintAddress(s, payee.displayName, address!, quote);
   }
 
-  private async mintNwc(s: Settlement, payeeName: string, uri: string, quote: ReturnType<typeof buildQuote>) {
+  /** A debt in sats is quoted as it stands. Anything else is converted at the rate of the moment. */
+  private async quote(s: Settlement): Promise<Quote> {
+    if (isBitcoin(s.currency)) return buildSatsQuote(s.amount, this.now());
+    const rate = await this.deps.rates.rate(s.currency);
+    return buildQuote(s.amount, s.currency, rate.rateFiatPerBtc, quoteRateSource(rate), this.now());
+  }
+
+  private async mintNwc(s: Settlement, payeeName: string, uri: string, quote: Quote) {
     // Rounded down, so the invoice dies with the quote or just before it.
     const expirySec = Math.floor((Date.parse(quote.expiresAt) - this.now()) / 1000);
 
@@ -237,7 +246,7 @@ export class LightningPayments implements PaymentBackend {
     this.watch({ via: 'nwc', settlementId: s.id, uri, paymentHash: invoice.paymentHash });
   }
 
-  private async mintAddress(s: Settlement, payeeName: string, address: string, quote: ReturnType<typeof buildQuote>) {
+  private async mintAddress(s: Settlement, payeeName: string, address: string, quote: Quote) {
     if (!this.allowMint(address)) {
       return this.fail(s.id, `Too many invoices for ${payeeName} just now. Try again in a minute. Nothing moved.`);
     }

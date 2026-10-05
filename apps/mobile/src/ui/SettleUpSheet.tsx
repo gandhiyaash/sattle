@@ -14,12 +14,15 @@
  * address (fastest, no install), invite them (best long-term), remind them to
  * connect a wallet, or record that it was handled outside the app. Which ones
  * apply comes from resolveSettlementOptions.
+ *
+ * In a group kept in bitcoin the debt is in sats, so the invoice is for that
+ * many and there is no rate to show.
  */
 
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatFiat, type Debt, type Member } from '@sattle/core';
+import { formatAmount, isBitcoin, type Debt, type Member, type PayWays } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
 import { Button, Card, ErrorState, QuoteBreakdown, SatLine } from './primitives';
@@ -64,12 +67,13 @@ export function SettleUpSheet({
   };
 
   const recipient = members.find((m) => m.id === debt.toMemberId);
-  const amount = formatFiat(debt.amount, currency);
+  const amount = formatAmount(debt.amount, currency);
+  const sats = isBitcoin(currency);
   const [reminder, setReminder] = useState<string | null>(null);
 
   const sendReminder = async () => {
     if (!recipient) return;
-    const message = `${recipient.displayName}, I want to pay you ${amount} for ${groupName} on Sattle. Set up receiving from Wallet in the app, with a wallet or your Lightning address, so it has somewhere to land.`;
+    const message = `${recipient.displayName}, I want to pay you ${amount} for ${groupName} on Sattle. ${howToGetPaid(flow.ways)}`;
     setReminder(await share(message, 'Sent.'));
   };
 
@@ -150,15 +154,17 @@ export function SettleUpSheet({
         <Text style={s.title}>Pay {recipient.displayName}</Text>
         <View style={s.amountBlock}>
           <Text style={s.amount}>{amount}</Text>
-          {invoice.quote && <SatLine sats={invoice.quote.amountSat} />}
+          {/* Under a rupee amount, what it comes to. A sats amount says it already. */}
+          {invoice.quote && !sats && <SatLine sats={invoice.quote.amountSat} />}
         </View>
         {invoice.quote && !lapsed && <QuoteBreakdown quote={invoice.quote} />}
 
         {lapsed ? (
           <>
             <Text style={s.body}>
-              This invoice expired. Lightning invoices only last a few minutes, and the sats price moves. Nothing
-              moved.
+              {sats
+                ? 'This invoice expired. Lightning invoices only last a few minutes. Nothing moved.'
+                : 'This invoice expired. Lightning invoices only last a few minutes, and the sats price moves. Nothing moved.'}
             </Text>
             <Button
               label="Get a new invoice"
@@ -173,6 +179,7 @@ export function SettleUpSheet({
               invoice={invoice.destination!}
               expiresAt={invoice.quote?.expiresAt}
               onExpired={() => setLapsed(true)}
+              sats={sats}
             />
             <View style={s.waitingInline}>
               <ActivityIndicator color={color.accent} size="small" />
@@ -296,7 +303,7 @@ export function SettleUpSheet({
             <Button
               label={reminder ? `Remind ${recipient.displayName} again` : `Remind ${recipient.displayName}`}
               variant={first === 'remind' ? 'primary' : 'secondary'}
-              hint="Sends them a note to set up receiving."
+              hint={flow.ways.lightning ? 'Sends them a note to set up receiving.' : 'Sends them a note to add their UPI ID.'}
               onPress={sendReminder}
             />
             {reminder && <Text style={s.inviteNote}>{reminder}</Text>}
@@ -359,6 +366,14 @@ export function SettleUpSheet({
       {flow.error && <ErrorState message={flow.error.message} />}
     </View>
   );
+}
+
+/** What the reminder asks the person owed to do, in terms of the ways this payer could then pay them. */
+function howToGetPaid(ways: PayWays): string {
+  if (!ways.lightning) return 'Add your UPI ID from Wallet in the app, so I can pay you there.';
+  return ways.upi
+    ? 'Set up getting paid from Wallet in the app, with a UPI ID, a wallet or your Lightning address, so it has somewhere to land.'
+    : 'Set up receiving from Wallet in the app, with a wallet or your Lightning address, so it has somewhere to land.';
 }
 
 const useStyles = makeStyles((color) => ({

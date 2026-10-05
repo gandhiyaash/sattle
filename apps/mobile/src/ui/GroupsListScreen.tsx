@@ -3,7 +3,8 @@
  * familiar within a second — this is deliberately Splitwise-shaped.
  *
  * The headline number is the user's net position across every group, which
- * is the one thing people open this kind of app to check.
+ * is the one thing people open this kind of app to check. Rupees and sats
+ * don't add up to one number, so someone with groups in both gets one each.
  *
  * Groups they've asked to join sit above the list until someone there lets
  * them in, and the list checks back while one is waiting.
@@ -12,7 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { computeBalances, type Group, type JoinRequest } from '@sattle/core';
+import { computeBalances, SUPPORTED_CURRENCIES, type Group, type JoinRequest } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,
@@ -96,8 +97,13 @@ export function GroupsListScreen({
     return () => clearInterval(t);
   }, [waiting, asked.refresh, refresh]);
 
-  const total = data?.reduce((sum, r) => sum + r.net, 0) ?? 0;
-  const anyExpenses = data?.some((r) => r.expenseCount > 0) ?? false;
+  // Net position per currency, over the groups where something has been spent. In the order
+  // the app lists currencies everywhere else, not the order the groups happen to come in.
+  const totals = new Map<string, number>();
+  for (const currency of [...SUPPORTED_CURRENCIES, ...(data ?? []).map((r) => r.group.currency)]) {
+    const spent = (data ?? []).filter((r) => r.group.currency === currency && r.expenseCount > 0);
+    if (spent.length > 0) totals.set(currency, spent.reduce((sum, r) => sum + r.net, 0));
+  }
 
   return (
     <Screen
@@ -105,19 +111,21 @@ export function GroupsListScreen({
       brand
       right={<Button label="Wallet" variant="quiet" onPress={onOpenWallet} />}
     >
-      <Card>
-        {total === 0 && !anyExpenses ? (
-          <>
+      <Card style={{ gap: space.md }}>
+        {totals.size === 0 ? (
+          <View>
             <Text style={s.overallLabel}>No expenses yet</Text>
             <Text style={s.nothingYet}>Add one to a group and what you owe or are owed shows here.</Text>
-          </>
+          </View>
         ) : (
-          <>
-            <Text style={s.overallLabel}>
-              {total > 0 ? 'You are owed' : total < 0 ? 'You owe' : 'All settled'}
-            </Text>
-            <Amount minor={total} size="lg" net />
-          </>
+          [...totals].map(([currency, total]) => (
+            <View key={currency}>
+              <Text style={s.overallLabel}>
+                {total > 0 ? 'You are owed' : total < 0 ? 'You owe' : 'All settled'}
+              </Text>
+              <Amount minor={total} currency={currency} size="lg" net />
+            </View>
+          ))
         )}
       </Card>
 
@@ -172,7 +180,7 @@ export function GroupsListScreen({
                 {row.expenseCount === 0 ? (
                   <Text style={s.groupMeta}>No expenses</Text>
                 ) : (
-                  <Amount minor={row.net} size="md" net />
+                  <Amount minor={row.net} currency={row.group.currency} size="md" net />
                 )}
               </Pressable>
             ))}

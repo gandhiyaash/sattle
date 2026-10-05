@@ -5,11 +5,13 @@
  *
  * - A Member is a row in a group; a User is a person with the app. A member
  *   may never become a user. `claimedByUserId` is the only link between them.
- * - Debt is denominated in fiat minor units (paise). Sats exist only inside a
- *   Quote, pinned at quote time.
+ * - Debt is in the group's currency, in its smallest unit: paise for a group
+ *   kept in rupees, sats for one kept in bitcoin (currency.ts). A rupee debt
+ *   becomes sats only inside a Quote, pinned at quote time.
  */
 
-export type Currency = 'INR' | string;
+/** `INR`, or `BTC` for a group counted in sats. */
+export type Currency = 'INR' | 'BTC' | string;
 
 export interface User {
   id: string;
@@ -106,13 +108,15 @@ export interface Debt {
 }
 
 export interface Quote {
+  /** The debt, in minor units of `currency`. For a group kept in bitcoin that is sats, the same as `amountSat`. */
   amountFiat: number;
   currency: Currency;
   amountSat: number;
   /** Separate from amountSat: fees are added on top, never deducted. */
   feeSat: number;
+  /** 1 for a group kept in bitcoin, where nothing was converted. */
   rateFiatPerBtc: number;
-  /** Absent on quotes made before the source was recorded. */
+  /** Absent on quotes made before the source was recorded, and where no rate was used. */
   rateSource?: RateSource;
   expiresAt: string;
 }

@@ -24,7 +24,7 @@ import {
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-import { describeRateSource, formatFiat, formatRate, type Quote } from '@sattle/core';
+import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
 import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 const LOGO = {
@@ -299,6 +299,37 @@ export function ConfirmButton({
   );
 }
 
+/** One of a few, side by side: the appearance, or which currency a group is kept in. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: ReadonlyArray<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const s = useStyles();
+  return (
+    <View style={s.segments} accessibilityRole="radiogroup">
+      {options.map((o) => {
+        const selected = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            style={[s.segment, selected && s.segmentSelected]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+          >
+            <Text style={[s.segmentLabel, selected && s.segmentLabelSelected]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Avatar({ name, dim }: { name: string; dim?: boolean }) {
   const color = useColors();
   const s = useStyles();
@@ -360,12 +391,10 @@ export function Amount({
 
   return (
     <Text style={[style, { color: tone }]}>
-      {formatFiat(Math.abs(minor), currency)}
+      {formatAmount(Math.abs(minor), currency)}
     </Text>
   );
 }
-
-export const formatSats = (sats: number) => `${new Intl.NumberFormat('en-US').format(Math.round(sats))} sats`;
 
 /** The exact sats an invoice is for. Not approximate: the rate is pinned. */
 export function SatLine({ sats }: { sats: number }) {
@@ -376,14 +405,21 @@ export function SatLine({ sats }: { sats: number }) {
 /**
  * How the fiat amount became sats, laid out like a checkout: the rate, where
  * it came from, and the fee on top. The payer sees this before they pay.
+ *
+ * A group kept in bitcoin is owed in sats, so no rate was used and there is
+ * none to show: only the fee, and that the payment is simulated when it is.
  */
 export function QuoteBreakdown({ quote, fee = true }: { quote: Quote; fee?: boolean }) {
   const s = useStyles();
   const source = describeRateSource(quote.rateSource);
+  const sats = isBitcoin(quote.currency);
+  const demo = quote.rateSource?.kind === 'demo';
+  if (sats && !fee && !demo) return null;
   return (
     <View style={s.breakdown}>
-      <BreakdownRow label="Exchange rate" value={formatRate(quote)} numeric />
-      {source && <BreakdownRow label="Rate from" value={source} />}
+      {!sats && <BreakdownRow label="Exchange rate" value={formatRate(quote)} numeric />}
+      {!sats && source && <BreakdownRow label="Rate from" value={source} />}
+      {sats && demo && <BreakdownRow label="Demo" value="No real money moves" />}
       {fee && <BreakdownRow label="Network fee" value={`≈ ${formatSats(quote.feeSat)}, paid on top`} />}
     </View>
   );
@@ -544,6 +580,22 @@ const useStyles = makeStyles((color) => ({
     alignSelf: 'flex-start',
   },
   badgeText: { ...type.caption, fontSize: 11, color: color.inkMuted },
+
+  segments: {
+    flexDirection: 'row',
+    gap: space.xs,
+    padding: space.xs,
+    borderRadius: radius.md,
+    backgroundColor: color.surfaceSunken,
+  },
+  segment: { flex: 1, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  segmentSelected: {
+    backgroundColor: color.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.lineStrong,
+  },
+  segmentLabel: { ...type.label, color: color.inkMuted },
+  segmentLabelSelected: { color: color.ink },
 
   satLine: { ...type.amountSm, color: color.inkMuted },
 

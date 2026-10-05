@@ -126,7 +126,7 @@ export function JoinAsNewScreen({
   };
 
   return (
-    <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
+    <Screen title="Sattle" subtitle="Split bills with friends. Only one of you needs the app.">
       <WhoAreYou
         // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
         key={token}

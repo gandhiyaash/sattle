@@ -7,12 +7,14 @@ import { SattleError, parseGroupLinkToken } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
+import { chooseCurrencies, useCurrencyChoice } from './src/prefs/useCurrencyPrefs';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { DemoApp } from './src/ui/DemoApp';
 import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
 import { JoinAsNewScreen } from './src/ui/JoinScreen';
+import { OnboardingScreen } from './src/ui/OnboardingScreen';
 import { Loading, Screen } from './src/ui/primitives';
 import { useColorMode } from './src/ui/theme';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
@@ -59,6 +61,7 @@ function Root() {
   const [token] = useState(guestToken);
   const [group] = useState(groupToken);
   const [joining, setJoining] = useState(joinToken);
+  const currencies = useCurrencyChoice();
   // Off the address bar too, so a reload opens the app instead of a used link.
   const joinDone = () => {
     setJoining(null);
@@ -97,8 +100,21 @@ function Root() {
       </SattleProvider>
     );
   }
+  // The device is still saying whether this is a first launch.
+  if (currencies === undefined) return <Starting />;
+  // First launch: how it works, then which currencies they use. A /join/ link that
+  // brought them here is kept, and is where they go once they've answered.
+  if (currencies === null) return <OnboardingScreen onDone={chooseCurrencies} />;
   if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} />;
   return <AccountGate joining={joining} onJoinDone={joinDone} />;
+}
+
+function Starting() {
+  return (
+    <Screen title="Sattle" brand>
+      <Loading lines={2} />
+    </Screen>
+  );
 }
 
 type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'ready'; client: SattleClient };
@@ -135,11 +151,7 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
 
   switch (account.kind) {
     case 'loading':
-      return (
-        <Screen title="Sattle" brand>
-          <Loading lines={2} />
-        </Screen>
-      );
+      return <Starting />;
     case 'none':
       if (joining) {
         // Seeing who the link offers needs no account. Picking who they are makes one, under that name, and asks to join.
