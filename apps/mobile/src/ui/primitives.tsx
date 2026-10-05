@@ -171,6 +171,10 @@ export function Button({
    * In a browser, makes the button a real link there, so the browser does the going and
    * `onPress` isn't needed. That is what gives a phone the chance to hand the address to an
    * app that claims it. Ignored in the installed app.
+   *
+   * Give one or the other, not both. With both, a browser runs `onPress` and then leaves for
+   * the link anyway, cutting off whatever `onPress` started, and the installed app runs only
+   * `onPress`.
    */
   href?: string;
   variant?: 'primary' | 'secondary' | 'quiet';
