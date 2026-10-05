@@ -34,6 +34,8 @@ Everyone else is a name in the group. To collect, you post one link in the group
 
 **Wallets over Nostr Wallet Connect.** Sattle talks to your wallet over NIP-47 through relays, with a client we wrote on `nostr-tools`. It reads the wallet's info event (kind 13194) and uses NIP-44 encryption when the wallet offers it, NIP-04 otherwise. It asks for two permissions, `make_invoice` and `lookup_invoice`: it can create invoices that pay *into* your wallet and check whether they were paid. It cannot spend. If your connection string grants more, the app tells you and recommends a narrower one.
 
+**Sign in with Nostr.** Link a Nostr key to your account, and signing in with it opens the account on any device, including the groups nobody else joined. Your browser extension (NIP-07) or remote signer (NIP-46 `bunker://`, from nsec.app or Amber) signs a NIP-98-shaped proof answering a one-time challenge, so Sattle never sees the private key and a proof can't be replayed.
+
 **A ledger on relays.** Each expense and confirmed settlement becomes a Nostr event (kind 4733), encrypted with NIP-44 under a random key per group, so relays store it without being able to read it. Each event is signed, so a relay can't forge or change one, and names the one before it, so a reader notices a missing or reordered entry. Publishing goes through an outbox table: a relay outage or a restart only delays an entry, never loses it. The group screen copies the backup key, and with it the app's restore page or `npm run ledger:verify` rebuilds every balance from the relays, with no Sattle server involved. The restore page decrypts in the browser and never sends the key anywhere.
 
 **Lightning addresses for everyone else.** Most wallets people already have (Wallet of Satoshi, Phoenix, Blink) can't do NWC. For those, you give Sattle your Lightning address. It fetches the invoice over LNURL-pay, checks the exact amount and network before showing it, and confirms the payment through the address's verify link (LUD-21) or the payer's proof of payment. Either way, the proof has to match the invoice's payment hash.
@@ -57,7 +59,7 @@ It runs on Android and the web, against a live server taking real Lightning paym
 The Freedom Stack track asks where trust-minimisation still falls short. In Sattle, it falls short here:
 
 - **The server signs the ledger.** Groups, expenses and settlements live in our SQLite database, and each expense and confirmed settlement is mirrored to Nostr relays. If we disappear, any member with the backup key can rebuild the balances. But the server signs every entry, so the record proves what Sattle said, not what each member agreed to. Relays can't read entries, but they can see our pubkey, a per-group tag and when each entry was made.
-- **Your account is a key on your device.** A name and a random token, with no email, phone or password. You can copy it as a sign-in key and paste it on another device, and replace it if it leaks. If you lose the device without having saved it, someone else in each group can hand your place to a new account; in a group nobody else has joined, there's no one to vouch for you, and that place is gone.
+- **Your account is a key on your device.** A name and a random token, with no email, phone or password. You can copy it as a sign-in key and paste it on another device, replace it if it leaks, or link a Nostr key and sign in with that. Lose the device having done none of those, and someone else in each group can hand your place to a new account; in a group nobody else has joined, there's no one to vouch for you, and that place is gone.
 - **The server holds your NWC connection string.** It's never returned in any response and never logged, and with the recommended permissions it can only create invoices, not spend. But it is a secret we store.
 - **The exchange rate comes from a price API.** Quotes use CoinGecko's live rate, cached for 30 seconds, and ask Blockchain.com and then Coinbase when it's down. If all three are down, Sattle uses the last rate it got. If none has ever answered, the payment fails rather than use a made-up price. A quote only lives 90 seconds, but in a long outage the sats amount can be off.
 - **Some Lightning addresses can't tell us they were paid.** When an address has no verify link, Sattle can only confirm the payment with the payer's proof of payment. Without that, the invoice closes as "we couldn't tell" rather than paid.
@@ -69,11 +71,10 @@ The Freedom Stack track asks where trust-minimisation still falls short. In Satt
 
 Each step moves trust from our server to keys the members hold:
 
-1. **Sign in with Nostr** (NIP-07 on the web, NIP-46 or Amber on Android). Your account becomes your key, so a lost phone no longer means a lost account.
-2. **Lightning addresses from Nostr profiles.** A member who signs in gets paid at the `lud16` in their own signed profile, with nothing to type.
-3. **Members sign their own entries.** The record then proves what each member agreed to, and the server becomes just an indexer.
-4. **Pay requests as NIP-17 direct messages,** so chasing a debt doesn't need WhatsApp.
-5. **Smaller fixes:** encrypt the NWC connection string at rest, and take the exchange rate as the median of our three sources rather than the first that answers.
+1. **Lightning addresses from Nostr profiles.** A member who signs in with Nostr gets paid at the `lud16` in their own signed profile, with nothing to type.
+2. **Members sign their own entries.** The record then proves what each member agreed to, and the server becomes just an indexer.
+3. **Pay requests as NIP-17 direct messages,** so chasing a debt doesn't need WhatsApp.
+4. **Smaller fixes:** encrypt the NWC connection string at rest, and take the exchange rate as the median of our three sources rather than the first that answers.
 
 ## Challenges I ran into
 

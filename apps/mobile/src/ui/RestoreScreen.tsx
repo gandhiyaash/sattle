@@ -36,7 +36,7 @@ export function RestoreScreen({ onBack, initialKey }: RestoreScreenProps) {
     setError(null);
     setRead(null);
     try {
-      const { readBack } = await import('../ledger/readBack');
+      const { readBack } = await import('../nostr/lazy');
       setRead(await readBack(uri));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t read that group. Try again.');

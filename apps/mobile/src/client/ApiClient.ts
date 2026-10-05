@@ -9,6 +9,7 @@
  */
 
 import {
+  NOSTR_AUTH_PATHS,
   SattleError,
   TERMINAL_STATUSES,
   type CreateGroupInput,
@@ -47,13 +48,27 @@ const POLL_MS = 2000;
  * Makes a device account. Not on SattleClient, because nobody is signed in
  * yet when it's called; the token it returns is what ApiClient sends after.
  */
-export async function createAccount(baseUrl: string, displayName: string): Promise<{ user: User; token: string }> {
+export function createAccount(baseUrl: string, displayName: string): Promise<{ user: User; token: string }> {
+  return postPublic(baseUrl, '/accounts', { displayName });
+}
+
+/** A one-time challenge for a Nostr sign-in proof. Public: needed before anyone is signed in, and for linking. */
+export async function nostrChallenge(baseUrl: string): Promise<string> {
+  return (await postPublic<{ challenge: string }>(baseUrl, '/auth/nostr/challenge', {})).challenge;
+}
+
+/** Signs in with a Nostr proof (see @sattle/core nostrAuth): the linked account, and its token. */
+export function signInWithNostr(baseUrl: string, event: unknown): Promise<{ user: User; token: string }> {
+  return postPublic(baseUrl, NOSTR_AUTH_PATHS.signIn, { event });
+}
+
+async function postPublic<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${baseUrl}/accounts`, {
+    res = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
-      body: JSON.stringify({ displayName }),
+      body: JSON.stringify(body),
     });
   } catch {
     throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
@@ -62,7 +77,7 @@ export async function createAccount(baseUrl: string, displayName: string): Promi
     const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
     throw new SattleError((err.code as SattleError['code']) ?? 'network', err.message ?? `Request failed (${res.status}).`);
   }
-  return res.json() as Promise<{ user: User; token: string }>;
+  return res.json() as Promise<T>;
 }
 
 export class ApiClient implements SattleClient {
@@ -333,6 +348,13 @@ export class ApiClient implements SattleClient {
     } catch (e) {
       if (!(e instanceof SattleError && e.code === 'unauthorized')) throw e;
     }
+  }
+
+  linkNostr(event: unknown) {
+    return this.request<User>('POST', NOSTR_AUTH_PATHS.link, { event });
+  }
+  unlinkNostr() {
+    return this.request<User>('DELETE', NOSTR_AUTH_PATHS.link);
   }
 
   async replaceSignInKey(idempotencyKey = newIdempotencyKey()) {

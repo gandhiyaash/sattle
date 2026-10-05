@@ -6,18 +6,20 @@
  * also the catch, so the screen says so before anyone commits.
  *
  * Someone who already has an account, from another device or a browser whose
- * data was cleared, pastes the sign-in key they saved from Account instead.
+ * data was cleared, pastes the sign-in key they saved from Account instead,
+ * or signs in with the Nostr key they linked there.
  * And a group can be read back from its backup key with no account at all.
  */
 
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SattleError } from '@sattle/core';
-import { createAccount } from '../client/ApiClient';
+import { NOSTR_AUTH_PATHS, SattleError } from '@sattle/core';
+import { createAccount, signInWithNostr } from '../client/ApiClient';
 import { parseSignInKey } from '../account/signInKey';
 import { writeToken } from '../account/tokenStore';
 import { API_URL, buildClient } from '../react/SattleProvider';
+import { NostrKeyForm } from './NostrKeyForm';
 import { Button, Card, ErrorState, Screen } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
@@ -28,12 +30,10 @@ export interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
-  const [signingIn, setSigningIn] = useState(false);
-  return signingIn ? (
-    <SignInWithKey onReady={onReady} onBack={() => setSigningIn(false)} />
-  ) : (
-    <NewAccount onReady={onReady} onSignIn={() => setSigningIn(true)} onRestore={onRestore} />
-  );
+  const [signingIn, setSigningIn] = useState<'key' | 'nostr' | null>(null);
+  if (signingIn === 'key') return <SignInWithKey onReady={onReady} onBack={() => setSigningIn(null)} />;
+  if (signingIn === 'nostr') return <SignInWithNostr onReady={onReady} onBack={() => setSigningIn(null)} />;
+  return <NewAccount onReady={onReady} onSignIn={setSigningIn} onRestore={onRestore} />;
 }
 
 function NewAccount({
@@ -42,7 +42,7 @@ function NewAccount({
   onRestore,
 }: {
   onReady: (token: string) => void;
-  onSignIn: () => void;
+  onSignIn: (how: 'key' | 'nostr') => void;
   onRestore: () => void;
 }) {
   const color = useColors();
@@ -91,7 +91,8 @@ function NewAccount({
       <Button label="Get started" variant="primary" busy={busy} disabled={!name.trim()} onPress={submit} />
 
       <View style={s.others}>
-        <Button label="I have a sign-in key" variant="quiet" onPress={onSignIn} />
+        <Button label="I have a sign-in key" variant="quiet" onPress={() => onSignIn('key')} />
+        <Button label="Sign in with Nostr" variant="quiet" onPress={() => onSignIn('nostr')} />
         <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />
       </View>
     </Screen>
@@ -163,6 +164,33 @@ function SignInWithKey({ onReady, onBack }: { onReady: (token: string) => void; 
       {error && <ErrorState message={error} />}
 
       <Button label="Sign in" variant="primary" busy={busy} disabled={!key.trim()} onPress={submit} />
+    </Screen>
+  );
+}
+
+/**
+ * The account a Nostr key was linked to, from Account on a device that was
+ * signed in. Needs neither that device nor the sign-in key, so it is the way
+ * back into a group nobody else had joined.
+ */
+function SignInWithNostr({ onReady, onBack }: { onReady: (token: string) => void; onBack: () => void }) {
+  const s = useStyles();
+  return (
+    <Screen title="Sign in with Nostr" onBack={onBack}>
+      <Card style={{ gap: space.md }}>
+        <Text style={s.note}>
+          If you linked a Nostr key under Account, signing in with it opens your account here, with all your groups.
+        </Text>
+        <NostrKeyForm
+          path={NOSTR_AUTH_PATHS.signIn}
+          action="sign in"
+          onProof={async (event) => {
+            const { token } = await signInWithNostr(API_URL, event);
+            await writeToken(token);
+            onReady(token);
+          }}
+        />
+      </Card>
     </Screen>
   );
 }

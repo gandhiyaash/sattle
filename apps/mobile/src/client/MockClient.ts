@@ -46,6 +46,7 @@ import {
   type UpiOnGroupLink,
   type UpiPayee,
   type UpiProfile,
+  type User,
   type WalletConnection,
 } from '@sattle/core';
 import type { SattleClient } from './SattleClient';
@@ -1273,6 +1274,16 @@ export class MockClient implements SattleClient {
   }
 
   // -- account --------------------------------------------------------------
+
+  /** The mock's one user isn't an account, so there's nothing to sign in to. */
+  linkNostr(): Promise<User> {
+    return this.call((): User => {
+      throw new SattleError('invalid_input', 'The demo has no account to link a Nostr key to.');
+    });
+  }
+  unlinkNostr(): Promise<User> {
+    return this.call(() => fixtures.currentUser);
+  }
 
   /** The mock's one user isn't an account: there is no token to replace. */
   replaceSignInKey(idempotencyKey?: string): Promise<string> {

@@ -233,7 +233,20 @@ Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
 
 One gap with real payments on: a ghost's Lightning address can't be paid yet. A groupmate typed it, so a payment to it proves nothing about the ghost; joining clears it, and the member sets their own. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
 
-Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email or password. **Account**, **Copy sign-in key** gives the token as `sattle-signin:<token>`; pasting that under **I have a sign-in key** on the welcome screen of another phone or browser, or the same one after its data was cleared, checks it against `GET /me` and keeps it. Both devices are then signed in as the same user. **Replace sign-in key** (`POST /me/token`) issues a new token and ends the old one on every device that has it, which is what to do about a key that may have leaked or a lost phone that was signed in. A device whose answer was lost still holds the old key, so for ten minutes the old key can reach that route alone, and only to have the same request (same idempotency key) replayed; a new request with it gets `401`. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
+Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email or password. **Account**, **Copy sign-in key** gives the token as `sattle-signin:<token>`; pasting that under **I have a sign-in key** on the welcome screen of another phone or browser, or the same one after its data was cleared, checks it against `GET /me` and keeps it. Both devices are then signed in as the same user. **Replace sign-in key** (`POST /me/token`) issues a new token and ends the old one on every device that has it, which is what to do about a key that may have leaked or a lost phone that was signed in. A device whose answer was lost still holds the old key, so for ten minutes the old key can reach that route alone, and only to have the same request (same idempotency key) replayed; a new request with it gets `401`.
+
+### Signing in with Nostr
+
+An account can have a Nostr key linked to it (**Account → Sign in with Nostr**), and then **Sign in with Nostr** on the welcome screen opens that account on a device with nothing on it: no old phone, no sign-in key. That is the way back into a group nobody else has joined, where there's nobody to let you in.
+
+The app never sees the private key. It asks the person's own signer to sign a proof: a browser extension (NIP-07, `window.nostr`, web only) or a remote signer they point it at with a `bunker://` link (NIP-46: nsec.app, Amber, their own bunker). The proof is an HTTP-auth event shaped as NIP-98 has it (kind 27235, the URL and method as tags) plus a `challenge` tag from `POST /auth/nostr/challenge`. The server (`nostrAuth.ts`) checks the signature, the kind, that it was made in the last five minutes, that it names the route it was sent to, and last that the challenge is one it handed out, unused and unexpired, which uses it up. A proof can't be replayed, and one made for linking can't sign in.
+
+- `POST /auth/nostr/challenge`: public, `{ challenge, expiresAt }`, good once for five minutes.
+- `POST /auth/nostr`: public, `{ event }` → `{ user, token }`, the account's current sign-in key. `404` if no account has the key linked. No idempotency key: a replay on a public route would hand the token to whoever repeated it.
+- `POST /me/nostr`: `{ event }` links the key that signed it, answering the User with its `npub`. `409` if another account has it. Linking another replaces it.
+- `DELETE /me/nostr`: unlinks it.
+
+The remote-signer code and the restore code load with one `import()` (`src/nostr/lazy.ts`), so nostr-tools isn't on the app's startup path. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
 ### Joining a group
 
@@ -245,7 +258,7 @@ Joining is full membership. There are no roles, so the new member can read every
 - A group has at most one. Sharing again hands out the same link, so the one already in the chat keeps working.
 - It doesn't run out by itself. Anyone in the group can replace it or turn it off under **Manage**, which is how a link sent to the wrong chat is cancelled.
 - Nobody becomes a member by holding it. Asking makes a request (`join_requests`); only someone already in the group can let them in, and only then is the ghost claimed.
-- Each ghost can be taken once. Someone who joined and then lost the phone or browser they joined with picks their own name from the joined ones, and asks to take it back. The request names the account that has it, and the group sees "Someone says they're Kabir, on a new device"; the old device, if it's still around, sees "Someone wants to take over your place". Anyone in the group can let them in, the old device included. That hands the member over as if the old account had left and the new one was let in as the ghost, so the old account loses the group. It only happens while the account the request named still has the name, and not while a payment to it is under way (`409 conflict`). In a group where nobody else has joined, only the old device can say yes. Several people can ask to be the same ghost, so a stranger asking first can't lock the real person out; letting one in turns the others down. The card says when two people are asking for one name, and the code is how to tell which is which: ask the person which code they see.
+- Each ghost can be taken once. Someone who joined and then lost the phone or browser they joined with picks their own name from the joined ones, and asks to take it back. The request names the account that has it, and the group sees "Someone says they're Kabir, on a new device"; the old device, if it's still around, sees "Someone wants to take over your place". Anyone in the group can let them in, the old device included. That hands the member over as if the old account had left and the new one was let in as the ghost, so the old account loses the group. It only happens while the account the request named still has the name, and not while a payment to it is under way (`409 conflict`). In a group where nobody else has joined, only the old device can say yes; without it, [signing in with Nostr](#signing-in-with-nostr) is the way back, if a key was linked. Several people can ask to be the same ghost, so a stranger asking first can't lock the real person out; letting one in turns the others down. The card says when two people are asking for one name, and the code is how to tell which is which: ask the person which code they see.
 - At most 20 requests wait on a group at once, so a leaked link can't bury the real one under requests from throwaway accounts. Turning some down makes room.
 - Adding yourself under the name of a ghost who is still waiting answers `409 conflict` too, so nobody starts a second row beside the one that holds their balance.
 - One person can hold only one member of a group.
@@ -455,7 +468,8 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 
 ## Not in here yet
 
-- Getting your place back in a group where you were the only one who had joined, without the old device. Nobody else can vouch for you there. Nostr sign-in is the likely way to fix that.
+- Getting your place back in a group where you were the only one who had joined, without the old device, the sign-in key, or a Nostr key linked beforehand. Nobody else can vouch for you there.
+- Amber's own sign-in intents (NIP-55) on Android. Amber works today through its bunker:// link. Remote signing hasn't been tried in the installed app, only on the web.
 - Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.
@@ -463,7 +477,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Live status over SSE in the signed-in app. The server streams it, but a browser can't attach a sign-in token to an SSE connection, so the app polls; short-lived stream tickets would fix that.
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.
-- Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.
+- Members signing their own ledger entries with the Nostr key they sign in with, and on-chain rails.
 
 The types already have room for all of these. None of them are implemented.
 

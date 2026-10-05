@@ -12,9 +12,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { NOSTR_AUTH_PATHS, type User } from '@sattle/core';
 import { signInKey } from '../account/signInKey';
 import { readToken, writeToken } from '../account/tokenStore';
 import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
+import { NostrKeyForm } from './NostrKeyForm';
 import { copyText } from './share';
 import { Button, Card, ConfirmButton, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, space, type } from './theme';
@@ -49,6 +51,8 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
       )}
 
       {data && !isMock() && <SignInKeyCard onReplaced={onKeyReplaced} />}
+
+      {data && !isMock() && <NostrCard user={data} />}
 
       {data && (
         <View>
@@ -135,6 +139,57 @@ function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void })
           signed in with the old key is signed out, and this one gets the new key.
         </Text>
         <ConfirmButton label="Replace sign-in key" confirmLabel="Yes, sign out my other devices" onConfirm={replace} />
+      </Card>
+    </View>
+  );
+}
+
+/**
+ * A Nostr key linked to the account. Signing in with it opens the account on
+ * a device with nothing on it, which a sign-in key also does, but people
+ * already keep a Nostr key somewhere safe and on more than one device. For
+ * a group nobody else has joined, it's the only way back in.
+ */
+function NostrCard({ user }: { user: User }) {
+  const s = useStyles();
+  const client = useClient();
+  const [npub, setNpub] = useState(user.npub);
+
+  return (
+    <View>
+      <SectionLabel>Sign in with Nostr</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {npub ? (
+          <>
+            <Text style={s.body}>Linked to</Text>
+            <Text style={s.key} selectable numberOfLines={1}>
+              {npub}
+            </Text>
+            <Text style={s.body}>
+              On a new phone or browser, tap Sign in with Nostr on the welcome screen to get back into this account,
+              with all your groups.
+            </Text>
+            <ConfirmButton
+              label="Unlink this key"
+              confirmLabel="Yes, unlink it"
+              onConfirm={async () => setNpub((await client.unlinkNostr()).npub)}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={s.body}>
+              Link your Nostr key, and signing in with it opens this account on any device, even if you lose this one
+              and your sign-in key. That includes groups nobody else has joined, where there’s nobody to let you back
+              in.
+            </Text>
+            <Text style={s.body}>Sattle never sees your private key: your signer signs a one-time check.</Text>
+            <NostrKeyForm
+              path={NOSTR_AUTH_PATHS.link}
+              action="link it"
+              onProof={async (event) => setNpub((await client.linkNostr(event)).npub)}
+            />
+          </>
+        )}
       </Card>
     </View>
   );

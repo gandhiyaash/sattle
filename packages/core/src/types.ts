@@ -14,6 +14,11 @@ export type Currency = 'INR' | string;
 export interface User {
   id: string;
   displayName: string;
+  /**
+   * The Nostr key linked to the account, as npub: signing in with it opens
+   * the account on any device. Only ever shown to the account itself.
+   */
+  npub?: string;
 }
 
 /**

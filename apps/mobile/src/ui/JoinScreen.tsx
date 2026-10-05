@@ -383,7 +383,7 @@ function WhoAreYou({
           {adding
             ? 'You’ll be added to the group as a new member, with nothing owed either way.'
             : returning
-              ? `${returning.name} has already joined. Pick this only if it’s you, on a new phone or browser. Someone in the group, or your old device, has to let you in; then you take over ${returning.name} as it is, and the old device leaves the group.`
+              ? `${returning.name} has already joined. Pick this only if it’s you, on a new phone or browser. Someone in the group, or your old device, has to let you in; then you take over ${returning.name} as it is, and the old device leaves the group. If you linked a Nostr key, Sign in with Nostr on the welcome screen gets you back in without asking anyone.`
               : ghost
                 ? 'You’ll take over that name as it is, with the balance already on it.'
                 : data.members.length === 0

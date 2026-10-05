@@ -6,8 +6,8 @@
  * entries under the group's tag, a hash of the key, and the decrypting
  * happens here.
  *
- * Screens load this file with import() when someone asks to restore, so
- * nostr-tools isn't evaluated while the app starts.
+ * Screens load this with import(), through nostr/lazy.ts, when someone asks
+ * to restore, so nostr-tools isn't evaluated while the app starts.
  */
 
 import { npubEncode } from 'nostr-tools/nip19';

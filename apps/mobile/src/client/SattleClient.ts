@@ -292,6 +292,16 @@ export interface SattleClient {
    * answer it missed, for a few minutes.
    */
   replaceSignInKey(idempotencyKey?: string): Promise<string>;
+
+  /**
+   * Links a Nostr key to this account, with a proof the key signed (see
+   * @sattle/core nostrAuth and ApiClient's nostrChallenge). Signing in with
+   * it then opens the account anywhere. Answers the User, with its npub.
+   * Throws `conflict` if another account has the key.
+   */
+  linkNostr(event: unknown): Promise<User>;
+  /** Unlinks the account's Nostr key. Answers the User. */
+  unlinkNostr(): Promise<User>;
 }
 
 export function newIdempotencyKey(): string {

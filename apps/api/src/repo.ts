@@ -5,6 +5,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { npubEncode } from 'nostr-tools/nip19';
+
 import {
   LEDGER_STATUSES,
   SattleError,
@@ -31,7 +33,11 @@ const opt = <T>(v: unknown) => (v === null || v === undefined ? undefined : (v a
 export const newId = (prefix: string) => `${prefix}-${randomUUID()}`;
 export const nowIso = () => new Date().toISOString();
 
-const toUser = (r: Row): User => ({ id: r.id as string, displayName: r.display_name as string });
+const toUser = (r: Row): User => ({
+  id: r.id as string,
+  displayName: r.display_name as string,
+  ...(r.nostr_pubkey ? { npub: npubEncode(r.nostr_pubkey as string) } : {}),
+});
 
 const toMember = (r: Row): Member => ({
   id: r.id as string,
@@ -127,6 +133,13 @@ export function createRepo(db: Db) {
   const q = {
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
     userByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
+    userByNostr: db.prepare('SELECT * FROM users WHERE nostr_pubkey = ?'),
+    tokenOf: db.prepare('SELECT token FROM users WHERE id = ?'),
+    setNostr: db.prepare('UPDATE users SET nostr_pubkey = ? WHERE id = ?'),
+    insertChallenge: db.prepare('INSERT INTO nostr_challenges (challenge, expires_at) VALUES (?, ?)'),
+    takeChallenge: db.prepare('DELETE FROM nostr_challenges WHERE challenge = ? AND expires_at > ?'),
+    purgeChallenges: db.prepare('DELETE FROM nostr_challenges WHERE expires_at <= ?'),
+    liveChallenges: db.prepare('SELECT COUNT(*) AS n FROM nostr_challenges'),
     userByPreviousToken: db.prepare('SELECT * FROM users WHERE previous_token = ? AND previous_token_until > ?'),
     replaceToken: db.prepare(
       'UPDATE users SET previous_token = token, previous_token_until = ?, token = ? WHERE id = ?'
@@ -307,6 +320,25 @@ export function createRepo(db: Db) {
       const r = q.userByPreviousToken.get(token, nowIso()) as Row | undefined;
       return r && toUser(r);
     },
+    /** The account a Nostr key (hex) is linked to. */
+    userByNostr: (pubkey: string) => {
+      const r = q.userByNostr.get(pubkey) as Row | undefined;
+      return r && toUser(r);
+    },
+    /** The account's sign-in key, for someone who has just proved they are it. */
+    tokenOf: (userId: string) => (q.tokenOf.get(userId) as { token: string }).token,
+    /** Links a Nostr key (hex) to the account, or unlinks it with null. */
+    setNostr(userId: string, pubkey: string | null) {
+      q.setNostr.run(pubkey, userId);
+    },
+    /** A new one-time challenge, good until `expiresAt`. Expired ones are cleared first. Returns how many are live. */
+    addChallenge(challenge: string, expiresAt: string): number {
+      q.purgeChallenges.run(nowIso());
+      q.insertChallenge.run(challenge, expiresAt);
+      return (q.liveChallenges.get() as { n: number }).n;
+    },
+    /** Uses up a challenge. False if it was never handed out, was used already, or has expired. */
+    takeChallenge: (challenge: string) => q.takeChallenge.run(challenge, nowIso()).changes === 1,
     insertUser(u: User, token: string): User {
       q.insertUser.run(u.id, u.displayName, token);
       return u;
