@@ -187,6 +187,8 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
             await clearToken();
             setAccount({ kind: 'none' });
           }}
+          // Already saved by the account screen. The old token no longer signs in.
+          onKeyReplaced={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
         />
       );
   }

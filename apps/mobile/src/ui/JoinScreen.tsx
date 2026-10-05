@@ -15,6 +15,11 @@
  * is the whole group and never comes up empty. Someone the group hasn't listed
  * taps + and gives their name, and joins as a new member.
  *
+ * A joined name can be picked as well, by someone who joined and then lost
+ * the phone or browser they joined with. Being let in hands them that name,
+ * and the account that had it leaves the group. The screen says so when one
+ * is picked.
+ *
  * Someone already in the group has nobody left to be. For them the link just
  * opens the group.
  */
@@ -131,7 +136,7 @@ export function JoinAsNewScreen({
         // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
         key={token}
         token={token}
-        note="Someone in the group lets you in. Then you can see everything in it and add to it. No email, phone or password: your account lives on this device, so if you clear its data or lose it, you lose access to your groups."
+        note="Someone in the group lets you in. Then you can see everything in it and add to it. No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
         join={async (as, name) => {
           if (made.current && made.current.name !== name) await forget();
           if (!made.current) {
@@ -203,8 +208,9 @@ const NEW = '+';
 
 /**
  * Which group it is, the people in it, and Join. The ones nobody
- * has joined as can be picked; the rest are shown as joined. Someone who isn't
- * any of them taps + and gives their own name. `join` does the joining and
+ * has joined as can be picked; the rest are shown as joined, and can be
+ * picked to take a place back. Someone who isn't any of them taps + and gives
+ * their own name. `join` does the joining and
  * leaves the screen; if it throws, the message is shown and the list is read
  * again, since the name may just have been taken.
  */
@@ -248,11 +254,14 @@ function WhoAreYou({
     );
   }
 
-  const { joined } = data;
+  // A server older than taking places back sends names only, and those can't be picked.
+  const joined = data.rejoin ?? data.joined.map((name) => ({ ref: null, name }));
   const listed = data.members.length + joined.length;
   // With nobody on the list at all, adding yourself is the only thing to do.
   const adding = picked === NEW || listed === 0;
-  const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
+  const ghost = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
+  const returning = adding ? null : (data.rejoin?.find((m) => m.ref === picked) ?? null);
+  const member = ghost ?? returning;
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
 
@@ -300,17 +309,40 @@ function WhoAreYou({
               </View>
             );
           })}
-          {joined.map((name, i) => (
-            // Not a choice: that name is someone's account already.
-            <View key={`joined-${i}`}>
-              {(i > 0 || data.members.length > 0) && <Divider />}
-              <View style={s.row}>
-                <Avatar name={name} dim />
-                <Text style={[s.name, { color: color.inkFaint }]}>{name}</Text>
+          {joined.map((m, i) => {
+            // Someone's account already. Picking it asks to take the place back from that account.
+            const on = m.ref !== null && m.ref === member?.ref;
+            const row = (
+              <>
+                <Avatar name={m.name} dim={!on} />
+                <Text style={[s.name, !on && { color: color.inkFaint }]}>{m.name}</Text>
                 <Text style={s.joined}>Joined</Text>
+                {m.ref !== null && <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>}
+              </>
+            );
+            return (
+              <View key={m.ref ?? `joined-${i}`}>
+                {(i > 0 || data.members.length > 0) && <Divider />}
+                {m.ref === null ? (
+                  <View style={s.row}>{row}</View>
+                ) : (
+                  <Pressable
+                    onPress={() => setPicked(m.ref)}
+                    disabled={busy}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    style={({ pressed }) => [
+                      s.row,
+                      i === 0 && data.members.length === 0 && s.rowFirst,
+                      (on || pressed) && s.rowOn,
+                    ]}
+                  >
+                    {row}
+                  </Pressable>
+                )}
               </View>
-            </View>
-          ))}
+            );
+          })}
           {listed > 0 && <Divider />}
           <Pressable
             onPress={() => setPicked(NEW)}
@@ -350,15 +382,27 @@ function WhoAreYou({
         <Text style={s.hint}>
           {adding
             ? 'You’ll be added to the group as a new member, with nothing owed either way.'
-            : data.members.length === 0
-              ? 'Everyone on the list has already joined. If one of them is you, open the group on the phone or browser you joined with. Otherwise add yourself.'
-              : 'You’ll take over that name as it is, with the balance already on it.'}
+            : returning
+              ? `${returning.name} has already joined. Pick this only if it’s you, on a new phone or browser. Someone in the group, or your old device, has to let you in; then you take over ${returning.name} as it is, and the old device leaves the group.`
+              : ghost
+                ? 'You’ll take over that name as it is, with the balance already on it.'
+                : data.members.length === 0
+                  ? data.rejoin
+                    ? 'Everyone on the list has already joined. If one of them is you, on a new phone or browser, pick your name. Otherwise add yourself.'
+                    : 'Everyone on the list has already joined. If one of them is you, open the group on the phone or browser you joined with. Otherwise add yourself.'
+                  : 'Pick who you are in this group.'}
         </Text>
       </View>
 
       <Text style={s.note}>{note}</Text>
       {failed && <ErrorState message={failed} />}
-      <Button label={name ? `Ask to join as ${name}` : 'Ask to join'} variant="primary" busy={busy} disabled={!name} onPress={submit} />
+      <Button
+        label={returning ? `Ask to be ${name} again` : name ? `Ask to join as ${name}` : 'Ask to join'}
+        variant="primary"
+        busy={busy}
+        disabled={!name}
+        onPress={submit}
+      />
     </>
   );
 }

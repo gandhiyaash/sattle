@@ -8,7 +8,13 @@ import type { PaymentBackend } from './payments';
 import type { Repo } from './repo';
 import type { WalletStore } from './walletStore';
 
-export type AppEnv = { Variables: { user: User } };
+export type AppEnv = {
+  Variables: {
+    user: User;
+    /** Signed in with a sign-in key that has since been replaced. Only a replay of that replacement may answer. */
+    replacedKey?: boolean;
+  };
+};
 
 /** What every route module gets. */
 export interface Ctx {

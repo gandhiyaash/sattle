@@ -53,15 +53,18 @@ export interface DemoAppProps {
   onJoinDone?: () => void;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
+  /** The account has a new sign-in key, already saved. The client passed in should be swapped for one with it. */
+  onKeyReplaced?: (token: string) => void;
 }
 
-export function DemoApp({ client, joining, onJoinDone, onAccountDeleted }: DemoAppProps) {
+export function DemoApp({ client, joining, onJoinDone, onAccountDeleted, onKeyReplaced }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
       <Navigator
         joining={joining ?? null}
         onJoinDone={onJoinDone}
         onAccountDeleted={onAccountDeleted}
+        onKeyReplaced={onKeyReplaced}
       />
     </SattleProvider>
   );
@@ -71,10 +74,12 @@ function Navigator({
   joining,
   onJoinDone,
   onAccountDeleted,
+  onKeyReplaced,
 }: {
   joining: string | null;
   onJoinDone?: () => void;
   onAccountDeleted?: () => void;
+  onKeyReplaced?: (token: string) => void;
 }) {
   const sheet = useSheet();
   const insets = useSafeAreaInsets();
@@ -219,7 +224,13 @@ function Navigator({
         return <WalletScreen onBack={() => setRoute({ name: 'groups' })} />;
 
       case 'account':
-        return <AccountScreen onBack={() => setRoute({ name: 'groups' })} onDeleted={() => onAccountDeleted?.()} />;
+        return (
+          <AccountScreen
+            onBack={() => setRoute({ name: 'groups' })}
+            onDeleted={() => onAccountDeleted?.()}
+            onKeyReplaced={onKeyReplaced}
+          />
+        );
 
       case 'guest':
         return (

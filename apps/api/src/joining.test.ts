@@ -118,6 +118,7 @@ describe('GET /join/:token', () => {
         { ref: expect.any(String), name: 'Aman' },
       ],
       joined: ['Riya'],
+      rejoin: [{ ref: expect.any(String), name: 'Riya' }],
     });
   });
 
@@ -132,7 +133,7 @@ describe('GET /join/:token', () => {
     expect((await page(token)).body.members.map((m) => m.name)).toEqual(['Aman']);
   });
 
-  it('names the people who have joined, so the page shows the whole group, with nothing to pick them by', async () => {
+  it('names the people who have joined, so the page shows the whole group, and offers them for taking a place back', async () => {
     const { signUp, link, page, refOf, ask, joinAs, joinAsNew } = await setup();
     const { token } = (await link()).body;
     await joinAs('Kabir', token, (await signUp('Kabir')).token);
@@ -142,6 +143,7 @@ describe('GET /join/:token', () => {
 
     const { body } = await page(token);
     expect(body.joined).toEqual(['Riya', 'Kabir', 'Dev']);
+    expect(body.rejoin!.map((m) => m.name)).toEqual(['Riya', 'Kabir', 'Dev']);
     expect(body.members.map((m) => m.name)).toEqual(['Aman']);
   });
 
@@ -561,5 +563,105 @@ describe('DELETE /join-requests/:id', () => {
     await decline(again.id);
     expect((await call('DELETE', `/join-requests/${again.id}`, undefined, k.token)).status).toBe(200);
     expect(await mine(k.token)).toEqual([]);
+  });
+});
+
+describe('taking a place back, from a device you no longer have', () => {
+  /** Kabir has joined, with his balance; then he loses his phone and makes a new account. */
+  async function lostPhone() {
+    const t = await setup();
+    const { token } = (await t.link()).body;
+    const oldKabir = await t.signUp('Kabir');
+    await t.joinAs('Kabir', token, oldKabir.token);
+    const expense = await t.call<Expense>(
+      'POST',
+      `${t.base}/expenses`,
+      { description: 'Fuel', amount: 3000, paidByMemberId: t.kabir, splitMode: 'equal', parts: [{ memberId: t.kabir }, { memberId: t.aman }] },
+      oldKabir.token
+    );
+    expect(expense.status).toBe(201);
+    const newKabir = await t.signUp('Kabir');
+    const ref = (await t.page(token)).body.rejoin!.find((m) => m.name === 'Kabir')!.ref;
+    return { ...t, token, oldKabir, newKabir, ref };
+  }
+
+  it('asks for the name as anyone would, and the group sees whose place it is', async () => {
+    const { ask, ref, token, newKabir, oldKabir, waiting, mine, members } = await lostPhone();
+    const asked = await ask(token, ref, newKabir.token);
+    expect(asked.status).toBe(201);
+    expect(asked.body).toMatchObject({ name: 'Kabir', status: 'pending', takesOver: true });
+    expect(await mine(newKabir.token)).toEqual([asked.body]);
+
+    expect((await waiting()).map((w) => [w.name, w.existing, w.replacing])).toEqual([['Kabir', true, 'someone']]);
+    // The old phone, if it's still around, sees that it is its own place.
+    expect((await waiting(oldKabir.token))[0].replacing).toBe('you');
+    // Nothing moved yet.
+    expect((await members()).find((m) => m.displayName === 'Kabir')!.claimedByUserId).toBe(oldKabir.user.id);
+  });
+
+  it('hands the name over once someone lets them in: same member and balance, and the old account leaves', async () => {
+    const { call, ask, approve, ref, token, newKabir, oldKabir, kabir, base, group } = await lostPhone();
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    const member = await approve(asked.id);
+    expect(member.status).toBe(200);
+    expect(member.body).toMatchObject({ id: kabir, displayName: 'Kabir', status: 'joined', claimedByUserId: newKabir.user.id });
+
+    expect((await call<Group[]>('GET', '/groups', undefined, newKabir.token)).body.map((g) => g.id)).toEqual([group.id]);
+    expect((await call<Group[]>('GET', '/groups', undefined, oldKabir.token)).body).toEqual([]);
+    expect((await call('GET', base, undefined, oldKabir.token)).status).toBe(404);
+    // The expense he paid is still his, under the new account.
+    const expenses = (await call<Expense[]>('GET', `${base}/expenses`, undefined, newKabir.token)).body;
+    expect(expenses.map((e) => e.paidByMemberId)).toEqual([kabir]);
+  });
+
+  it('can be let in by the old device itself, which is how a phone hands its place to a new one', async () => {
+    const { ask, approve, ref, token, newKabir, oldKabir, members } = await lostPhone();
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    expect((await approve(asked.id, oldKabir.token)).status).toBe(200);
+    expect((await members()).find((m) => m.displayName === 'Kabir')!.claimedByUserId).toBe(newKabir.user.id);
+  });
+
+  it('can be turned down, and then nothing changes', async () => {
+    const { ask, decline, ref, token, newKabir, oldKabir, members, mine } = await lostPhone();
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    expect((await decline(asked.id, oldKabir.token)).status).toBe(200);
+    expect((await mine(newKabir.token))[0].status).toBe('declined');
+    expect((await members()).find((m) => m.displayName === 'Kabir')!.claimedByUserId).toBe(oldKabir.user.id);
+  });
+
+  it('lets them in as the ghost if the old account left in the meantime', async () => {
+    const { call, ask, approve, ref, token, newKabir, oldKabir, base, waiting, kabir } = await lostPhone();
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    expect((await call('POST', `${base}/leave`, undefined, oldKabir.token)).status).toBe(200);
+    expect((await waiting())[0].replacing).toBeUndefined();
+    expect((await approve(asked.id)).body).toMatchObject({ id: kabir, claimedByUserId: newKabir.user.id });
+  });
+
+  it('never takes the name from anyone but the account the request named', async () => {
+    const { call, signUp, ask, approve, refOf, ref, token, newKabir, oldKabir, base, members } = await lostPhone();
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    // The old account leaves, and someone else is let in as Kabir before the request is answered.
+    expect((await call('POST', `${base}/leave`, undefined, oldKabir.token)).status).toBe(200);
+    const third = await signUp('Kabir?');
+    const theirs = (await ask(token, await refOf(token, 'Kabir'), third.token)).body;
+    expect((await approve(theirs.id)).status).toBe(200);
+
+    const res = await approve(asked.id);
+    expect(res.status).toBe(409);
+    expect((await members()).find((m) => m.displayName === 'Kabir')!.claimedByUserId).toBe(third.user.id);
+  });
+
+  it('waits for a payment to the old account to finish', async () => {
+    const { db, ask, approve, ref, token, newKabir, oldKabir, members, group, kabir, aman } = await lostPhone();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, created_at, updated_at)
+       VALUES ('s-open', ?, ?, ?, 100, 'INR', 'invoice', 'created', ?, ?)`
+    ).run(group.id, aman, kabir, now, now);
+    const asked = (await ask(token, ref, newKabir.token)).body;
+    const res = await approve(asked.id);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ message: 'A payment to Kabir is still in progress. Wait for it to finish.' });
+    expect((await members()).find((m) => m.displayName === 'Kabir')!.claimedByUserId).toBe(oldKabir.user.id);
   });
 });

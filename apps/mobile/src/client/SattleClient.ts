@@ -284,6 +284,14 @@ export interface SattleClient {
    * go. Throws `conflict` while a payment to you is under way.
    */
   deleteAccount(): Promise<void>;
+
+  /**
+   * A new sign-in key for this account, returned as the token. The old one
+   * stops working at once, on every device signed in with it. Pass the same
+   * `idempotencyKey` to retry: with the old token, a retry still gets the
+   * answer it missed, for a few minutes.
+   */
+  replaceSignInKey(idempotencyKey?: string): Promise<string>;
 }
 
 export function newIdempotencyKey(): string {

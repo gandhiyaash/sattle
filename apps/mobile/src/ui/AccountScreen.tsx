@@ -3,7 +3,8 @@
  *
  * An account here is a name and a key on this device, so there is little to
  * manage. The key can be copied, which is how the account gets onto another
- * device or back after this one's data is cleared. Deleting it is the one
+ * device or back after this one's data is cleared, and replaced if it may
+ * have got out, which signs out every other device. Deleting it is the one
  * thing that can't be taken back, and it reaches into every group, so the
  * screen spells out what goes and what stays before the second tap.
  */
@@ -12,8 +13,8 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { signInKey } from '../account/signInKey';
-import { readToken } from '../account/tokenStore';
-import { isMock, useAsync, useClient } from '../react/SattleProvider';
+import { readToken, writeToken } from '../account/tokenStore';
+import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { copyText } from './share';
 import { Button, Card, ConfirmButton, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, space, type } from './theme';
@@ -22,9 +23,11 @@ export interface AccountScreenProps {
   onBack: () => void;
   /** The account is gone from the server. Whoever owns the token forgets it. */
   onDeleted: () => void;
+  /** The account has a new sign-in key, already saved on this device. Whoever holds the client switches to it. */
+  onKeyReplaced?: (token: string) => void;
 }
 
-export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
+export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScreenProps) {
   const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload } = useAsync(() => client.getCurrentUser(), []);
@@ -45,7 +48,7 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
         </Card>
       )}
 
-      {data && !isMock() && <SignInKeyCard />}
+      {data && !isMock() && <SignInKeyCard onReplaced={onKeyReplaced} />}
 
       {data && (
         <View>
@@ -77,12 +80,26 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
 /**
  * The key to this account, for another device or for after this one is
  * wiped. It is the account, so it's shown only after a tap, and the card
- * says what it can do in the wrong hands.
+ * says what it can do in the wrong hands, and how to end a key that got out.
  */
-function SignInKeyCard() {
+function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void }) {
   const s = useStyles();
+  const client = useClient();
+  // A retry after a lost answer replays it, so this device isn't left holding a dead key.
+  const keys = useActionKeys();
   const [key, setKey] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const replace = async () => {
+    const token = await keys.run('replace-key', {}, (k) => client.replaceSignInKey(k));
+    // Saved before anything else: the old key no longer signs in, so a reload needs this one.
+    await writeToken(token);
+    onReplaced?.(token);
+    setKey(signInKey(token));
+    setNote(
+      'Done. The old key and every device signed in with it are signed out. This is your new key: save it where the old one was.'
+    );
+  };
 
   const copy = async () => {
     const token = await readToken();
@@ -113,6 +130,11 @@ function SignInKeyCard() {
             {key}
           </Text>
         )}
+        <Text style={s.body}>
+          If your key may have got out, or you’ve lost a phone that was signed in, replace it. Every other device
+          signed in with the old key is signed out, and this one gets the new key.
+        </Text>
+        <ConfirmButton label="Replace sign-in key" confirmLabel="Yes, sign out my other devices" onConfirm={replace} />
       </Card>
     </View>
   );

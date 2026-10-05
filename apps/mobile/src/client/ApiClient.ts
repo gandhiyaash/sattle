@@ -335,6 +335,10 @@ export class ApiClient implements SattleClient {
     }
   }
 
+  async replaceSignInKey(idempotencyKey = newIdempotencyKey()) {
+    return (await this.request<{ token: string }>('POST', '/me/token', undefined, idempotencyKey)).token;
+  }
+
   /**
    * Server-sent events where the platform has EventSource (web), so every
    * status shows; polling everywhere else. EventSource can't send a bearer
