@@ -355,7 +355,8 @@ export function SettleUpSheet({
         <Button
           key={option.rail}
           label={option.label}
-          hint={option.detail}
+          // A greyed-out button says why, not what it would have done.
+          hint={option.availability.available ? option.detail : (option.availability.reason ?? option.detail)}
           variant={option.rank === 1 ? 'primary' : 'secondary'}
           busy={flow.busy}
           disabled={!option.availability.available}

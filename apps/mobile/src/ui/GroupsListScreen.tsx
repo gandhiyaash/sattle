@@ -31,7 +31,6 @@ import { makeStyles, space, type, useColors } from './theme';
 
 export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
-  onOpenWallet: () => void;
   onNewGroup?: () => void;
   /** Opens the screen that takes a group's link. */
   onJoin?: () => void;
@@ -47,7 +46,6 @@ interface GroupRow {
 
 export function GroupsListScreen({
   onOpenGroup,
-  onOpenWallet,
   onNewGroup,
   onJoin,
 }: GroupsListScreenProps) {
@@ -106,11 +104,7 @@ export function GroupsListScreen({
   }
 
   return (
-    <Screen
-      title="Sattle"
-      brand
-      right={<Button label="Wallet" variant="quiet" onPress={onOpenWallet} />}
-    >
+    <Screen title="Sattle" brand>
       <Card style={{ gap: space.md }}>
         {totals.size === 0 ? (
           <View>
@@ -180,7 +174,11 @@ export function GroupsListScreen({
                 {row.expenseCount === 0 ? (
                   <Text style={s.groupMeta}>No expenses</Text>
                 ) : (
-                  <Amount minor={row.net} currency={row.group.currency} size="md" net />
+                  // Said in words too: the colour alone doesn't tell everyone which way it goes.
+                  <View style={s.net}>
+                    {row.net !== 0 && <Text style={s.groupMeta}>{row.net > 0 ? 'you’re owed' : 'you owe'}</Text>}
+                    <Amount minor={row.net} currency={row.group.currency} size="md" net />
+                  </View>
                 )}
               </Pressable>
             ))}
@@ -265,6 +263,7 @@ const useStyles = makeStyles((color) => ({
     gap: space.md,
     padding: space.lg,
   },
+  net: { alignItems: 'flex-end' },
   rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.line },
   groupName: { ...type.body, fontWeight: '500', color: color.ink },
   groupMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },

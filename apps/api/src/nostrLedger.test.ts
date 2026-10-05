@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { computeBalances, type LedgerBackup } from '@sattle/core';
 import type { Event } from 'nostr-tools';
+import * as nip19 from 'nostr-tools/nip19';
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure';
 
 import { createApp } from './app';
@@ -168,9 +169,21 @@ describe('publish', () => {
     expect(entries).toBeGreaterThan(0);
     expect(published).toBe(0);
 
+    expect(ledger.backup('g-goa').latest).toBeUndefined();
+
     relay.transport.down = false;
     await ledger.tick();
     expect(ledger.backup('g-goa').published).toBe(entries);
+  });
+
+  it('points at the newest entry on the relays', async () => {
+    await ledger.tick();
+    const { latest } = ledger.backup('g-goa');
+    const decoded = nip19.decode(latest!);
+    expect(decoded.type).toBe('nevent');
+    const tag = groupTag(access('g-goa').key);
+    const newest = relay.events.filter((e) => e.tags.some((t) => t[0] === 'h' && t[1] === tag)).at(-1)!;
+    expect(decoded.data).toMatchObject({ id: newest.id, author: ledger.pubkey, kind: LEDGER_KIND });
   });
 
   it('signs but sends nothing with no relays', async () => {

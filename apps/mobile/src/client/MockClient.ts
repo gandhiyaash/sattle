@@ -67,6 +67,10 @@ export interface MockClientOptions {
   rateFiatPerBtc?: number;
 }
 
+/** An encrypted ledger entry on nos.lol, published by sattle.axiosiiitl.dev. */
+const DEMO_LEDGER_EVENT =
+  'nevent1qvzqqqqj05pzpk822p272gytnv4f46k44a5cnzuhz0e2kr0zs3yakqrdvpfhdpekqyxhwumn8ghj7mn0wvhxcmmvqqsdzz0t8pwr7lmaf3yf5ma7pcwq5cdp0gw77l6antyuk6jfucvlwjc04y386';
+
 export class MockClient implements SattleClient {
   private groups: Group[];
   private members: Member[];
@@ -307,6 +311,8 @@ export class MockClient implements SattleClient {
         relays,
         entries,
         published: entries,
+        // A real entry the live server published, so the demo's relay link opens something.
+        ...(entries > 0 && { latest: DEMO_LEDGER_EVENT }),
       };
     });
   }

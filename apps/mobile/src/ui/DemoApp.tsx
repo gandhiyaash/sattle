@@ -100,7 +100,6 @@ function Navigator({
           <GroupsListScreen
             key={nonce}
             onOpenGroup={(groupId) => setRoute({ name: 'group', groupId })}
-            onOpenWallet={() => setRoute({ name: 'wallet' })}
             onNewGroup={() => setRoute({ name: 'newGroup' })}
             onJoin={() => setRoute({ name: 'join' })}
           />
