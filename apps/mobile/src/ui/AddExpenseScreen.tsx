@@ -19,7 +19,7 @@
  * point, or whole sats in a group kept in bitcoin.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -107,6 +107,7 @@ export function AddExpenseScreen({
   const locked = Boolean(expense && userId && !canChangeExpense(payer, userId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const amountField = useRef<TextInput>(null);
 
   const amountMinor = useMemo(() => parseAmount(amountText, currency), [amountText, currency]);
 
@@ -220,6 +221,10 @@ export function AddExpenseScreen({
               onChangeText={setDescription}
               placeholder="Dinner at Thalassa"
               placeholderTextColor={color.inkFaint}
+              // Enter goes on to the amount, with the keyboard still up.
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => amountField.current?.focus()}
             />
           </View>
 
@@ -228,6 +233,7 @@ export function AddExpenseScreen({
             <View style={s.amountWrap}>
               {!sats && <Text style={s.currencySymbol}>₹</Text>}
               <TextInput
+                ref={amountField}
                 style={[s.input, s.amountInput]}
                 value={amountText}
                 onChangeText={setAmountText}
