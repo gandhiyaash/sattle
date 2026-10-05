@@ -1,5 +1,7 @@
 # Build plan
 
+> **Status, 5 October 2026.** Everything below has been built and merged, apart from two pieces. Y6 is only half done: the server streams over SSE, but the signed-in app still polls. R9 was always marked for later. The milestones that need a real phone and real sats (I2, I3, I4) are what the demo dry run in [DEMO_SCRIPT.md](DEMO_SCRIPT.md) checks. Work since then (group links, UPI, joining by approval, the ledger on Nostr) went straight to PRs and is described in the README. This file is kept as the record of how the build was split.
+
 Two tracks that meet at one seam, `PaymentBackend.start(settlement)`.
 
 - **Yash — the money path.** NWC, quotes, confirmation. Tests against a real wallet with small sats.
