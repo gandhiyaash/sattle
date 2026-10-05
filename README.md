@@ -85,15 +85,21 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
   routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, upi.
-  middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
+  middleware.ts              Auth (with the public /s/, /g/ and /join/ prefixes) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
   db.ts                      Migration runner and seeding.
   migrations/                NNN_name.sql, applied in order. Add files; never edit merged ones.
   payments.ts                Payment seam, and SimulatedPayments for dev and demos.
-  payments/nwc.ts            Real payments: invoices on the payee's wallet over NWC, confirmed by lookup.
+  payments/lightning.ts      Real payments: invoices on the payee's NWC wallet or Lightning address, confirmed by lookup, LUD-21 verify or proof.
   nwc.ts                     NIP-47 client: get_info, make_invoice, lookup_invoice.
+  lnurl.ts                   LNURL-pay client: an invoice from a Lightning address, checked before it's used.
+  bolt11.ts                  Reads an invoice's payment hash, amount, description hash and expiry.
+  safeFetch.ts               Every request to a typed address: https only, no private IPs, no redirects, capped.
+  proof.ts                   Checks a preimage against the payment hash.
+  rates.ts                   Live INR/BTC from CoinGecko, cached 30s, with a fallback.
+  backup.ts                  Database backups: before every deploy, or by hand.
   nostrLedger.ts             The ledger on Nostr: signed, encrypted, chained entries, and reading them back.
   scripts/ledgerVerify.ts    Rebuilds a group's balances from relays alone.
   app.test.ts                Route tests against an in-memory database.
@@ -121,10 +127,13 @@ apps/mobile/                 @sattle/mobile: Expo
     ui/
       theme.ts               Design tokens. Warm paper, ink, one amber accent.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
+      WelcomeScreen.tsx      First launch against the real API: your name, and a device account.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
+      NewGroupScreen.tsx     A group's name and the people in it.
       GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
       AddExpenseScreen.tsx   Live split preview as you type.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
+      InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
@@ -439,9 +448,10 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
 - Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
-- `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC and pay from any wallet. Demo mode on native shows `MockWallet`.
+- `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.
 - Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles only `/join/<token>`, and only on Android.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
+- Live status over SSE in the signed-in app. The server streams it, but a browser can't attach a sign-in token to an SSE connection, so the app polls; short-lived stream tickets would fix that.
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.
 - Nostr identity (NIP-07 / NIP-46), so members sign their own ledger entries, and on-chain rails.
 

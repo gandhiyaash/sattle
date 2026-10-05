@@ -10,7 +10,7 @@ Sattle
 
 ## Tagline
 
-Split the bill, settle in sats. Only one of you needs the app.
+Split bills in sats. Only one of you needs the app.
 
 ## The problem it solves
 

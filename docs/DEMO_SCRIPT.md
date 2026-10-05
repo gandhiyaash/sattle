@@ -13,8 +13,8 @@ The story judges should take away, in order:
 ## Before you hit record
 
 **Server**
-- [ ] #34's deploy has finished (`ci` then `deploy` on `58dd2e8` are green).
-- [ ] Took a backup before that deploy: `npm run db:backup -w @sattle/api -- manual before-nostr-ledger`.
+- [ ] The deploy of the commit you're filming has finished (`ci` then `deploy` green on `main`). Each deploy backs up the database first.
+- [ ] `/health` on the API answers `{"ok":true,"payments":"real"}`.
 - [ ] `LEDGER_RELAYS=wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net` is in the VM's `.env`, then `sudo systemctl restart sattle`. The log line should say `ledger mirrored to 3 relay(s) as npub1…`.
 - [ ] `PAYMENTS=nwc` is in the VM's `.env`. Without it, scene 4's payment is simulated, and you should say so on camera rather than imply it's real.
 
@@ -25,6 +25,7 @@ The story judges should take away, in order:
 **Screens**
 - [ ] Browser A (you, Yash): https://sattle.axiosiiitl.dev in a clean profile, so it's a fresh account.
 - [ ] Phone (Om, the guest): nothing installed, just the camera or wallet app to scan the QR.
+- [ ] If you show the Android app at all, it's v0.1.8 or later. v0.1.7 can't join a group or open Manage against the current server.
 - [ ] A terminal with the repo, font size 18+, prompt cleared.
 - [ ] Amounts kept small so the payment is cheap: **Chai ₹100** (shows the leftover paisa), **Dinner ₹900**.
 
