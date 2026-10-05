@@ -18,7 +18,7 @@ import { computeBalances, formatFiat, simplifyDebts } from '@sattle/core';
 import { npubEncode } from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 
-import { LEDGER_KIND, groupTag, parseBackupUri, readLedger, type LedgerAccess } from '../nostrLedger';
+import { ledgerFilter, parseBackupUri, readLedger, type LedgerAccess } from '@sattle/core/nostrLedger';
 
 const args = process.argv.slice(2);
 if (args.some((a) => a.includes('sattle-ledger:'))) {
@@ -93,7 +93,7 @@ try {
   console.log(`Reading from ${relays.join(', ')}…`);
   const events = await pool.querySync(
     relays,
-    { kinds: [LEDGER_KIND], authors: [access.pubkey], '#h': [groupTag(access.key)] },
+    ledgerFilter(access),
     { maxWait: 8000 }
   );
   const read = readLedger(events, access);

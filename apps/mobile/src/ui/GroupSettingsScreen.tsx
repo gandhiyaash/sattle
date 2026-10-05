@@ -208,7 +208,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone }: GroupSettingsSc
 }
 
 /**
- * The group's one link, which the share icon on the group screen hands out.
+ * The group's one link, which Invite on the group screen hands out.
  * Whoever holds it sees the spends and who owes whom and can pay a debt, with
  * no app and no account, and can ask to join. This is where it is replaced
  * or turned off: that is how a link that went to the wrong place is taken

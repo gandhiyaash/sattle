@@ -78,6 +78,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
+  nostrLedger.ts             Reading a group's ledger back from Nostr events with its backup key. Imported as @sattle/core/nostrLedger, so only what reads it pulls in nostr-tools.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
 
@@ -100,15 +101,20 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
   proof.ts                   Checks a preimage against the payment hash.
   rates.ts                   Live BTC price from CoinGecko, Blockchain.com or Coinbase, cached 30s.
   backup.ts                  Database backups: before every deploy, or by hand.
-  nostrLedger.ts             The ledger on Nostr: signed, encrypted, chained entries, and reading them back.
+  nostrLedger.ts             The ledger on Nostr: signing, encrypting and publishing entries. Reading them back is in core.
   scripts/ledgerVerify.ts    Rebuilds a group's balances from relays alone.
   app.test.ts                Route tests against an in-memory database.
   contract.test.ts           Auth boundary and migrations.
 
 apps/mobile/                 @sattle/mobile: Expo
-  App.tsx                    Routes /s/<token> to the guest page, /g/<token> to the group page and /join/<token> to joining; otherwise the app.
+  App.tsx                    Routes /s/<token> to the guest page, /g/<token> to the group page, /join/<token> to joining and /restore to restoring; otherwise the app.
   modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
   src/
+    account/
+      tokenStore.ts          Where the device keeps its account token. SecureStore on native, localStorage on web.
+      signInKey.ts           The token as a sign-in key, to copy to another device and paste there.
+    ledger/
+      readBack.ts            Fetches a group's entries from relays and reads them with its backup key. Loaded only when someone restores.
     client/
       SattleClient.ts        The interface. The only seam.
       MockClient.ts          In-memory, with latency and failure injection.
@@ -127,7 +133,8 @@ apps/mobile/                 @sattle/mobile: Expo
     ui/
       theme.ts               Design tokens. Warm paper, ink, one amber accent.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
-      WelcomeScreen.tsx      First launch against the real API: your name, and a device account.
+      WelcomeScreen.tsx      First launch against the real API: your name, and a device account. Or a sign-in key from another device.
+      RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name and the people in it.
       GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
@@ -140,7 +147,7 @@ apps/mobile/                 @sattle/mobile: Expo
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
-      AccountScreen.tsx      Who you're signed in as, and deleting the account.
+      AccountScreen.tsx      Who you're signed in as, copying your sign-in key, and deleting the account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
@@ -226,11 +233,11 @@ Payments go through `PaymentBackend` in `payments.ts`, and `PAYMENTS` picks one:
 
 One gap with real payments on: a ghost's Lightning address can't be paid yet. A groupmate typed it, so a payment to it proves nothing about the ghost; joining clears it, and the member sets their own. The payment ends as `failed` with "Nothing moved" rather than be marked paid without proof.
 
-Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email, password or recovery. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
+Auth is a bearer token looked up in `users.token`. `POST /accounts` is the only way to get one: it takes a display name and returns a new user and a random token, and the app keeps the token on the device (`src/account/tokenStore`, SecureStore on native, localStorage on web). There's no email or password. **Account**, **Copy sign-in key** gives the token as `sattle-signin:<token>`; pasting that under **I have a sign-in key** on the welcome screen of another phone or browser, or the same one after its data was cleared, checks it against `GET /me` and keeps it. Both devices are then signed in as the same user. The key is the token, so there's no way to cancel one that leaks short of deleting the account. With `DEMO_USER_ID` set, requests without a token act as that user. That's for local dev and must be unset anywhere real.
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. The group's link turns ghosts into members. It is the group's one link, `/g/<token>`: anyone already in the group taps the share icon at the top of the group and sends it to the chat everyone is in. It opens the group's page, where anyone can see what's been split and pay what they owe (see [The group link](#the-group-link)), and that page has **Join** on it. Join opens `/join/<token>`, with the same token: whoever taps it sees which group it is and the people in it, picks the one they are from those nobody has joined as yet, and asks to join. The ones who have joined are listed too, marked and not pickable, so the page is the whole group even when every name is taken. Someone already in the group then sees "Someone wants to join as Kabir" at the top of the group, with a four-digit code, and taps **Let in** or **Not them**. Once let in, they take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and asks to be added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they asked for. Until they're let in, the group sits on their groups list as **Asked to join**, showing their code, and they can do no more than anyone else holding the link. Someone already in the group has nobody left to be, so for them Join opens the group.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. The group's link turns ghosts into members. It is the group's one link, `/g/<token>`: anyone already in the group taps **Invite** at the top of the group and sends it to the chat everyone is in. It opens the group's page, where anyone can see what's been split and pay what they owe (see [The group link](#the-group-link)), and that page has **Join** on it. Join opens `/join/<token>`, with the same token: whoever taps it sees which group it is and the people in it, picks the one they are from those nobody has joined as yet, and asks to join. The ones who have joined are listed too, marked and not pickable, so the page is the whole group even when every name is taken. Someone already in the group then sees "Someone wants to join as Kabir" at the top of the group, with a four-digit code, and taps **Let in** or **Not them**. Once let in, they take over that row as it is: same name, same history, same balance. Someone who isn't on the list taps **+**, gives their name, and asks to be added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they asked for. Until they're let in, the group sits on their groups list as **Asked to join**, showing their code, and they can do no more than anyone else holding the link. Someone already in the group has nobody left to be, so for them Join opens the group.
 
 Joining is full membership. There are no roles, so the new member can read everything in the group and add expenses, members and settlements, and share or replace its link. They can leave, but nobody else can remove them. So the link is treated as a key, and holding it is never enough:
 
@@ -277,7 +284,7 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 
 ### The group link
 
-A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps the share icon at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. Under the debts is **Join**, for the people who belong in the group; see [Joining a group](#joining-a-group).
+A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps **Invite** at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. Under the debts is **Join**, for the people who belong in the group; see [Joining a group](#joining-a-group).
 
 A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
 
@@ -431,13 +438,16 @@ The server keeps the ledger in SQLite, so if the server goes away, so would a gr
 
 Entries go through an outbox table, `ledger_entries`. Every few seconds the server signs an entry for anything new, then publishes whatever hasn't gone out. A relay outage or a restart only delays publishing. With `LEDGER_RELAYS` empty, entries are still signed and kept, and they go out once relays are set, history included.
 
-In the app, the group screen's **Backup on Nostr** card shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all:
+In the app, the group screen's **Backed up on Nostr** card shows how much has been published and copies the group's backup key, `sattle-ledger://<server pubkey>?key=…&relay=…`. With that key and no Sattle server at all, there are two ways to read the group back. Both fetch the group's entries from the relays, check every signature and the chain, decrypt them, and show the balances and who pays whom.
 
-```bash
-npm run ledger:verify -w @sattle/api
-```
+- **In the app:** `/restore` on the web, **Restore a group from its backup key** on the welcome screen, or **Read it back** on the backup card. It needs no account and makes no request to the API: the browser asks the relays for the server's entries under the group's tag, and decrypts them itself (`src/ledger/readBack.ts`, which reads with `@sattle/core/nostrLedger`). The key is pasted on the page and never goes in the address. The web app is served from the same VM as the API, so if the VM is gone, use the Android app, a local `npm run web`, or the script below.
+- **In a terminal:**
 
-asks for the key, fetches the group's entries from the relays, checks every signature and the chain, decrypts them, and prints the balances and who pays whom.
+  ```bash
+  npm run ledger:verify -w @sattle/api
+  ```
+
+  asks for the key and prints the result.
 
 The key decrypts the group's whole history, and the entries sit on public relays for good, so treat it like a password. The script reads it from a prompt that doesn't echo, never from the command line: npm prints the command line, and the shell keeps it in history. For scripts, pipe it in or set `SATTLE_LEDGER_BACKUP`.
 
@@ -445,7 +455,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 
 ## Not in here yet
 
-- Recovering an account. A device account can't move to another device or survive cleared app data. Nostr sign-in is the likely way to fix that.
+- Replacing a sign-in key. The key is the account's token, so one that leaks works until the account is deleted. Nostr sign-in is the likely way to fix that.
 - Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.

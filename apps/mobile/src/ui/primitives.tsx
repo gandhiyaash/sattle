@@ -218,11 +218,11 @@ export function Button({
 
 /** Stroked paths on a 24 by 24 grid. */
 const ICONS = {
-  // An arrow leaving a tray.
-  share: 'M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',
+  // Two sheets, one over the other.
+  copy: 'M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
 };
 
-/** An action in a header, drawn instead of written. `label` is what a screen reader says in its place. */
+/** An action drawn instead of written, where there is no room for a word. `label` is what a screen reader says in its place. */
 export function IconButton({
   icon,
   label,

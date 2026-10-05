@@ -26,6 +26,7 @@ import { GuestPayScreen } from './GuestPayScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
 import { AboveBottomBar } from './primitives';
+import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
@@ -41,6 +42,7 @@ type Route =
   | { name: 'wallet' }
   | { name: 'account' }
   | { name: 'join'; token?: string }
+  | { name: 'restore'; groupId: string; backupKey: string }
   | { name: 'guest'; token: string };
 
 export interface DemoAppProps {
@@ -153,6 +155,18 @@ function Navigator({
             onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
             onOpenWallet={() => setRoute({ name: 'wallet' })}
             onSettle={(debt, members, groupName, currency) => setSettling({ debt, members, groupName, currency })}
+            // The mock's key is made up, so there's nothing on the relays to read.
+            onReadBack={
+              isMock() ? undefined : (backupKey) => setRoute({ name: 'restore', groupId: route.groupId, backupKey })
+            }
+          />
+        );
+
+      case 'restore':
+        return (
+          <RestoreScreen
+            initialKey={route.backupKey}
+            onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
           />
         );
 
