@@ -299,7 +299,13 @@ The link proves nothing about who is on the other end, since it can be forwarded
 
 `GET /join/:token` is public, like the group page, and returns names and nothing else: the group, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /links/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
 
-The shared link, `/g/<token>`, opens in the browser for everyone, so paying needs no app. On an Android phone with the app installed, **Join** hands over to the app, which claims `/join/` links, and opens the join screen there, or the group for someone already in it. Everywhere else it carries on in the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
+The shared link, `/g/<token>`, opens in a browser, so paying needs no app. On an Android phone with the app installed it opens the app instead, which claims `/g/` and `/join/` links (`intentFilters` in `app.json`):
+
+- **Someone already in the group** lands in the group, on **Settle up**. That is the point of handing the link to the app: paying by UPI from there goes through the app, which hears what the UPI app says, where a browser hears nothing.
+- **Anyone else**, with an account or without, gets the same group page inside the app: what's been split, who owes whom, the buttons to pay. Having the app installed doesn't take away what holding the link shows. **Join** on it goes to the app's join screen.
+- **A `/join/` link** opens the join screen, or the group for someone already in it, as before.
+
+Everywhere else the link carries on in the browser, and in the installed app it can still be pasted under **Join with a link** on the groups list. What the app claims is fixed when it is built, so a copy from before `/g/` was added still gets that link in the browser until it is updated. A pay link, `/s/<token>`, always opens in the browser.
 
 Android hands the app the link only when the site vouches for it. `apps/mobile/public/.well-known/assetlinks.json`, which the web deploy publishes, has to list the SHA-256 of every certificate a real copy is signed with: the upload key, which signs the APK on a GitHub release, and Play's app signing key, which signs what Play installs (Play Console, **App integrity**, **App signing**). A copy signed with a key that isn't listed, a debug build for one, gets the link in the browser as before.
 
@@ -539,7 +545,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.
-- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles only `/join/<token>`, and only on Android.
+- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles `/g/<token>` and `/join/<token>`, and only on Android. A pay link, `/s/<token>`, opens in the browser on every phone.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Live status over SSE in the signed-in app. The server streams it, but a browser can't attach a sign-in token to an SSE connection, so the app polls; short-lived stream tickets would fix that.
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.

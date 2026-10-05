@@ -22,7 +22,10 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "https", "host": "sattle.axiosiiitl.dev", "pathPrefix": "/join/" }],
+          "data": [
+            { "scheme": "https", "host": "sattle.axiosiiitl.dev", "pathPrefix": "/join/" },
+            { "scheme": "https", "host": "sattle.axiosiiitl.dev", "pathPrefix": "/g/" }
+          ],
           "category": ["BROWSABLE", "DEFAULT"]
         }
       ]

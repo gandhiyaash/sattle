@@ -20,6 +20,11 @@
  * where someone says which of the people in the group they are and asks to
  * join; someone already in it lets them in (JoinScreen). For someone who has
  * joined, that opens the group.
+ *
+ * Mostly this is a page in a browser. On an Android phone with the app, the
+ * link opens the app instead, and someone who isn't in the group gets this
+ * same page inside it (`onBack`, `onJoin`): having the app installed doesn't
+ * take away what holding the link shows.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -44,11 +49,15 @@ import { makeStyles, radius, space, type, useColors } from './theme';
 export interface GroupGuestScreenProps {
   /** From /g/<token>. The only thing the page knows on arrival. */
   token: string;
+  /** In the app: back to the app's own screens. A browser has nowhere of ours to go back to. */
+  onBack?: () => void;
+  /** In the app: on to its join screen. Without it Join is a link to /join/<token>, which is what a browser needs. */
+  onJoin?: () => void;
 }
 
 const REFRESH_MS = 4000;
 
-export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
+export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProps) {
   const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getGroupGuestView(token), [token]);
@@ -158,7 +167,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
 
   if (loading) {
     return (
-      <Screen title="Sattle">
+      <Screen title="Sattle" onBack={onBack}>
         <Loading lines={3} />
       </Screen>
     );
@@ -168,7 +177,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     // A link that was replaced or turned off stays dead; only a network failure is worth retrying.
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
-      <Screen title="Sattle">
+      <Screen title="Sattle" onBack={onBack}>
         <ErrorState message={error?.message ?? 'Couldn’t load this group.'} onRetry={retry} />
       </Screen>
     );
@@ -177,7 +186,11 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   const spends = [...data.expenses].reverse();
 
   return (
-    <Screen title={data.groupName} subtitle={`${spends.length} ${spends.length === 1 ? 'spend' : 'spends'} · shared by link`}>
+    <Screen
+      title={data.groupName}
+      subtitle={`${spends.length} ${spends.length === 1 ? 'spend' : 'spends'} · shared by link`}
+      onBack={onBack}
+    >
       <View>
         <SectionLabel>Who owes what</SectionLabel>
         {data.debts.length === 0 ? (
@@ -213,9 +226,14 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
           Join it to add what you’ve spent and settle up in the app. You pick your name, and someone in the group
           lets you in. Already joined? This opens the group.
         </Text>
-        {/* A real link, not a change of screen: Back returns here, and a phone with the app installed
-            can hand /join/ links to it. This page is only ever shown in a browser. */}
-        <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+        {onJoin ? (
+          // Inside the app, which has a join screen of its own to go to.
+          <Button label={`Join ${data.groupName}`} variant="primary" onPress={onJoin} />
+        ) : (
+          // In a browser, a real link and not a change of screen: Back returns here, and a phone
+          // with the app installed can hand /join/ links to it.
+          <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+        )}
       </Card>
 
       <View>
