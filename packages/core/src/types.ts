@@ -375,6 +375,8 @@ export interface LedgerBackup {
   relays: string[];
   entries: number;
   published: number;
+  /** The newest entry on the relays, as a nevent anyone can look up. Absent until one is published. */
+  latest?: string;
 }
 
 export interface WalletConnection {
