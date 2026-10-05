@@ -86,8 +86,8 @@ export function resolveSettlementOptions({
   if (real ? canReceive(recipient, mode) : recipient.status !== 'ghost') {
     candidates.push({
       rail: 'invoice',
-      label: 'Pay from another wallet',
-      detail: 'Get an invoice to pay from Phoenix, Wallet of Satoshi, or any Lightning wallet.',
+      label: 'Pay with Lightning',
+      detail: 'Get an invoice in sats to pay from Phoenix, Wallet of Satoshi, or any Lightning wallet.',
       availability: { available: true },
     });
   }

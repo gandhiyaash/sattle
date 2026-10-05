@@ -29,7 +29,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import type { Event } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
-import { npubEncode } from 'nostr-tools/nip19';
+import { neventEncode, npubEncode } from 'nostr-tools/nip19';
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure';
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils';
 
@@ -233,11 +233,20 @@ export class NostrLedger {
     const counts = this.db
       .prepare('SELECT COUNT(*) AS entries, COUNT(published_at) AS published FROM ledger_entries WHERE group_id = ?')
       .get(groupId) as { entries: number; published: number };
+    const latest = this.db
+      .prepare(
+        'SELECT event_id FROM ledger_entries WHERE group_id = ? AND published_at IS NOT NULL ORDER BY seq DESC LIMIT 1'
+      )
+      .get(groupId) as { event_id: string } | undefined;
     return {
       uri: backupUri({ pubkey, key: this.groupKey(groupId), relays: this.relays }),
       npub: npubEncode(pubkey),
       relays: this.relays,
       ...counts,
+      // Only the id and where to find it: the event is ciphertext to anyone without the key.
+      ...(latest && {
+        latest: neventEncode({ id: latest.event_id, relays: this.relays.slice(0, 2), author: pubkey, kind: LEDGER_KIND }),
+      }),
     };
   }
 

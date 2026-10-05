@@ -83,13 +83,13 @@ The story judges should take away, in order:
 ## Scene 6: The record outlives us (2:10–2:45)
 
 **Screen:**
-1. Scroll to **Backup on Nostr**: "All 4 entries on 3 relays." (two expenses, two settlements) Tap **Copy backup key**.
+1. The **Backed up on Nostr** card under the balance: "All 4 entries on relay.damus.io, nos.lol, relay.primal.net." (two expenses, two settlements) Tap **Copy backup key**.
 2. Terminal. Run the command below, and paste the key when it asks. The prompt doesn't echo, so the key never appears on screen:
    ```bash
    npm run ledger:verify -w @sattle/api
    ```
 3. The output: "Chain intact. Every entry signed by the server." It reports 4 entries: 2 expenses and 2 settlements. Every balance is ₹0, matching the app, and "To settle up" reads "Nothing. Everyone is square."
-4. Optional, 3 seconds: the same event on a relay viewer, showing only ciphertext.
+4. Optional, 3 seconds: back in the app, tap **See it on a relay**. njump.me shows the newest entry, kind 4733, and only ciphertext.
 
 **Say:**
 > Our server keeps the ledger, so what happens if we disappear? Every expense and payment is also published to Nostr relays: signed, encrypted with a key only the group holds, and chained, so a missing entry shows. With the group's backup key, anyone in the group can rebuild every balance from the relays alone, with no Sattle server involved.

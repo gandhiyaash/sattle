@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   canReceive,
@@ -219,6 +219,9 @@ export function GroupDetailScreen({
         )}
       </Card>
 
+      {/* Up here, not under the expenses: it's what makes this record more than our word. */}
+      <LedgerBackupCard groupId={groupId} version={data.expenses.length} />
+
       {data.waiting.length > 0 && (
         <View>
           <SectionLabel>Asking to join</SectionLabel>
@@ -356,8 +359,6 @@ export function GroupDetailScreen({
           </Card>
         )}
       </View>
-
-      <LedgerBackupCard groupId={groupId} version={data.expenses.length} />
     </Screen>
   );
 }
@@ -810,18 +811,17 @@ function LedgerBackupCard({ groupId, version }: { groupId: string; version: numb
   const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId, version]);
   const [note, setNote] = useState<string | null>(null);
 
-  if (!data) return null;
+  // Nothing to show off before the first expense.
+  if (!data || data.entries === 0) return null;
 
-  const relays = `${data.relays.length} relay${data.relays.length === 1 ? '' : 's'}`;
+  const hosts = data.relays.map((r) => r.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ');
   const entries = `${data.entries} ${data.entries === 1 ? 'entry' : 'entries'}`;
   const status =
-    data.entries === 0
-      ? 'Nothing to back up yet.'
-      : data.relays.length === 0
-        ? `${entries} signed. This server isn’t publishing to relays yet.`
-        : data.published < data.entries
-          ? `${data.published} of ${entries} on ${relays}. The rest go out shortly.`
-          : `${data.entries === 1 ? 'The entry is' : `All ${entries}`} on ${relays}.`;
+    data.relays.length === 0
+      ? `${entries} signed. This server isn’t publishing to relays yet.`
+      : data.published < data.entries
+        ? `${data.published} of ${entries} on ${hosts}. The rest go out shortly.`
+        : `${data.entries === 1 ? 'The entry is' : `All ${entries}`} on ${hosts}.`;
 
   const copy = async () => {
     if (Platform.OS === 'web') {
@@ -838,30 +838,43 @@ function LedgerBackupCard({ groupId, version }: { groupId: string; version: numb
   };
 
   return (
-    <View>
-      <SectionLabel>Backup on Nostr</SectionLabel>
-      <Card style={{ gap: space.sm }}>
-        <Text style={s.backupBody}>
-          Every expense and payment is signed by Sattle and published, encrypted, to Nostr relays. With the backup
-          key, anyone in the group can rebuild these balances without us.
-        </Text>
-        <Text style={s.linkNote}>{status}</Text>
-        <Button label="Copy backup key" onPress={copy} />
-        {note && (
-          <>
-            <Text style={s.linkNote}>{note}</Text>
-            <Text style={s.linkUrl} selectable numberOfLines={2}>
-              {data.uri}
-            </Text>
-          </>
+    <Card style={{ gap: space.sm }}>
+      <View style={s.backupTop}>
+        <Text style={s.backupTitle}>Backed up on Nostr</Text>
+        {data.relays.length > 0 && data.published === data.entries && <Badge text="Up to date" tone="accent" />}
+      </View>
+      <Text style={s.linkNote}>{status}</Text>
+      <Text style={s.backupBody}>
+        Signed and encrypted, so relays keep it without reading it. With the backup key, anyone in the group can
+        rebuild these balances without Sattle.
+      </Text>
+      <View style={s.backupActions}>
+        {data.latest && (
+          <Button
+            label="See it on a relay"
+            variant="quiet"
+            onPress={() => Linking.openURL(`https://njump.me/${data.latest}`)}
+          />
         )}
-      </Card>
-    </View>
+        <Button label="Copy backup key" variant="quiet" onPress={copy} />
+      </View>
+      {note && (
+        <>
+          <Text style={s.linkNote}>{note}</Text>
+          <Text style={s.linkUrl} selectable numberOfLines={2}>
+            {data.uri}
+          </Text>
+        </>
+      )}
+    </Card>
   );
 }
 
 const useStyles = makeStyles((color) => ({
-  backupBody: { ...type.body, color: color.inkMuted },
+  backupBody: { ...type.caption, color: color.inkMuted },
+  backupTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  backupTitle: { ...type.body, fontWeight: '600', color: color.ink },
+  backupActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   debtText: { ...type.body, color: color.ink },
