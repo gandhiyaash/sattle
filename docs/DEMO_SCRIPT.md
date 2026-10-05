@@ -106,7 +106,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 Close on the logo, the repo URL, "Open source. No token."
 
 **Say:**
-> Here's what still needs trust. Our server signs the ledger, it stores your wallet connection, and the exchange rate comes from one source. Next, members sign their own entries with Nostr identities. Sattle: only one of you needs the app.
+> Here's what still needs trust. Our server signs the ledger, it stores your wallet connection, and the exchange rate comes from price APIs. Next, members sign their own entries with Nostr identities. Sattle: only one of you needs the app.
 
 ---
 
