@@ -19,7 +19,7 @@ import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
-import { GroupDetailScreen } from './GroupDetailScreen';
+import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
@@ -86,6 +86,8 @@ function Navigator({
     currency: string;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
+  // Held here, not in the group screen, which is built again after every payment and every change.
+  const [groupTab, setGroupTab] = useState<GroupTab>('expenses');
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
@@ -93,13 +95,19 @@ function Navigator({
 
   const refresh = () => setNonce((n) => n + 1);
 
+  /** Into a group from outside it, which starts on its expenses. Coming back from one of its own screens keeps the tab. */
+  const openGroup = (groupId: string) => {
+    setGroupTab('expenses');
+    setRoute({ name: 'group', groupId });
+  };
+
   const body = (() => {
     switch (route.name) {
       case 'groups':
         return (
           <GroupsListScreen
             key={nonce}
-            onOpenGroup={(groupId) => setRoute({ name: 'group', groupId })}
+            onOpenGroup={openGroup}
             onNewGroup={() => setRoute({ name: 'newGroup' })}
             onJoin={() => setRoute({ name: 'join' })}
           />
@@ -122,7 +130,7 @@ function Navigator({
             }}
             onAlreadyIn={(groupId) => {
               onJoinDone?.();
-              setRoute({ name: 'group', groupId });
+              openGroup(groupId);
             }}
           />
         );
@@ -133,7 +141,7 @@ function Navigator({
             onBack={() => setRoute({ name: 'groups' })}
             onCreated={(groupId) => {
               refresh();
-              setRoute({ name: 'group', groupId });
+              openGroup(groupId);
             }}
           />
         );
@@ -143,6 +151,8 @@ function Navigator({
           <GroupDetailScreen
             key={`${route.groupId}-${nonce}`}
             groupId={route.groupId}
+            tab={groupTab}
+            onTab={setGroupTab}
             onBack={() => setRoute({ name: 'groups' })}
             onAddExpense={(members, currency) =>
               setRoute({ name: 'addExpense', groupId: route.groupId, members, currency })
@@ -196,7 +206,8 @@ function Navigator({
             onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
             onAdded={() => {
               refresh();
-              setRoute({ name: 'group', groupId: route.groupId });
+              // Whichever tab Add expense was tapped from, the new one is what they came back to see.
+              openGroup(route.groupId);
             }}
           />
         );
