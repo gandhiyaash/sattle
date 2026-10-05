@@ -308,7 +308,8 @@ export function ConfirmButton({
 
 /**
  * The longer explanation of something, out of the way until it's asked for.
- * For what is worth knowing but isn't needed to use the screen.
+ * For what is worth knowing but isn't needed to use the screen. What it's
+ * given is set inside one Text, so give it text.
  */
 export function LearnMore({ children }: { children: React.ReactNode }) {
   const s = useStyles();

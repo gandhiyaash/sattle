@@ -63,8 +63,10 @@ export async function sendOrCopy(message: string): Promise<ShareOutcome> {
     try {
       await nav.share({ text: message });
       return 'sent';
-    } catch {
-      // Cancelled or refused: fall through to copying.
+    } catch (e) {
+      // They closed the share sheet. Copying now would put the link on their clipboard after they said no.
+      if ((e as { name?: string } | null)?.name === 'AbortError') return 'not-sent';
+      // Refused: fall through to copying.
     }
   }
   try {
