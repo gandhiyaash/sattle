@@ -240,7 +240,7 @@ function GroupLinkSection({
             />
           </>
         ) : (
-          <Text style={s.body}>No link yet. The share icon on the group screen makes one.</Text>
+          <Text style={s.body}>No link yet. Invite on the group screen makes one.</Text>
         )}
 
         {upi && (

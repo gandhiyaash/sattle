@@ -1,8 +1,9 @@
 /**
  * Hands a message with a link in it to the share sheet. On web without
- * navigator.share it copies instead. Returns a line saying what happened, for
- * under the button; callers keep the link on screen either way, so it can be
- * copied by hand if both are blocked.
+ * navigator.share it copies instead. `share` returns a line saying what
+ * happened, for under a button, where the caller keeps the link on screen so
+ * it can be copied by hand if both are blocked. `sendOrCopy` returns only
+ * which it was, for a caller with no room for a line.
  */
 
 import { Platform, Share } from 'react-native';
@@ -45,24 +46,44 @@ export async function copyText(text: string): Promise<string> {
   return 'Couldn’t copy it here. Select the text above and copy it by hand.';
 }
 
-export async function share(message: string, sentNote: string): Promise<string> {
+/**
+ * What became of a message: the share sheet took it, the share sheet was
+ * closed without sending, it was copied because there is no share sheet
+ * here, or neither could be done.
+ */
+export type ShareOutcome = 'sent' | 'not-sent' | 'copied' | 'blocked';
+
+export async function sendOrCopy(message: string): Promise<ShareOutcome> {
   if (Platform.OS !== 'web') {
     const r = await Share.share({ message }).catch(() => null);
-    return r?.action === Share.sharedAction ? sentNote : 'Not sent. Here’s the link:';
+    return r?.action === Share.sharedAction ? 'sent' : 'not-sent';
   }
   const nav = typeof navigator === 'undefined' ? undefined : navigator;
   if (nav?.share) {
     try {
       await nav.share({ text: message });
-      return sentNote;
+      return 'sent';
     } catch {
       // Cancelled or refused: fall through to copying.
     }
   }
   try {
     await nav!.clipboard.writeText(message);
-    return 'Copied. Paste it in a chat.';
+    return 'copied';
   } catch {
-    return 'Copy this link and send it:';
+    return 'blocked';
+  }
+}
+
+export async function share(message: string, sentNote: string): Promise<string> {
+  switch (await sendOrCopy(message)) {
+    case 'sent':
+      return sentNote;
+    case 'not-sent':
+      return 'Not sent. Here’s the link:';
+    case 'copied':
+      return 'Copied. Paste it in a chat.';
+    case 'blocked':
+      return 'Copy this link and send it:';
   }
 }

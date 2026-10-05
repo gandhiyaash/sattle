@@ -60,13 +60,12 @@ import {
   ConfirmButton,
   Divider,
   ErrorState,
-  IconButton,
   Loading,
   Screen,
   SectionLabel,
   Segmented,
 } from './primitives';
-import { copyText, share } from './share';
+import { sendOrCopy, share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 /** The three parts of a group, one showing at a time. */
@@ -129,8 +128,8 @@ export function GroupDetailScreen({
   const keys = useActionKeys();
   const mode = usePaymentMode();
   const prefs = useCurrencyPrefs();
-  /** What Invite last did. The link stays on screen, so it can be copied by hand. */
-  const [shared, setShared] = useState<LinkState>({ kind: 'idle' });
+  /** What Invite last did. The share sheet says so itself; this is for when there isn't one. */
+  const [shared, setShared] = useState<GroupShare>({ kind: 'idle' });
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
     const [user, group, members, expenses, settlements, claims, waiting, upi] = await Promise.all([
@@ -184,6 +183,13 @@ export function GroupDetailScreen({
     return () => clearInterval(t);
   }, [refresh]);
 
+  // Where there is no share sheet the link is copied, and nothing shows that but this. Said for a moment, then gone.
+  useEffect(() => {
+    if (shared.kind !== 'copied') return;
+    const t = setTimeout(() => setShared({ kind: 'idle' }), COPIED_MS);
+    return () => clearTimeout(t);
+  }, [shared]);
+
   if (loading) {
     return (
       <Screen title="Loading…" onBack={onBack}>
@@ -233,13 +239,23 @@ export function GroupDetailScreen({
       return;
     }
     const message = `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and I’ll let you in: ${link.url}`;
-    setShared({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
+    const outcome = await sendOrCopy(message);
+    setShared(
+      outcome === 'copied'
+        ? { kind: 'copied' }
+        : outcome === 'blocked'
+          ? // Manage shows the link itself, where it can be selected.
+            { kind: 'failed', message: 'Couldn’t share or copy the link here. It’s under Manage, to copy by hand.' }
+          : { kind: 'idle' }
+    );
   };
 
   return (
     <Screen
       title={data.name}
-      subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
+      subtitle={
+        shared.kind === 'copied' ? 'Link copied' : `${data.members.length} members · ${data.expenses.length} expenses`
+      }
       onBack={onBack}
       right={
         <View style={s.headerActions}>
@@ -249,9 +265,6 @@ export function GroupDetailScreen({
       }
       footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
     >
-      {shared.kind === 'sent' && (
-        <Shared url={shared.url} note={shared.note} onHide={() => setShared({ kind: 'idle' })} />
-      )}
       {shared.kind === 'failed' && <ErrorState message={shared.message} />}
 
       {/* Above the tabs, whichever is showing: someone is waiting on an answer. */}
@@ -608,6 +621,11 @@ function cannotReceiveNote(member: Member, mode: PaymentMode, ways: PayWays): st
 }
 
 const REFRESH_MS = 4000;
+/** How long "Link copied" stays under the group's name. */
+const COPIED_MS = 3000;
+
+/** Invite, between taps. Sharing shows nothing here unless there was no share sheet to show it. */
+type GroupShare = { kind: 'idle' } | { kind: 'busy' } | { kind: 'copied' } | { kind: 'failed'; message: string };
 
 type LinkState =
   | { kind: 'idle' }
@@ -643,40 +661,6 @@ function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean
       </View>
       {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
     </View>
-  );
-}
-
-/**
- * What Invite just did, at the top of the screen. The button has no room to
- * say what the link is, so this does: whoever opens it sees the group and can
- * pay, and can ask to join, which someone here has to say yes to. The link
- * has a copy button beside it, for sending it somewhere the share sheet
- * didn't reach. Replacing it and turning it off are under Manage.
- */
-function Shared({ url, note, onHide }: { url: string; note: string; onHide: () => void }) {
-  const s = useStyles();
-  /** What the copy button last did, in place of the share sheet's note. */
-  const [copied, setCopied] = useState<string | null>(null);
-  return (
-    <Card style={{ gap: space.xs }}>
-      <View style={s.sharedTop}>
-        <Text style={[s.linkNote, { flex: 1 }]}>{copied ?? note}</Text>
-        <Pressable onPress={onHide} hitSlop={12} accessibilityRole="button">
-          <Text style={s.sharedHide}>Hide</Text>
-        </Pressable>
-      </View>
-      <View style={s.sharedTop}>
-        <Text style={[s.linkUrl, { flex: 1 }]} selectable numberOfLines={1}>
-          {url}
-        </Text>
-        <IconButton icon="copy" label="Copy link" onPress={async () => setCopied(await copyText(url))} />
-      </View>
-      <Text style={s.linkNote}>
-        One link for everyone. Whoever opens it sees what’s been split and who owes what, and can pay what they owe
-        with no app. They can also ask to join from it: you or anyone here lets them in. Replace it or turn it off
-        under Manage.
-      </Text>
-    </Card>
   );
 }
 
@@ -961,8 +945,6 @@ const useStyles = makeStyles((color) => ({
   // Lines up under the name: row padding, avatar, gap.
   memberAction: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  sharedTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  sharedHide: { ...type.label, color: color.accent },
   addMember: { padding: space.md, gap: space.xs },
   addMemberRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addInput: {
