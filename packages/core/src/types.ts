@@ -267,7 +267,8 @@ export interface CreateGroupInput {
 /**
  * A shareable link for one debt: the payee sends it to the payer, who opens
  * /s/<token> with no app and no account. The token grants that one debt,
- * never the group.
+ * never the group. It can be paid whichever way the payee can be paid: over
+ * Lightning, or in a rupee group by UPI (GuestView's `payable` and `upi`).
  */
 export interface PayLink {
   token: string;
@@ -297,7 +298,24 @@ export interface GuestView {
   payeeName: string;
   /** e.g. the group name. */
   reason: string;
-  /** Absent until the link is opened and an invoice minted. */
+  /** What the link asks for, in minor units of `currency`. */
+  amount: number;
+  currency: Currency;
+  /** Whether the person owed has somewhere to receive it over Lightning (canReceive). */
+  payable: boolean;
+  /**
+   * Whether the link can be paid by UPI: the group is in rupees, the person
+   * owed has a UPI ID, and they haven't turned that off for shared links. The
+   * ID itself isn't here; getPayLinkUpi gives it.
+   */
+  upi?: boolean;
+  /** A UPI payment someone said they made for this debt, that the person owed hasn't confirmed. */
+  upiClaim?: UpiClaim['status'];
+  /**
+   * The latest payment this link started. Absent until an invoice is minted,
+   * which waits for the payer to choose when the link can also be paid by UPI.
+   * A UPI payment said from the link shows here once the person owed confirms it.
+   */
   settlement?: GuestSettlement;
 }
 
@@ -516,7 +534,7 @@ export interface UpiClaim {
   reference?: string;
   /** `declined`: the person owed said it didn't arrive. It stays until the payer has seen it. */
   status: 'pending' | 'declined';
-  /** Made by someone on the group's shared link, who may not be the payer. */
+  /** Made by someone on a shared link, the group's or a pay link, who may not be the payer. */
   viaLink?: boolean;
   createdAt: string;
 }

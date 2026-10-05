@@ -199,8 +199,14 @@ export class ApiClient implements SattleClient {
     const { groupId, ...body } = input;
     return this.request<PayLink>('POST', `/groups/${groupId}/pay-links`, body, idempotencyKey);
   }
-  openPayLink(token: string) {
-    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, undefined, newIdempotencyKey());
+  openPayLink(token: string, rail?: 'lightning') {
+    return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, rail && { rail }, newIdempotencyKey());
+  }
+  getPayLinkUpi(token: string) {
+    return this.request<UpiPayee>('GET', `/s/${encodeURIComponent(token)}/upi`);
+  }
+  async claimUpiFromPayLink(token: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('POST', `/s/${encodeURIComponent(token)}/upi-claims`, undefined, idempotencyKey);
   }
   getGuestView(token: string) {
     return this.request<GuestView>('GET', `/s/${encodeURIComponent(token)}`);

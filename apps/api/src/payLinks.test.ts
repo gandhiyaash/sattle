@@ -277,12 +277,13 @@ describe('GET /s/:token', () => {
     expect((await call('GET', '/s/nope')).status).toBe(404);
   });
 
-  it('shows names and no settlement before the link is opened', async () => {
+  it('shows names, what is asked for and how it can be paid, and no settlement before the link is opened', async () => {
     const { call, createLink } = setup();
     const link = await createLink();
     const { status, body } = await call<GuestView>('GET', `/s/${link.token}`);
     expect(status).toBe(200);
-    expect(body).toEqual({ payerName: 'Priya', payeeName: 'Yash', reason: 'Flat 4B' });
+    // Yash can receive over Lightning and has given no UPI ID, so that is the one way.
+    expect(body).toEqual({ payerName: 'Priya', payeeName: 'Yash', reason: 'Flat 4B', amount: link.amount, currency: 'INR', payable: true });
   });
 });
 

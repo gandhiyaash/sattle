@@ -249,9 +249,11 @@ export function createRepo(db: Db) {
     upiClaimById: db.prepare('SELECT * FROM upi_claims WHERE id = ?'),
     upiClaimsOfGroup: db.prepare('SELECT * FROM upi_claims WHERE group_id = ? ORDER BY created_at'),
     insertUpiClaim: db.prepare(
-      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, via_link, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, via_link, created_at,
+                               pay_link_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
+    payLinkOfUpiClaim: db.prepare('SELECT pay_link_token FROM upi_claims WHERE id = ?'),
     setUpiClaimStatus: db.prepare('UPDATE upi_claims SET status = ? WHERE id = ?'),
     deleteUpiClaim: db.prepare('DELETE FROM upi_claims WHERE id = ?'),
     deleteUpiClaimForPair: db.prepare(
@@ -612,14 +614,23 @@ export function createRepo(db: Db) {
       return r && toUpiClaim(r);
     },
     upiClaims: (groupId: string) => (q.upiClaimsOfGroup.all(groupId) as Row[]).map(toUpiClaim),
-    /** One per pair: the new claim takes the place of the last, whether it was pending or declined. */
-    replaceUpiClaim(claim: UpiClaim) {
+    /**
+     * One per pair: the new claim takes the place of the last, whether it was
+     * pending or declined. `payLinkToken` is the pay link it was said from, if
+     * it was, which the claim itself doesn't carry out of here.
+     */
+    replaceUpiClaim(claim: UpiClaim, payLinkToken?: string) {
       q.deleteUpiClaimForPair.run(claim.groupId, claim.fromMemberId, claim.toMemberId);
       q.insertUpiClaim.run(
         claim.id, claim.groupId, claim.fromMemberId, claim.toMemberId, claim.amount,
-        claim.reference ?? null, claim.status, claim.viaLink ? 1 : 0, claim.createdAt
+        claim.reference ?? null, claim.status, claim.viaLink ? 1 : 0, claim.createdAt, payLinkToken ?? null
       );
       return claim;
+    },
+    /** The pay link a claim was said from, if that link is still there. */
+    payLinkOfUpiClaim(id: string) {
+      const r = q.payLinkOfUpiClaim.get(id) as { pay_link_token: string | null } | undefined;
+      return r?.pay_link_token ? repo.payLink(r.pay_link_token) : undefined;
     },
     setUpiClaimStatus(id: string, status: UpiClaim['status']) {
       q.setUpiClaimStatus.run(status, id);

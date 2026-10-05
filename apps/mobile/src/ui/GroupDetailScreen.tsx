@@ -33,6 +33,7 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
+  SattleError,
   canReceive,
   computeBalances,
   formatAmount,
@@ -425,21 +426,18 @@ export function GroupDetailScreen({
                         onChanged={refresh}
                       />
                     )}
-                    {/* A pay link asks for a Lightning payment, so it goes with Lightning. */}
-                    {!owedByMe &&
-                      ways.lightning &&
-                      (iCanReceive ? (
-                        <SendPayLink
-                          debt={debt}
-                          payerName={nameOf(other)}
-                          groupName={data.name}
-                          currency={data.currency}
-                        />
-                      ) : (
-                        <Text style={s.blockedNote}>
-                          Set up receiving from Wallet to send {nameOf(other)} a pay link.
-                        </Text>
-                      ))}
+                    {/* The link offers whichever ways the user can be paid, so it is here whichever they use.
+                        With none, sending it says what to add. */}
+                    {!owedByMe && (
+                      <SendPayLink
+                        debt={debt}
+                        payerName={nameOf(other)}
+                        groupName={data.name}
+                        currency={data.currency}
+                        nothingToPayWith={nothingToPayWith(ways, Boolean(data.upi.upiId))}
+                        onSetUp={setUpGettingPaid}
+                      />
+                    )}
                     {!owedByMe && (
                       <MarkSettled debt={debt} payerName={nameOf(other)} upi={ways.upi} onSettled={refresh} />
                     )}
@@ -643,7 +641,9 @@ type LinkState =
   | { kind: 'idle' }
   | { kind: 'busy' }
   | { kind: 'sent'; url: string; note: string }
-  | { kind: 'failed'; message: string };
+  | { kind: 'failed'; message: string }
+  /** The user has no way to be paid, so there was no link to make. */
+  | { kind: 'no_way' };
 
 /** One member, with their state, in terms of the ways to pay the user is shown. */
 function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean; mode: PaymentMode; ways: PayWays }) {
@@ -722,19 +722,46 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
 }
 
 /**
+ * What Send pay link says to someone with no way to be paid by one, in terms
+ * of the ways they're shown, like the card at the top of the tab. The server
+ * is what refuses the link; these are the app's words for why.
+ */
+function nothingToPayWith(ways: PayWays, hasUpiId: boolean): string {
+  // They've given a UPI ID and still can't be paid by link, so shared links aren't allowed to show it.
+  if (ways.upi && hasUpiId) {
+    return ways.lightning
+      ? 'Your UPI ID is turned off for shared links, and you have no Lightning wallet, so nobody could pay this link. Turn it back on from Wallet, or add a wallet.'
+      : 'Your UPI ID is turned off for shared links, so nobody could pay this link. Turn it back on from Wallet.';
+  }
+  if (!ways.lightning) return 'Add your UPI ID first, so the link has a way to pay you.';
+  return ways.upi
+    ? 'Add a way to get paid first: a UPI ID, a Lightning wallet, or a Lightning address. Then the link has somewhere to send the money.'
+    : 'Add a way to get paid first: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.';
+}
+
+/**
  * Only on debts owed to you: mints a pay link and hands it to the share
  * sheet. The URL stays on screen afterwards, so it can be copied by hand.
+ * Whoever opens the link is offered the ways the user can be paid. With no
+ * way at all there is no link to send: it says what to add, with a button
+ * that goes there.
  */
 function SendPayLink({
   debt,
   payerName,
   groupName,
   currency,
+  nothingToPayWith,
+  onSetUp,
 }: {
   debt: Debt;
   payerName: string;
   groupName: string;
   currency: string;
+  /** What to say when the user has no way to be paid by a link. */
+  nothingToPayWith: string;
+  /** Opens Wallet, where a way to get paid is added. */
+  onSetUp: () => void;
 }) {
   const s = useStyles();
   const client = useClient();
@@ -754,7 +781,11 @@ function SendPayLink({
       const link = await keys.run('pay-link', input, (k) => client.createPayLink(input, k));
       url = `${APP_URL}${payLinkPath(link.token)}`;
     } catch (e) {
-      setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
+      setState(
+        e instanceof SattleError && e.code === 'member_cannot_receive'
+          ? { kind: 'no_way' }
+          : { kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' }
+      );
       return;
     }
     const message = `${payerName}, you owe me ${formatAmount(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
@@ -777,6 +808,12 @@ function SendPayLink({
         </>
       )}
       {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
+      {state.kind === 'no_way' && (
+        <>
+          <Text style={s.linkError}>{nothingToPayWith}</Text>
+          <Button label="Set up getting paid" variant="primary" onPress={onSetUp} />
+        </>
+      )}
     </View>
   );
 }
@@ -885,7 +922,7 @@ function UpiClaimNote({
           {declined
             ? `${otherName} says the UPI payment of ${amount} didn’t arrive. Check with them, or pay again.`
             : claim.viaLink
-              ? `Someone on the group link told ${otherName} this was paid by UPI (${amount}). It’s settled once they confirm it arrived.`
+              ? `Someone on a shared link told ${otherName} this was paid by UPI (${amount}). It’s settled once they confirm it arrived.`
               : `You told ${otherName} you paid ${amount} by UPI. It’s settled once they confirm it arrived.`}
         </Text>
         <Button
@@ -904,7 +941,7 @@ function UpiClaimNote({
       <Text style={s.linkNote}>
         {declined
           ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
-          : `${claim.viaLink ? `Someone on the group link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
+          : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
               claim.reference ? ` Reference ${claim.reference}.` : ''
             } Check your bank or UPI app before you confirm.`}
       </Text>
