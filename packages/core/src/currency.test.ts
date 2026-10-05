@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { amountAsTyped, formatAmount, formatFiat, isSupportedCurrency, parseAmount } from './currency';
+import { amountAsTyped, formatAmount, formatFiat, formatSats, isSupportedCurrency, parseAmount } from './currency';
 
 describe('formatFiat', () => {
   it('formats rupees in Indian grouping', () => {
@@ -18,7 +18,21 @@ describe('formatAmount', () => {
   it('shows a bitcoin group in whole sats, never as a fraction of a coin', () => {
     expect(formatAmount(15_000, 'BTC')).toBe('15,000 sats');
     expect(formatAmount(100_000_000, 'BTC')).toBe('100,000,000 sats');
-    expect(formatAmount(1, 'BTC')).toBe('1 sats');
+  });
+});
+
+describe('formatSats', () => {
+  it('says "sat" for one and "sats" for everything else', () => {
+    expect(formatSats(1)).toBe('1 sat');
+    expect(formatAmount(1, 'BTC')).toBe('1 sat');
+    expect(formatSats(0)).toBe('0 sats');
+    expect(formatSats(2)).toBe('2 sats');
+    expect(formatSats(1_001)).toBe('1,001 sats');
+  });
+
+  it('goes by the whole number shown, not the one passed in', () => {
+    expect(formatSats(1.2)).toBe('1 sat');
+    expect(formatSats(1.6)).toBe('2 sats');
   });
 });
 

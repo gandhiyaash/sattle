@@ -30,6 +30,10 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
   const client = useClient();
   const prefs = useCurrencyPrefs();
   const { data, loading, error, reload } = useAsync(() => client.getCurrentUser(), []);
+  // Deleting forgets a connected wallet whether or not they still use bitcoin, so someone who
+  // turned it off with one connected is told too. If this can't be read, what they use decides.
+  const wallet = useAsync(() => client.getWalletConnection(), []);
+  const forgetsWallet = prefs.uses.includes('BTC') || Boolean(wallet.data?.connected);
 
   return (
     <Screen title="Account" onBack={onBack}>
@@ -61,7 +65,7 @@ export function AccountScreen({ onBack, onDeleted }: AccountScreenProps) {
           <SectionLabel>Delete account</SectionLabel>
           <Card style={{ gap: space.md }}>
             <Text style={s.body}>
-              This ends your account for good. {prefs.uses.includes('BTC') ? 'Your wallet connection is forgotten, the' : 'The'}{' '}
+              This ends your account for good. {forgetsWallet ? 'Your wallet connection is forgotten, the' : 'The'}{' '}
               links you sent stop working, and you leave every group. A group only you could open is deleted.
             </Text>
             <Text style={s.body}>

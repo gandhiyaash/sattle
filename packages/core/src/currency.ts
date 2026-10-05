@@ -32,7 +32,11 @@ export function formatFiat(minor: number, currency = 'INR'): string {
   }).format(major);
 }
 
-export const formatSats = (sats: number) => `${new Intl.NumberFormat('en-US').format(Math.round(sats))} sats`;
+/** "15,000 sats", and "1 sat" for the one amount that isn't plural. */
+export function formatSats(sats: number): string {
+  const whole = Math.round(sats);
+  return `${new Intl.NumberFormat('en-US').format(whole)} ${Math.abs(whole) === 1 ? 'sat' : 'sats'}`;
+}
 
 /** An amount in a group's own currency: "₹1,200", or "15,000 sats" for a group kept in bitcoin. */
 export function formatAmount(minor: number, currency = 'INR'): string {
