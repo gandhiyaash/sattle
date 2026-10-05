@@ -265,12 +265,15 @@ export function ConfirmButton({
   label,
   confirmLabel,
   hint,
+  confirmHint,
   onConfirm,
 }: {
   label: string;
   /** What the second tap says, e.g. "Yes, delete it". */
   confirmLabel: string;
   hint?: string;
+  /** What the second tap leaves behind, said only once the first has asked. */
+  confirmHint?: string;
   onConfirm: () => Promise<void>;
 }) {
   const color = useColors();
@@ -294,7 +297,7 @@ export function ConfirmButton({
         <Button label={label} hint={hint} danger variant="quiet" onPress={() => setState('confirming')} />
       ) : (
         <>
-          <Button label={confirmLabel} danger busy={state === 'busy'} onPress={confirm} />
+          <Button label={confirmLabel} hint={confirmHint} danger busy={state === 'busy'} onPress={confirm} />
           {state === 'confirming' && <Button label="Cancel" variant="quiet" onPress={() => setState('idle')} />}
         </>
       )}
@@ -303,7 +306,32 @@ export function ConfirmButton({
   );
 }
 
-/** One of a few, side by side: the appearance, or which currency a group is kept in. */
+/**
+ * The longer explanation of something, out of the way until it's asked for.
+ * For what is worth knowing but isn't needed to use the screen.
+ */
+export function LearnMore({ children }: { children: React.ReactNode }) {
+  const s = useStyles();
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ gap: space.xs }}>
+      <Pressable
+        onPress={() => setOpen(!open)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        // A browser is told separately: react-native-web doesn't read accessibilityState.
+        aria-expanded={open}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        <Text style={s.learnMore}>{open ? 'Show less' : 'Learn more'}</Text>
+      </Pressable>
+      {open && <Text style={s.learnMoreBody}>{children}</Text>}
+    </View>
+  );
+}
+
+/** One of a few, side by side: the appearance, which currency a group is kept in, or which part of a group is showing. */
 export function Segmented<T extends string>({
   options,
   value,
@@ -567,6 +595,9 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  learnMore: { ...type.label, color: color.accent },
+  learnMoreBody: { ...type.caption, color: color.inkMuted, lineHeight: 18 },
 
   avatar: {
     width: 36,

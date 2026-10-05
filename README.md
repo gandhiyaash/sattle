@@ -135,7 +135,7 @@ apps/mobile/                 @sattle/mobile: Expo
       WelcomeScreen.tsx      First launch against the real API: your name, and a device account.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name and the people in it.
-      GroupDetailScreen.tsx  Balances, member states, expenses, settle entry.
+      GroupDetailScreen.tsx  The balance, then three tabs: expenses, members and their states, settle up.
       AddExpenseScreen.tsx   Live split preview as you type.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
@@ -144,7 +144,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
-      GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
+      GroupSettingsScreen.tsx  Manage: rename the group, its link, its Nostr backup, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.

@@ -49,7 +49,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 2. **New group**: "Goa trip", with members Om and Aman. They're only names. Leave **Kept in** on Rupees: the demo is a rupee debt paid in sats.
 3. **Add expense**: "Chai", ₹100, paid by Yash, split equally. Pause on the live preview: Yash ₹33.34, Om ₹33.33, Aman ₹33.33. The extra paisa goes to the first person in the split.
 4. Add "Dinner", ₹900, paid by Yash, split equally. Save.
-5. Group screen: members show **Not joined**, and "Om owes you" and "Aman owes you" appear.
+5. Group screen: under **Members**, they show **Not joined**. Under **Settle up**, "Om owes you" and "Aman owes you" appear.
 
 **Say:**
 > I'm the only one with the app. Om and Aman are just names; they never sign up. Expenses stay in rupees, because that's what dinner cost. A hundred rupees doesn't split three ways, so the leftover paisa goes to one person in a fixed order. Every share is whole, and they always add up to the total.
@@ -70,14 +70,14 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 1. Tap the share icon in the group's header and copy the group link.
 2. Open it on the phone, in a plain browser with no app. Hold a second on the group page: the spends, who owes what, and the **Join** card. On "Om owes Yash", tap **Pay with Lightning**. The pay page shows "Om, you owe Yash ₹333.33", the sats amount, and the breakdown under it. Hold on the breakdown for a beat: **Exchange rate** "1 BTC = ₹…", **Rate from** "CoinGecko, live", and the network fee. Then the QR code and "Rate and invoice locked for 1:29". If **Rate from** says "Demo rate", `PAYMENTS` isn't `nwc`; **Rate from** can also name Blockchain.com or Coinbase, if CoinGecko didn't answer.
 3. Scan the QR code with the paying wallet and pay.
-4. Cut back to browser A: Om's row clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
+4. Cut back to browser A, on **Settle up**: Om's row clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
 
 **Say:**
 > To collect, I post one link in the group chat. Om opens it in any browser, sees what he owes, and gets a Lightning invoice made by my wallet, at a rate pinned for ninety seconds, so nobody pays yesterday's price. He pays with whatever wallet he already has. Sattle checks with my wallet, and only when it says the invoice is paid, with a proof that matches, does the debt clear. Nothing is marked paid on hope.
 
 ## Scene 5: Cash still counts (1:55–2:10)
 
-**Screen:** on "Aman owes you", tap **Mark as settled**, then **Yes, Aman paid me**. The row clears.
+**Screen:** under **Settle up**, on "Aman owes you", tap **Mark as settled**, then **Yes, Aman paid me**. The row clears.
 
 **Say:**
 > Aman paid me in UPI. Only the person who's owed can mark that, because it's their word, and the app keeps it separate from Lightning payments that come with proof.
@@ -85,13 +85,13 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 ## Scene 6: The record outlives us (2:10–2:45)
 
 **Screen:**
-1. The **Backed up on Nostr** card under the balance: "All 4 entries on relay.damus.io, nos.lol, relay.primal.net." (two expenses, two settlements) Tap **Copy backup key**.
+1. Tap **Manage**. The **Backed up on Nostr** card: "All 4 entries on relay.damus.io, nos.lol, relay.primal.net." (two expenses, two settlements) Tap **Copy backup key**.
 2. Terminal. Run the command below, and paste the key when it asks. The prompt doesn't echo, so the key never appears on screen:
    ```bash
    npm run ledger:verify -w @sattle/api
    ```
 3. The output: "Chain intact. Every entry signed by the server." It reports 4 entries: 2 expenses and 2 settlements. Every balance is ₹0, matching the app, and "To settle up" reads "Nothing. Everyone is square."
-4. Optional, 3 seconds: back in the app, tap **See it on a relay**. njump.me shows the newest entry, kind 4733, and only ciphertext.
+4. Optional, 3 seconds: back in the app, on the same card, tap **See it on a relay**. njump.me shows the newest entry, kind 4733, and only ciphertext.
 
 **Say:**
 > Our server keeps the ledger, so what happens if we disappear? Every expense and payment is also published to Nostr relays: signed, encrypted with a key only the group holds, and chained, so a missing entry shows. With the group's backup key, anyone in the group can rebuild every balance from the relays alone, with no Sattle server involved.

@@ -1,16 +1,23 @@
 /**
  * Group detail. The screen the demo spends most of its time on.
  *
- * Two things here carry weight beyond looking tidy:
+ * Under the balance it is three tabs: the expenses, the members, and what
+ * there is to settle. Which one is showing is the navigator's to hold, since
+ * this screen is built again after every payment and every new expense.
+ *
+ * A few things here carry weight beyond looking tidy:
  *
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
  *    of a line in a README. One link, from the share icon in the header, is
- *    for all of them.
+ *    for all of them. A member nothing has been built on yet can be removed
+ *    from their row; that is the server's rule (groupRules.ts), not a choice
+ *    made here.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
  * 3. Nobody joins by holding the link: whoever asks to join shows up here,
  *    with a code, and someone in the group lets them in or turns them down.
+ *    They show above the tabs, since someone is waiting on the answer.
  * 4. It only talks about the ways to pay the person looking uses (payWays).
  *    Someone who chose rupees alone sees no Lightning here, and someone who
  *    chose bitcoin alone sees no UPI, except in a group kept in bitcoin,
@@ -21,7 +28,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   canReceive,
@@ -50,23 +57,36 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmButton,
   Divider,
   ErrorState,
   IconButton,
   Loading,
   Screen,
   SectionLabel,
+  Segmented,
 } from './primitives';
 import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
+/** The three parts of a group, one showing at a time. */
+export type GroupTab = 'expenses' | 'members' | 'settle';
+
+const TABS: ReadonlyArray<{ value: GroupTab; label: string }> = [
+  { value: 'expenses', label: 'Expenses' },
+  { value: 'members', label: 'Members' },
+  { value: 'settle', label: 'Settle up' },
+];
+
 export interface GroupDetailScreenProps {
   groupId: string;
+  tab: GroupTab;
+  onTab: (tab: GroupTab) => void;
   onBack: () => void;
   onAddExpense: (members: Member[], currency: string) => void;
   /** Opens an expense to change or delete it. `userId` is who is signed in. */
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
-  /** Opens the screen for renaming, leaving and deleting the group. */
+  /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
   onManage: () => void;
   /** Opens Wallet, where the user sets up how they get paid. */
   onOpenWallet: () => void;
@@ -83,6 +103,8 @@ interface GroupView {
   claims: UpiClaim[];
   /** People asking to join, waiting on someone here to let them in. */
   waiting: PendingJoin[];
+  /** Ghosts that no expense or payment names. */
+  removable: Set<string>;
   /** The user's own UPI ID, if they've given one. */
   upi: UpiProfile;
   userId: string;
@@ -92,6 +114,8 @@ interface GroupView {
 
 export function GroupDetailScreen({
   groupId,
+  tab,
+  onTab,
   onBack,
   onAddExpense,
   onEditExpense,
@@ -102,6 +126,7 @@ export function GroupDetailScreen({
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  const keys = useActionKeys();
   const mode = usePaymentMode();
   const prefs = useCurrencyPrefs();
   /** What the share icon last did. The link stays on screen, so it can be copied by hand. */
@@ -122,6 +147,15 @@ export function GroupDetailScreen({
     const balances = computeBalances(group.memberIds, expenses, settlements);
     const debts = simplifyDebts(groupId, balances);
     const mine = members.find((m) => m.claimedByUserId === user.id) ?? null;
+    const named = new Set<string>();
+    for (const e of expenses) {
+      named.add(e.paidByMemberId);
+      for (const p of e.parts) named.add(p.memberId);
+    }
+    for (const st of settlements) {
+      named.add(st.fromMemberId);
+      named.add(st.toMemberId);
+    }
 
     return {
       name: group.name,
@@ -131,6 +165,7 @@ export function GroupDetailScreen({
       debts,
       claims,
       waiting,
+      removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
       upi,
       userId: user.id,
       myMemberId: mine?.id ?? null,
@@ -208,8 +243,8 @@ export function GroupDetailScreen({
       onBack={onBack}
       right={
         <View style={s.headerActions}>
-          <IconButton icon="share" label="Share this group" busy={shared.kind === 'busy'} onPress={shareGroup} />
           <Button label="Manage" variant="quiet" onPress={onManage} />
+          <IconButton icon="share" label="Share this group" busy={shared.kind === 'busy'} onPress={shareGroup} />
         </View>
       }
       footer={<Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />}
@@ -219,26 +254,7 @@ export function GroupDetailScreen({
       )}
       {shared.kind === 'failed' && <ErrorState message={shared.message} />}
 
-      <Card>
-        {data.expenses.length === 0 ? (
-          // Zero because nothing has happened yet, not because it was paid off.
-          <>
-            <Text style={s.label}>No expenses yet</Text>
-            <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
-          </>
-        ) : (
-          <>
-            <Text style={s.label}>
-              {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
-            </Text>
-            <Amount minor={data.myNet} currency={data.currency} size="lg" net />
-          </>
-        )}
-      </Card>
-
-      {/* Up here, not under the expenses: it's what makes this record more than our word. */}
-      <LedgerBackupCard groupId={groupId} version={data.expenses.length} />
-
+      {/* Above the tabs, whichever is showing: someone is waiting on an answer. */}
       {data.waiting.length > 0 && (
         <View>
           <SectionLabel>Asking to join</SectionLabel>
@@ -257,107 +273,28 @@ export function GroupDetailScreen({
         </View>
       )}
 
-      {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId) && (
-        <GetPaidCard names={owingMe} ways={ways} turnsOnBitcoin={turnsOnBitcoin} onSetUp={setUpGettingPaid} />
-      )}
-
-      {myDebts.length > 0 && (
-        <View>
-          <SectionLabel>Settle up</SectionLabel>
-          <View style={{ gap: space.sm }}>
-            {myDebts.map((debt) => {
-              const owedByMe = debt.fromMemberId === data.myMemberId;
-              const other = owedByMe ? debt.toMemberId : debt.fromMemberId;
-              const otherMember = data.members.find((m) => m.id === other);
-              const blocked = !owedByMe && false; // they pay you; nothing to block
-              // UPI is a way to pay someone who has no wallet here, as long as the group is in rupees.
-              // Either way counts only if it is one the user is shown.
-              const takesUpi = ways.upi && Boolean(otherMember?.upi);
-              const takesLightning = ways.lightning && Boolean(otherMember && canReceive(otherMember, mode));
-              const cannotReceive = owedByMe && otherMember && !takesLightning && !takesUpi;
-              const claim = data.claims.find(
-                (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId
-              );
-              // They've said they paid by UPI. Paying again would pay twice, so Pay waits with the claim.
-              const waiting = owedByMe && claim?.status === 'pending';
-
-              return (
-                <Card key={debt.id} style={{ padding: space.md }}>
-                  <View style={s.debtRow}>
-                    <Avatar name={nameOf(other)} dim={!owedByMe} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.debtText}>
-                        {owedByMe ? `You owe ${nameOf(other)}` : `${nameOf(other)} owes you`}
-                      </Text>
-                      <Amount
-                        minor={debt.amount}
-                        currency={data.currency}
-                        size="sm"
-                      />
-                    </View>
-                    {owedByMe && !waiting && (
-                      <Button
-                        label={cannotReceive ? 'Options' : 'Pay'}
-                        variant={cannotReceive ? 'secondary' : 'primary'}
-                        onPress={() => onSettle(debt, data.members, data.name, data.currency)}
-                      />
-                    )}
-                  </View>
-                  {claim && (
-                    <UpiClaimNote
-                      claim={claim}
-                      mine={owedByMe}
-                      otherName={nameOf(other)}
-                      currency={data.currency}
-                      onChanged={refresh}
-                    />
-                  )}
-                  {/* A pay link asks for a Lightning payment, so it goes with Lightning. */}
-                  {!owedByMe &&
-                    ways.lightning &&
-                    (iCanReceive ? (
-                      <SendPayLink
-                        debt={debt}
-                        payerName={nameOf(other)}
-                        groupName={data.name}
-                        currency={data.currency}
-                      />
-                    ) : (
-                      <Text style={s.blockedNote}>
-                        Set up receiving from Wallet to send {nameOf(other)} a pay link.
-                      </Text>
-                    ))}
-                  {!owedByMe && (
-                    <MarkSettled debt={debt} payerName={nameOf(other)} upi={ways.upi} onSettled={refresh} />
-                  )}
-                  {cannotReceive && otherMember && (
-                    <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode, ways)}</Text>
-                  )}
-                </Card>
-              );
-            })}
-          </View>
-        </View>
-      )}
-
-      <View>
-        <SectionLabel>Members</SectionLabel>
-        <Card style={{ padding: 0 }}>
-          {data.members.map((member, i) => (
-            <View key={member.id}>
-              {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} ways={ways} />
-            </View>
-          ))}
-          <Divider />
-          <AddMember groupId={groupId} onAdded={refresh} />
-        </Card>
-      </View>
-
-      <View>
-        <SectionLabel>Expenses</SectionLabel>
+      <Card>
         {data.expenses.length === 0 ? (
-          <Text style={s.noExpenses}>Nothing yet. Add the first one below.</Text>
+          // Zero because nothing has happened yet, not because it was paid off.
+          <>
+            <Text style={s.label}>No expenses yet</Text>
+            <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.label}>
+              {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
+            </Text>
+            <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+          </>
+        )}
+      </Card>
+
+      <Segmented options={TABS} value={tab} onChange={onTab} />
+
+      {tab === 'expenses' &&
+        (data.expenses.length === 0 ? (
+          <Text style={s.emptyTab}>Nothing yet. Add the first one below.</Text>
         ) : (
           <Card style={{ padding: 0 }}>
             {data.expenses.map((expense, i) => (
@@ -378,8 +315,119 @@ export function GroupDetailScreen({
               </View>
             ))}
           </Card>
-        )}
-      </View>
+        ))}
+
+      {tab === 'members' && (
+        <Card style={{ padding: 0 }}>
+          {data.members.map((member, i) => (
+            <View key={member.id}>
+              {i > 0 && <Divider />}
+              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} ways={ways} />
+              {data.removable.has(member.id) && (
+                <View style={s.memberAction}>
+                  <ConfirmButton
+                    label={`Remove ${member.displayName}`}
+                    confirmLabel={`Yes, remove ${member.displayName}`}
+                    onConfirm={async () => {
+                      await keys.run('remove-member', { groupId, id: member.id }, (k) =>
+                        client.removeMember(groupId, member.id, k)
+                      );
+                      refresh();
+                    }}
+                  />
+                </View>
+              )}
+            </View>
+          ))}
+          <Divider />
+          <AddMember groupId={groupId} onAdded={refresh} />
+        </Card>
+      )}
+
+      {tab === 'settle' && (
+        <>
+          {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId) && (
+            <GetPaidCard names={owingMe} ways={ways} turnsOnBitcoin={turnsOnBitcoin} onSetUp={setUpGettingPaid} />
+          )}
+          {myDebts.length === 0 ? (
+            <Text style={s.emptyTab}>Nothing to settle. You don’t owe anyone here, and nobody owes you.</Text>
+          ) : (
+            <View style={{ gap: space.sm }}>
+              {myDebts.map((debt) => {
+                const owedByMe = debt.fromMemberId === data.myMemberId;
+                const other = owedByMe ? debt.toMemberId : debt.fromMemberId;
+                const otherMember = data.members.find((m) => m.id === other);
+                const blocked = !owedByMe && false; // they pay you; nothing to block
+                // UPI is a way to pay someone who has no wallet here, as long as the group is in rupees.
+                // Either way counts only if it is one the user is shown.
+                const takesUpi = ways.upi && Boolean(otherMember?.upi);
+                const takesLightning = ways.lightning && Boolean(otherMember && canReceive(otherMember, mode));
+                const cannotReceive = owedByMe && otherMember && !takesLightning && !takesUpi;
+                const claim = data.claims.find(
+                  (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId
+                );
+                // They've said they paid by UPI. Paying again would pay twice, so Pay waits with the claim.
+                const waiting = owedByMe && claim?.status === 'pending';
+
+                return (
+                  <Card key={debt.id} style={{ padding: space.md }}>
+                    <View style={s.debtRow}>
+                      <Avatar name={nameOf(other)} dim={!owedByMe} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.debtText}>
+                          {owedByMe ? `You owe ${nameOf(other)}` : `${nameOf(other)} owes you`}
+                        </Text>
+                        <Amount
+                          minor={debt.amount}
+                          currency={data.currency}
+                          size="sm"
+                        />
+                      </View>
+                      {owedByMe && !waiting && (
+                        <Button
+                          label={cannotReceive ? 'Options' : 'Pay'}
+                          variant={cannotReceive ? 'secondary' : 'primary'}
+                          onPress={() => onSettle(debt, data.members, data.name, data.currency)}
+                        />
+                      )}
+                    </View>
+                    {claim && (
+                      <UpiClaimNote
+                        claim={claim}
+                        mine={owedByMe}
+                        otherName={nameOf(other)}
+                        currency={data.currency}
+                        onChanged={refresh}
+                      />
+                    )}
+                    {/* A pay link asks for a Lightning payment, so it goes with Lightning. */}
+                    {!owedByMe &&
+                      ways.lightning &&
+                      (iCanReceive ? (
+                        <SendPayLink
+                          debt={debt}
+                          payerName={nameOf(other)}
+                          groupName={data.name}
+                          currency={data.currency}
+                        />
+                      ) : (
+                        <Text style={s.blockedNote}>
+                          Set up receiving from Wallet to send {nameOf(other)} a pay link.
+                        </Text>
+                      ))}
+                    {!owedByMe && (
+                      <MarkSettled debt={debt} payerName={nameOf(other)} upi={ways.upi} onSettled={refresh} />
+                    )}
+                    {cannotReceive && otherMember && (
+                      <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode, ways)}</Text>
+                    )}
+                  </Card>
+                );
+              })}
+            </View>
+          )}
+        </>
+      )}
     </Screen>
   );
 }
@@ -857,81 +905,7 @@ function UpiClaimNote({
   );
 }
 
-/**
- * The group's ledger on Nostr: how much of it is out on relays, and the key
- * that reads it back. The key decrypts the whole group, so it's copied, not
- * shared to a chat by default.
- */
-function LedgerBackupCard({ groupId, version }: { groupId: string; version: number }) {
-  const s = useStyles();
-  const client = useClient();
-  const { data } = useAsync(() => client.getLedgerBackup(groupId), [groupId, version]);
-  const [note, setNote] = useState<string | null>(null);
-
-  // Nothing to show off before the first expense.
-  if (!data || data.entries === 0) return null;
-
-  const hosts = data.relays.map((r) => r.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ');
-  const entries = `${data.entries} ${data.entries === 1 ? 'entry' : 'entries'}`;
-  const status =
-    data.relays.length === 0
-      ? `${entries} signed. This server isn’t publishing to relays yet.`
-      : data.published < data.entries
-        ? `${data.published} of ${entries} on ${hosts}. The rest go out shortly.`
-        : `${data.entries === 1 ? 'The entry is' : `All ${entries}`} on ${hosts}.`;
-
-  const copy = async () => {
-    if (Platform.OS === 'web') {
-      try {
-        await navigator.clipboard.writeText(data.uri);
-        setNote('Copied. It unlocks this group’s history, so only give it to people in the group.');
-      } catch {
-        setNote('Copy the key below by hand:');
-      }
-      return;
-    }
-    const r = await Share.share({ message: data.uri }).catch(() => null);
-    setNote(r?.action === Share.sharedAction ? 'Saved. Keep it somewhere only you can read.' : 'Here’s the key:');
-  };
-
-  return (
-    <Card style={{ gap: space.sm }}>
-      <View style={s.backupTop}>
-        <Text style={s.backupTitle}>Backed up on Nostr</Text>
-        {data.relays.length > 0 && data.published === data.entries && <Badge text="Up to date" tone="accent" />}
-      </View>
-      <Text style={s.linkNote}>{status}</Text>
-      <Text style={s.backupBody}>
-        Signed and encrypted, so relays keep it without reading it. With the backup key, anyone in the group can
-        rebuild these balances without Sattle.
-      </Text>
-      <View style={s.backupActions}>
-        {data.latest && (
-          <Button
-            label="See it on a relay"
-            variant="quiet"
-            onPress={() => Linking.openURL(`https://njump.me/${data.latest}`)}
-          />
-        )}
-        <Button label="Copy backup key" variant="quiet" onPress={copy} />
-      </View>
-      {note && (
-        <>
-          <Text style={s.linkNote}>{note}</Text>
-          <Text style={s.linkUrl} selectable numberOfLines={2}>
-            {data.uri}
-          </Text>
-        </>
-      )}
-    </Card>
-  );
-}
-
 const useStyles = makeStyles((color) => ({
-  backupBody: { ...type.caption, color: color.inkMuted },
-  backupTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
-  backupTitle: { ...type.body, fontWeight: '600', color: color.ink },
-  backupActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   debtText: { ...type.body, color: color.ink },
@@ -958,6 +932,8 @@ const useStyles = makeStyles((color) => ({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
+  // Lines up under the name: row padding, avatar, gap.
+  memberAction: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   sharedTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   sharedHide: { ...type.label, color: color.accent },
@@ -975,7 +951,7 @@ const useStyles = makeStyles((color) => ({
     backgroundColor: color.paper,
   },
   memberMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
-  noExpenses: { ...type.caption, color: color.inkFaint, marginBottom: space.sm },
+  emptyTab: { ...type.caption, color: color.inkFaint },
   nothingYet: { ...type.body, color: color.inkFaint },
   expenseRow: {
     flexDirection: 'row',
