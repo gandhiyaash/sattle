@@ -29,12 +29,18 @@ export function UpiPanel({
   uri,
   busy,
   onOpen,
+  onOpened,
 }: {
   payee: UpiPayee;
   uri: string;
   busy?: boolean;
   /** Android only: opens the UPI app and waits for what it says. Elsewhere the link is just opened. */
   onOpen?: () => void;
+  /**
+   * Elsewhere: the link is being handed to a UPI app, which will say nothing back. Whoever shows
+   * this can ask the payer what happened once they return (useBackFromUpi).
+   */
+  onOpened?: () => void;
 }) {
   const s = useStyles();
   const [failed, setFailed] = useState(false);
@@ -43,6 +49,8 @@ export function UpiPanel({
   const open = () => {
     if (onOpen) return onOpen();
     setFailed(false);
+    // Before the link goes: in a browser the page can be gone from the foreground the moment it does.
+    onOpened?.();
     openAppLink(uri).catch(() => setFailed(true));
   };
 

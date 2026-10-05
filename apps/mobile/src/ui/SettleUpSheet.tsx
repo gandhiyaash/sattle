@@ -7,9 +7,13 @@
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
- *   upi / upi_sent    what to pay in a UPI app, then waiting on the payee. On
- *                     Android, a UPI app that says the payment went through
- *                     settles it there and then, and the sheet goes to done
+ *   upi               what to pay in a UPI app. On Android, a UPI app that
+ *                     says the payment went through settles it there and
+ *                     then, and the sheet goes to done
+ *   upi_ask           "Did the payment go through?", asked when the payer
+ *                     comes back from a UPI app that says nothing (an iPhone,
+ *                     a browser) and from "I've paid". Yes settles it, with
+ *                     the reference their UPI app showed if they type it in
  *
  * The blocked screen is not an error state. It offers the routes to the
  * same outcome that can work here, ordered by how likely they are to: get an
@@ -52,6 +56,8 @@ export function SettleUpSheet({
   const s = useStyles();
   const flow = useSettleFlow(debt, members, groupName, currency);
   const [draft, setDraft] = useState('');
+  // The reference the payer may type in for a UPI payment they say went through.
+  const [reference, setReference] = useState('');
   // The quote ran out on screen before the server marked the invoice expired.
   const [lapsed, setLapsed] = useState(false);
   useEffect(() => setLapsed(false), [flow.settlement?.id]);
@@ -84,22 +90,41 @@ export function SettleUpSheet({
 
   // -- UPI -----------------------------------------------------------------
 
-  if (flow.step === 'upi_sent') {
+  if (flow.step === 'upi_ask') {
+    const name = recipient.displayName;
     return (
       <View style={s.sheet}>
-        <Text style={s.title}>Waiting for {recipient.displayName}</Text>
+        <Text style={s.title}>Did the payment go through?</Text>
         <Text style={s.body}>
-          You’ve told {recipient.displayName} you paid {amount} by UPI. It’s settled once they confirm it arrived.
+          Your UPI app doesn’t tell Sattle what happened. If the {amount} reached {name}, say so and it’s settled.{' '}
+          {name} has nothing to confirm.
         </Text>
-        {flow.upiClaim?.reference && (
-          <View style={s.receipt}>
-            <Text style={s.receiptLabel}>UPI reference</Text>
-            <Text style={s.receiptValue} numberOfLines={1}>
-              {flow.upiClaim.reference}
-            </Text>
-          </View>
-        )}
-        <Button label="Done" variant="primary" onPress={onClose} />
+
+        <TextInput
+          style={[s.input, flow.error && s.inputError]}
+          value={reference}
+          onChangeText={(text) => {
+            setReference(text);
+            if (flow.error) flow.clearError();
+          }}
+          placeholder="UPI reference, if you have it"
+          placeholderTextColor={color.inkFaint}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <Text style={s.fieldNote}>
+          The number your UPI app shows for the payment, usually 12 digits: its UPI transaction ID, UTR or UPI Ref No.
+          It goes in the group’s history, so {name} can find the payment by it. You can leave it out.
+        </Text>
+        {flow.error && <Text style={s.error}>{flow.error.message}</Text>}
+
+        <Button
+          label="Yes, it went through"
+          variant="primary"
+          busy={flow.busy}
+          onPress={() => flow.confirmPaid(reference)}
+        />
+        <Button label="No, it didn’t go through" variant="quiet" disabled={flow.busy} onPress={flow.notPaid} />
       </View>
     );
   }
@@ -110,7 +135,7 @@ export function SettleUpSheet({
     const instructions =
       said === 'success'
         ? // Only still on this step if telling the server failed: otherwise the sheet has gone to Settled.
-          'Your UPI app says the payment went through, but it couldn’t be recorded here. Tap I’ve paid to try again. Don’t pay a second time.'
+          'Your UPI app says the payment went through, but it couldn’t be recorded here. Tap Try again. Don’t pay a second time.'
         : said === 'failed'
           ? 'Your UPI app says the payment didn’t go through. Nothing was recorded, and you can try again.'
           : said === 'pending'
@@ -128,16 +153,26 @@ export function SettleUpSheet({
         </View>
         <Text style={s.body}>{instructions}</Text>
 
-        <UpiPanel payee={flow.upi.payee} uri={flow.upi.uri} busy={flow.busy} onOpen={flow.openUpiApp ?? undefined} />
+        <UpiPanel
+          payee={flow.upi.payee}
+          uri={flow.upi.uri}
+          busy={flow.busy}
+          onOpen={flow.openUpiApp ?? undefined}
+          onOpened={flow.leftForUpi}
+        />
         {flow.error && <ErrorState message={flow.error.message} />}
 
-        <Button
-          label="I’ve paid"
-          variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
-          hint={`Tells ${recipient.displayName}, who confirms once it arrives.`}
-          busy={flow.busy}
-          onPress={flow.claimUpi}
-        />
+        {flow.recordUpiSuccess ? (
+          <Button label="Try again" variant="primary" busy={flow.busy} onPress={flow.recordUpiSuccess} />
+        ) : (
+          <Button
+            label="I’ve paid"
+            variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
+            hint="Asks whether it went through, and settles it if it did."
+            disabled={flow.busy}
+            onPress={flow.askPaid}
+          />
+        )}
         <Button label="Back" variant="quiet" onPress={flow.leaveUpi} />
       </View>
     );
@@ -206,7 +241,11 @@ export function SettleUpSheet({
         <Text style={s.title}>{done ? 'Settled' : 'Waiting for payment'}</Text>
         <Text style={s.body}>
           {upiReceipt
-            ? `Your UPI app says ${amount} went to ${recipient.displayName}, so it’s settled. ${recipient.displayName} has nothing to confirm.`
+            ? `${
+                upiReceipt.byPayer
+                  ? `${amount} to ${recipient.displayName} is settled.`
+                  : `Your UPI app says ${amount} went to ${recipient.displayName}, so it’s settled.`
+              } ${recipient.displayName} has nothing to confirm.`
             : done
               ? `${amount} to ${recipient.displayName} is settled.`
               : `Sending ${amount} to ${recipient.displayName}.`}
@@ -235,8 +274,9 @@ export function SettleUpSheet({
           </View>
         )}
 
-        {/* What the UPI app handed back, kept with the payment and shown in the group's history. */}
-        {upiReceipt && (
+        {/* What the UPI app handed back, or the reference the payer gave: kept with the payment and
+            shown in the group's history. A payer who gave none has nothing to show here. */}
+        {upiReceipt && !(upiReceipt.byPayer && !upiReceipt.reference) && (
           <View style={s.receiptRows}>
             <UpiReceiptRows receipt={upiReceipt} />
           </View>
@@ -411,6 +451,7 @@ const useStyles = makeStyles((color) => ({
   },
   inputError: { borderColor: color.danger },
   error: { ...type.caption, color: color.danger, marginBottom: space.sm },
+  fieldNote: { ...type.caption, color: color.inkFaint, marginBottom: space.sm },
   inviteResult: { gap: space.xs, marginLeft: space.xs, marginBottom: space.sm },
   inviteNote: { ...type.caption, color: color.inkMuted },
   inviteUrl: { ...type.amountSm, color: color.inkFaint },

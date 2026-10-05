@@ -168,6 +168,26 @@ describe('MockClient: a UPI payment the payer’s UPI app reported', () => {
     expect((await c.getHistory('g-goa'))[0]).toMatchObject({ kind: 'settled', byMemberId: 'm-goa-yash', settlement: { id: paid.id, upi: paid.upi } });
   });
 
+  it('settles the same way on the payer’s own word, with the reference they typed in', async () => {
+    const c = client();
+    const { groupId, fromMemberId, toMemberId, amount } = await yashOwesOm(c);
+
+    // What couldn't be a reference settles nothing.
+    await expect(c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount, reference: 'it went through' })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    expect((await yashOwesOm(c)).amount).toBe(amount);
+
+    // Yes with nothing typed: his word alone, kept as that.
+    const bare = await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount: 100, byPayer: true, reference: '  ' });
+    expect(bare.upi).toEqual({ byPayer: true });
+
+    const paid = await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount: amount - 100, byPayer: true, reference: ' 4123 4567 8901 ' });
+    expect(paid).toMatchObject({ rail: 'upi', status: 'manually_confirmed', recordedByMemberId: 'm-goa-yash' });
+    expect(paid.upi).toEqual({ byPayer: true, reference: '412345678901' });
+    expect(await yashOwesOm(c)).toBeUndefined();
+  });
+
   it('takes the place of a claim that was waiting, and follows the same rules as one', async () => {
     const c = client();
     const { groupId, fromMemberId, toMemberId, amount } = await yashOwesOm(c);

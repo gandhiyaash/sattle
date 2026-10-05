@@ -367,6 +367,42 @@ describe('POST /groups/:id/upi-payments', () => {
     expect(await t.kabirOwes()).toBe(200);
   });
 
+  it('settles the same way on the payer’s own word, with the reference they typed in', async () => {
+    const t = await setup();
+    // An iPhone or a browser: no app reported, so there are no ids, only what Kabir copied out of his UPI app.
+    const res = await report(t, { reference: ' 4123 4567 8901 ' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ rail: 'upi', status: 'manually_confirmed', recordedByMemberId: t.mKabir });
+    // A reference only comes from the payer, so sending one says it was him and not an app.
+    expect(res.body.upi).toEqual({ byPayer: true, reference: '412345678901' });
+    expect(await t.kabirOwes()).toBe(0);
+    expect(await t.claims(t.riya.token)).toEqual([]);
+  });
+
+  it('settles on the payer’s word with no reference at all, and keeps it apart from what an app reported', async () => {
+    const t = await setup();
+    const bare = await report(t, { amount: 400, byPayer: true });
+    expect(bare.status).toBe(201);
+    expect(bare.body.upi).toEqual({ byPayer: true });
+    // The box left empty, or with only spaces in it, is the same thing.
+    expect((await report(t, { amount: 400, byPayer: true, reference: '   ' })).body.upi).toEqual({ byPayer: true });
+    // An app that reported and gave nothing is not marked as the payer's own word.
+    expect((await report(t, { amount: 200 })).body.upi).toEqual({});
+    expect(await t.kabirOwes()).toBe(0);
+  });
+
+  it('refuses a reference that couldn’t be one, and says what one is', async () => {
+    const t = await setup();
+    const res = await report(t, { reference: 'yes it went through' });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      code: 'invalid_input',
+      message: 'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.',
+    });
+    expect(await t.kabirOwes()).toBe(1000);
+  });
+
   it('is the payer’s to report, for no more than is owed, to someone who takes UPI', async () => {
     const t = await setup();
     const { call, base, riya, kabir, mRiya, mKabir, mAman } = t;

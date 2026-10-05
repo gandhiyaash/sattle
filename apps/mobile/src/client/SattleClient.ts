@@ -300,11 +300,14 @@ export interface SattleClient {
    */
   createUpiClaim(input: CreateUpiClaimInput, idempotencyKey?: string): Promise<UpiClaim>;
   /**
-   * The payer's UPI app said the payment went through, which only Android
-   * hears. Settles the debt straight away on that app's word, keeping the ids
-   * it handed back, with nothing for the person owed to confirm and nothing
-   * that undoes it. A claim waiting for the same debt goes. Throws as
-   * createUpiClaim does.
+   * The payer's side says a UPI payment went through. On Android that is
+   * their UPI app, with the ids it handed back. Where no app says anything,
+   * it is the payer (`byPayer`), with the `reference` their UPI app showed
+   * them if they have it. Either way it settles the debt straight away on
+   * their word, keeping what was given, with nothing for the person owed to
+   * confirm and nothing that undoes it. A claim waiting for the same debt
+   * goes. Throws as createUpiClaim does, and `invalid_input` for a reference
+   * that couldn't be one.
    */
   reportUpiPayment(input: ReportUpiPaymentInput, idempotencyKey?: string): Promise<Settlement>;
   /** The person owed says it arrived: the claim becomes a settlement. */

@@ -16,6 +16,11 @@
  * takes it as true, which is the group's choice to trust each other's apps.
  * The ids are kept so anyone can check the payment against a statement.
  *
+ * Where no app says anything (an iPhone, a browser, a UPI app that stayed
+ * quiet) the payer is asked instead, and their yes comes through the same
+ * route, marked as theirs, with the reference their UPI app showed if they
+ * typed it in. It settles the debt the same way, on their word.
+ *
  * A UPI ID often holds a phone number, so it isn't in the member list.
  * Someone who owes that person right now can read it, and so can whoever
  * holds one of their groups' shared links, for the debt they choose to pay
@@ -30,6 +35,7 @@ import {
   SattleError,
   UPI_CURRENCY,
   parseUpiId,
+  parseUpiReference,
   type Group,
   type Member,
   type UpiClaim,
@@ -70,6 +76,13 @@ const PaymentBody = z.object({
   txnId: ReceiptId,
   approvalRef: ReceiptId,
   txnRef: ReceiptId,
+  /** The payer said it went through themselves, since no app reported. */
+  byPayer: z.boolean().optional(),
+  /**
+   * With that, the reference they typed in, if they gave one. Generous on length so one pasted
+   * with spaces still reads; parseUpiReference is the real check. Sending one is saying `byPayer`.
+   */
+  reference: z.string().max(200).optional(),
 });
 
 /** Whether this member has given a UPI ID to be paid at. A ghost has no account to have put one on. */
@@ -237,12 +250,15 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
   });
 
   /**
-   * The payer's UPI app said the payment went through, and their phone
-   * reports it with the ids the app handed back. The debt is settled
-   * straight away: 201 Settlement, `manually_confirmed`, rail `upi`, with
-   * those ids as `upi` and the payer as the one whose word it was. Nothing
-   * is asked of the person owed, and nothing undoes it. A claim waiting for
-   * the same debt goes, since this is the later word on it.
+   * The payer's side says a UPI payment went through. Either their UPI app
+   * said so, and their phone reports it with the ids the app handed back, or
+   * no app said anything and the payer says so themselves (`byPayer`), with
+   * the `reference` their UPI app showed them if they have it. The debt is
+   * settled straight away: 201 Settlement, `manually_confirmed`, rail `upi`,
+   * with what was given as `upi` and the payer as the one whose word it was.
+   * Nothing is asked of the person owed, and nothing undoes it. A claim
+   * waiting for the same debt goes, since this is the later word on it.
+   *   a reference that couldn't be one                 → 400 invalid_input
    *   not the payer, more than is owed, nothing owed   → as for any payment
    *   the group isn't in rupees                        → 400 invalid_input
    *   the payee hasn't given a UPI ID                  → 409 member_cannot_receive
@@ -251,7 +267,14 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
   r.post('/groups/:id/upi-payments', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    const { txnId, approvalRef, txnRef, ...body } = parse(PaymentBody, await c.req.json());
+    const { txnId, approvalRef, txnRef, byPayer, reference: typed, ...body } = parse(PaymentBody, await c.req.json());
+    let reference: string | undefined;
+    // An empty box is no reference. Something in it has to be able to be one.
+    if (typed?.trim()) {
+      const parsed = parseUpiReference(typed);
+      if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
+      reference = parsed.reference;
+    }
 
     const settlement = transaction(db, () => {
       const payee = checkSettlement(repo, g, body);
@@ -266,8 +289,14 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
         ...newSettlement(g, body, 'upi', 'manually_confirmed'),
         note: 'Paid by UPI',
         recordedByMemberId: body.fromMemberId,
-        // Only the ids the app gave: one it left out isn't stored as an empty one.
-        upi: { ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) },
+        // Only what was given: an id the app left out isn't stored as an empty one.
+        upi: {
+          ...(txnId && { txnId }),
+          ...(approvalRef && { approvalRef }),
+          ...(txnRef && { txnRef }),
+          ...((byPayer || reference) && { byPayer: true as const }),
+          ...(reference && { reference }),
+        },
       });
     });
     return c.json(settlement, 201);

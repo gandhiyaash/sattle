@@ -30,6 +30,28 @@ export function parseUpiId(raw: string): ParsedUpiId {
   return { ok: true, upiId: input };
 }
 
+export type ParsedUpiReference = { ok: true; reference: string } | { ok: false; reason: string };
+
+/**
+ * The reference a payer types in for a payment they say went through: the
+ * number their UPI app shows for it, which apps call the UPI transaction ID,
+ * UTR or UPI Ref No. It is usually twelve digits, but apps differ, so this
+ * only asks that it looks like a reference at all: letters and digits, mostly
+ * digits. Spaces and dashes people copy along with it are dropped.
+ */
+export function parseUpiReference(raw: string): ParsedUpiReference {
+  const reference = raw.replace(/[\s-]+/g, '');
+  if (!reference) return { ok: false, reason: 'Enter the reference your UPI app shows for the payment.' };
+  // Six digits somewhere in it keeps out a sentence typed into the box.
+  if (!/^[A-Za-z0-9]{6,64}$/.test(reference) || reference.replace(/\D/g, '').length < 6) {
+    return {
+      ok: false,
+      reason: 'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.',
+    };
+  }
+  return { ok: true, reference };
+}
+
 /** A mobile number as a UPI ID carries it: ten digits from 6 to 9, bare or after 91 or 0. */
 const MOBILE_NUMBER = /^(?:91|0)?[6-9]\d{9}$/;
 

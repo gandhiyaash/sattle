@@ -156,7 +156,7 @@ describe('UPI', () => {
     expect(await yashOwesOm(call)).toBe(0);
   });
 
-  it('"when the payer’s UPI app says the payment went through, the balance moves straight away, on that app’s word, and its transaction ID is kept": nobody is asked, and it is in the history', async () => {
+  it('"when the payer’s UPI app says the payment went through (Android) ... the balance moves straight away, on their word": nobody is asked, and its ids are in the history', async () => {
     const { db, call } = setup();
     db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
     const owed = await yashOwesOm(call);
@@ -176,6 +176,39 @@ describe('UPI', () => {
     expect((await call<UpiClaim[]>('GET', '/groups/g-goa/upi-claims', undefined, { authorization: 'Bearer t-om' })).body).toEqual([]);
     const history = (await call<{ kind: string; settlement?: Settlement }[]>('GET', '/groups/g-goa/history')).body;
     expect(history[0]).toMatchObject({ kind: 'settled', settlement: { id: paid.body.id, upi: { txnId: 'AXI8f2c9d' } } });
+  });
+
+  it('"or the payer says so themselves ... The payment’s reference, when they give one, is kept": that settles it too, with a reference or without', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
+    const owed = await yashOwesOm(call);
+    const say = (amount: number, reference?: string) =>
+      call<Settlement>('POST', '/groups/g-goa/upi-payments', {
+        fromMemberId: 'm-goa-yash',
+        toMemberId: 'm-goa-om',
+        amount,
+        byPayer: true,
+        ...(reference !== undefined && { reference }),
+      });
+
+    // What is typed as a reference has to be able to be one.
+    expect((await say(100, 'it went through')).status).toBe(400);
+    expect(await yashOwesOm(call)).toBe(owed);
+
+    // With none at all, it is his word alone, and kept as that.
+    const bare = await say(100);
+    expect(bare.status).toBe(201);
+    expect(bare.body.upi).toEqual({ byPayer: true });
+    expect(await yashOwesOm(call)).toBe(owed - 100);
+
+    const paid = await say(owed - 100, '4123 4567 8901');
+    expect(paid.status).toBe(201);
+    expect(paid.body).toMatchObject({ rail: 'upi', recordedByMemberId: 'm-goa-yash', upi: { byPayer: true, reference: '412345678901' } });
+    expect(await yashOwesOm(call)).toBe(0);
+    // Om, who is owed, can't be the one to say Yash paid this way: it is the payer's word.
+    expect(
+      (await call('POST', '/groups/g-goa/upi-payments', { fromMemberId: 'm-goa-yash', toMemberId: 'm-goa-om', amount: 1, reference: '412345678901' }, { authorization: 'Bearer t-om' })).status
+    ).not.toBe(201);
   });
 
   it('"someone in the group who owes you is shown it": Yash, who owes Om, is; the member list never carries it', async () => {

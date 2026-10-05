@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseUpiId, parseUpiResponse, upiIdHasPhoneNumber, upiPayUri } from './upi';
+import { parseUpiId, parseUpiReference, parseUpiResponse, upiIdHasPhoneNumber, upiPayUri } from './upi';
 
 describe('parseUpiId', () => {
   it('takes the IDs people have, and lower-cases them', () => {
@@ -18,6 +18,23 @@ describe('parseUpiId', () => {
   it('turns away anything else that isn’t one', () => {
     for (const bad of ['', '   ', 'om', '@ybl', 'om@', 'om swami@ybl', 'om@@ybl', 'o@ybl', 'om@y', 'om@9bank']) {
       expect([bad, parseUpiId(bad).ok]).toEqual([bad, false]);
+    }
+  });
+});
+
+describe('parseUpiReference', () => {
+  it('takes the number a UPI app shows, with the spaces and dashes it was copied with dropped', () => {
+    expect(parseUpiReference('412345678901')).toEqual({ ok: true, reference: '412345678901' });
+    expect(parseUpiReference(' 4123 4567 8901 ')).toEqual({ ok: true, reference: '412345678901' });
+    expect(parseUpiReference('4123-4567-8901')).toEqual({ ok: true, reference: '412345678901' });
+    // Not every app's is twelve digits.
+    expect(parseUpiReference('T2410051234567890123')).toEqual({ ok: true, reference: 'T2410051234567890123' });
+  });
+
+  it('asks for one when there is none, and turns away what couldn’t be one', () => {
+    expect(parseUpiReference('   ')).toEqual({ ok: false, reason: 'Enter the reference your UPI app shows for the payment.' });
+    for (const bad of ['12345', 'paid!', 'yes it went through', 'paid 100 rupees', 'ok@ybl', '9'.repeat(65)]) {
+      expect([bad, parseUpiReference(bad).ok]).toEqual([bad, false]);
     }
   });
 });
