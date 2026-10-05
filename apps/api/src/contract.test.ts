@@ -65,7 +65,7 @@ describe('migrations', () => {
     for (const r of rows) expect(r.lightning_address).toBe(r.claimed_by_user_id ? null : 'typed@getalby.com');
   });
 
-  it('016 drops invites, starts everyone with their UPI ID on shared links, and keeps the ID and the group link', () => {
+  it('016 drops invites, starts everyone on shared links but an ID with a phone number, and keeps the ID and the group link', () => {
     const { db } = setup();
     // A database from before it: an invite out, the column as 015 made it, off, and no choice per group.
     db.prepare('DELETE FROM schema_migrations WHERE name = ?').run('016_one_group_link.sql');
@@ -79,6 +79,8 @@ describe('migrations', () => {
       ALTER TABLE users DROP COLUMN upi_on_links;
       ALTER TABLE users ADD COLUMN upi_on_links INTEGER NOT NULL DEFAULT 0;
       UPDATE users SET upi_id = 'om@okhdfcbank' WHERE id = 'u-om';
+      UPDATE users SET upi_id = '9876543210@ybl' WHERE id = 'u-yash';
+      UPDATE users SET upi_id = '919812345678@paytm', upi_on_links = 1 WHERE id = 'u-priya';
     `);
     migrate(db);
 
@@ -90,9 +92,14 @@ describe('migrations', () => {
       upi_id: string | null;
       upi_on_links: number;
     }[];
-    expect(users.length).toBeGreaterThan(1);
-    for (const u of users) expect(u.upi_on_links).toBe(1);
+    const on = Object.fromEntries(users.map((u) => [u.id, u.upi_on_links]));
+    // No phone number in the ID: on, though it was off.
+    expect(on['u-om']).toBe(1);
+    // A phone number in the ID: what it was, off or on, until Wallet has warned them.
+    expect(on['u-yash']).toBe(0);
+    expect(on['u-priya']).toBe(1);
     expect(users.find((u) => u.id === 'u-om')?.upi_id).toBe('om@okhdfcbank');
+    expect(users.find((u) => u.id === 'u-yash')?.upi_id).toBe('9876543210@ybl');
     expect(db.prepare('SELECT COUNT(*) AS n FROM members WHERE upi_on_link IS NOT NULL').get()).toEqual({ n: 0 });
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
 

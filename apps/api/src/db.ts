@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-import { fixtures } from '@sattle/core';
+import { fixtures, upiIdHasPhoneNumber } from '@sattle/core';
 
 export type Db = DatabaseSync;
 
@@ -28,6 +28,10 @@ const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations', import.meta.url));
 
 export function migrate(db: Db) {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+  // For 016, so the migration and the app agree on what a phone number in a UPI ID looks like.
+  db.function('upi_id_has_phone_number', { deterministic: true }, (id) =>
+    typeof id === 'string' && upiIdHasPhoneNumber(id) ? 1 : 0
+  );
   const applied = new Set(
     (db.prepare('SELECT name FROM schema_migrations').all() as { name: string }[]).map((r) => r.name)
   );

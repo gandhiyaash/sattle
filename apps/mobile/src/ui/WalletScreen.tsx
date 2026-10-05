@@ -330,7 +330,9 @@ function ReceiveAtAddress() {
  * A UPI ID is often a mobile number, and everyone shown the ID then has the
  * number. So when the one being typed has a number in it, the card says who
  * would see it and that an ID without one can be had. It only warns: the ID
- * works as well as any other, and Save anyway saves it.
+ * works as well as any other, and Save anyway saves it. A saved ID with a
+ * number in it is warned about beside the shared-link switch too, since IDs
+ * saved before the warning existed kept what that switch was.
  */
 function UpiIdCard() {
   const color = useColors();
@@ -366,6 +368,7 @@ function UpiIdCard() {
   // Only once it reads as a whole UPI ID, so the warning doesn't come and go as digits are typed.
   const typed = parseUpiId(input);
   const hasPhone = typed.ok && upiIdHasPhoneNumber(typed.upiId);
+  const savedHasPhone = Boolean(upiId && upiIdHasPhoneNumber(upiId));
 
   return (
     <View>
@@ -445,6 +448,17 @@ function UpiIdCard() {
           <View style={{ gap: space.sm }}>
             <Divider />
             <Text style={s.label}>On shared group links</Text>
+            {savedHasPhone && (
+              <View style={s.warning}>
+                <Text style={s.warningTitle}>This UPI ID has a phone number in it</Text>
+                <Text style={s.warningBody}>
+                  {onLinks
+                    ? 'Anyone holding one of your groups’ shared links sees it when they choose to pay you, so they see the number too.'
+                    : 'Turn this on and anyone holding one of your groups’ shared links sees it when they choose to pay you, so they see the number too.'}{' '}
+                  Most UPI apps let you add an ID with no number in it, like name@okhdfcbank.
+                </Text>
+              </View>
+            )}
             <Text style={s.rowBody}>
               {onLinks
                 ? 'On. Someone paying from a group’s shared link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you, so turn this off if a link has gone further than people you know.'
