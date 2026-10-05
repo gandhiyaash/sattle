@@ -36,7 +36,7 @@ describe('auth boundary', () => {
     expect((await call('GET', '/s/demo')).status).not.toBe(401);
     expect((await call('POST', '/s/demo/open')).status).not.toBe(401);
     expect((await call('GET', '/join/nope')).status).toBe(404);
-    expect((await call('GET', '/invites/nope/group')).status).toBe(401);
+    expect((await call('GET', '/links/nope/group')).status).toBe(401);
     expect((await call('GET', '/g/demo-group')).status).toBe(200);
     expect((await call('POST', '/groups/g-flat/link')).status).toBe(401);
     expect((await call('POST', '/join-requests', { token: 'nope', ref: 'nope' })).status).toBe(401);

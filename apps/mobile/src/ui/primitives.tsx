@@ -8,10 +8,12 @@
  * wifi will see all three.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -58,6 +60,10 @@ export function Screen({
   const s = useStyles();
   const mode = useColorMode();
   const insets = useSafeAreaInsets();
+  // While someone is typing, the footer steps aside: on Android the window shrinks to the
+  // keyboard, and a bar fixed to its bottom would sit over what little is left to type in.
+  const typing = useKeyboardUp();
+  const bar = typing ? null : footer;
   return (
     <View style={s.screen}>
       {/* The app draws under the status bar and the notch, so the header starts below them. */}
@@ -87,14 +93,30 @@ export function Screen({
       </View>
       <ScrollView
         // With a footer, that is what keeps clear of the home indicator.
-        contentContainerStyle={[s.scrollBody, { paddingBottom: footer ? space.xl : space.xxl + insets.bottom }]}
+        contentContainerStyle={[s.scrollBody, { paddingBottom: bar ? space.xl : space.xxl + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         {children}
       </ScrollView>
-      {footer && <View style={[s.footer, { paddingBottom: space.md + insets.bottom }]}>{footer}</View>}
+      {bar && <View style={[s.footer, { paddingBottom: space.md + insets.bottom }]}>{bar}</View>}
     </View>
   );
+}
+
+/** Whether the on-screen keyboard is up. Always false in a browser, which doesn't say. */
+function useKeyboardUp() {
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    // iOS says before the keyboard moves, so the bar is gone by the time it arrives. Android only says after.
+    const ios = Platform.OS === 'ios';
+    const shown = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setUp(true));
+    const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return up;
 }
 
 /**
@@ -136,6 +158,7 @@ export function Button({
   label,
   hint,
   onPress,
+  href,
   variant = 'secondary',
   disabled,
   busy,
@@ -144,6 +167,12 @@ export function Button({
   label: string;
   hint?: string;
   onPress?: () => void;
+  /**
+   * In a browser, makes the button a real link there, so the browser does the going and
+   * `onPress` isn't needed. That is what gives a phone the chance to hand the address to an
+   * app that claims it. Ignored in the installed app.
+   */
+  href?: string;
   variant?: 'primary' | 'secondary' | 'quiet';
   disabled?: boolean;
   busy?: boolean;
@@ -153,9 +182,12 @@ export function Button({
   const color = useColors();
   const s = useStyles();
   const isPrimary = variant === 'primary';
+  // react-native-web draws anything with an href as <a>. React Native's own types don't have the prop.
+  const link = href && Platform.OS === 'web' ? ({ href, accessibilityRole: 'link' } as object) : null;
   return (
     <View>
       <Pressable
+        {...link}
         onPress={onPress}
         disabled={disabled || busy}
         style={({ pressed }) => [

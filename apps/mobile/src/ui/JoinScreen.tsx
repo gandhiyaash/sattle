@@ -22,7 +22,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SattleError, parseInviteToken, type JoinAs } from '@sattle/core';
+import { SattleError, parseGroupLinkToken, type JoinAs } from '@sattle/core';
 import { clearToken, writeToken } from '../account/tokenStore';
 import { createAccount } from '../client/ApiClient';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
@@ -86,7 +86,7 @@ export function JoinScreen({ token, onBack, onAsked, onAlreadyIn }: JoinScreenPr
           otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
         />
       ) : (
-        <PasteInvite onToken={setActive} />
+        <PasteLink onToken={setActive} />
       )}
     </Screen>
   );
@@ -160,14 +160,14 @@ export function JoinAsNewScreen({
   );
 }
 
-function PasteInvite({ onToken }: { onToken: (token: string) => void }) {
+function PasteLink({ onToken }: { onToken: (token: string) => void }) {
   const color = useColors();
   const s = useStyles();
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
-    const token = parseInviteToken(draft);
+    const token = parseGroupLinkToken(draft);
     if (token) onToken(token);
     else setError('That doesn’t look like a group link.');
   };
@@ -228,7 +228,7 @@ function WhoAreYou({
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const { data, loading, error, reload, refresh } = useAsync(() => client.getInvite(token), [token]);
+  const { data, loading, error, reload, refresh } = useAsync(() => client.getJoinView(token), [token]);
   const [picked, setPicked] = useState<string | null>(null);
   // Null until they type, so a name that arrives late still fills the field.
   const [typed, setTyped] = useState<string | null>(null);

@@ -23,7 +23,7 @@ import { createHash, randomInt } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, type InviteView, type JoinRequest, type PendingJoin } from '@sattle/core';
+import { SattleError, type JoinView, type JoinRequest, type PendingJoin } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -56,7 +56,7 @@ export const MAX_PENDING_JOINS = 20;
 /** Four digits, for telling apart two people asking to be the same person. Not a secret. */
 const newJoinCode = () => String(randomInt(0, 10_000)).padStart(4, '0');
 
-export function inviteRoutes({ db, repo, wallets }: Ctx) {
+export function joinRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
 
@@ -71,7 +71,7 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
   r.get('/join/:token', (c) => {
     const link = live(c.req.param('token'));
     const members = repo.members(link.groupId);
-    const view: InviteView = {
+    const view: JoinView = {
       groupName: repo.group(link.groupId)!.name,
       members: members
         .filter((m) => !m.claimedByUserId)
@@ -90,7 +90,7 @@ export function inviteRoutes({ db, repo, wallets }: Ctx) {
    * isn't under /join/ or /g/, which answer without an account.
    *   link not usable   → as `live` above
    */
-  r.get('/invites/:token/group', (c) => {
+  r.get('/links/:token/group', (c) => {
     const link = live(c.req.param('token'));
     const user = c.get('user');
     const mine = repo.memberForUser(link.groupId, user.id);

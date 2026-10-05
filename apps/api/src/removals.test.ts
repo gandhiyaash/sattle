@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Expense, Group, GroupLink, InviteView, Member, User, WalletConnection } from '@sattle/core';
+import type { Debt, Expense, Group, GroupLink, JoinView, Member, User, WalletConnection } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -54,7 +54,7 @@ async function setup() {
   const link = async (as = riya.token) =>
     (await call<GroupLink>('POST', `/groups/${group.id}/link`, undefined, as)).body.token;
   /** Who the join page offers, by name. */
-  const offered = async (token: string) => (await call<InviteView>('GET', `/join/${token}`)).body.members;
+  const offered = async (token: string) => (await call<JoinView>('GET', `/join/${token}`)).body.members;
   /** Asks to join as `name`, and Riya lets them in. */
   const joinAs = async (name: string, token: string, as: string) => {
     const ref = (await offered(token)).find((m) => m.name === name)!.ref;

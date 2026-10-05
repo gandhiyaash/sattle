@@ -22,7 +22,7 @@ import {
   type GroupGuestView,
   type GroupLink,
   type GuestView,
-  type InviteView,
+  type JoinView,
   type JoinRequest,
   type PendingJoin,
   type JoinAs,
@@ -190,11 +190,11 @@ export class ApiClient implements SattleClient {
     return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/proof`, { preimage }, idempotencyKey);
   }
 
-  getInvite(token: string) {
-    return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
+  getJoinView(token: string) {
+    return this.request<JoinView>('GET', `/join/${encodeURIComponent(token)}`);
   }
   getJoinedGroup(token: string) {
-    return this.request<Group | null>('GET', `/invites/${encodeURIComponent(token)}/group`);
+    return this.request<Group | null>('GET', `/links/${encodeURIComponent(token)}/group`);
   }
   askToJoin(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
     return this.request<JoinRequest>('POST', '/join-requests', { token, ...as }, idempotencyKey);

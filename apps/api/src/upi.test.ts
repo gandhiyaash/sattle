@@ -5,7 +5,7 @@ import type {
   Group,
   GroupGuestView,
   GroupLink,
-  InviteView,
+  JoinView,
   Member,
   Settlement,
   UpiClaim,
@@ -58,7 +58,7 @@ async function setup() {
   /** Joins `as` to a group as the person called `name`, or as someone new, and `by` lets them in. */
   const join = async (groupId: string, name: string, as: string, by = riya.token) => {
     const link = (await call<GroupLink>('POST', `/groups/${groupId}/link`, undefined, by)).body.token;
-    const offered = (await call<InviteView>('GET', `/join/${link}`)).body.members.find((m) => m.name === name);
+    const offered = (await call<JoinView>('GET', `/join/${link}`)).body.members.find((m) => m.name === name);
     const asked = await call<{ id: string }>(
       'POST',
       '/join-requests',

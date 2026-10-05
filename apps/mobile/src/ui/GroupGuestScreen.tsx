@@ -25,7 +25,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   SattleError,
   formatFiat,
-  invitePath,
+  joinPath,
   upiPayUri,
   type GroupGuestDebt,
   type GroupGuestExpense,
@@ -116,12 +116,6 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     }
   };
 
-  // A real navigation, not a change of screen: Back returns here, and a phone with the app
-  // installed can hand /join/ links to it. This page is only ever shown in a browser.
-  const join = () => {
-    if (typeof window !== 'undefined') window.location.assign(invitePath(token));
-  };
-
   if (paying) {
     return (
       <View style={s.payPage}>
@@ -194,7 +188,9 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
           Join it to add what you’ve spent and settle up in the app. You pick your name, and someone in the group
           lets you in. Already joined? This opens the group.
         </Text>
-        <Button label={`Join ${data.groupName}`} variant="primary" onPress={join} />
+        {/* A real link, not a change of screen: Back returns here, and a phone with the app installed
+            can hand /join/ links to it. This page is only ever shown in a browser. */}
+        <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
       </Card>
 
       <View>

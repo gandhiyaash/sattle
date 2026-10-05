@@ -8,7 +8,7 @@
  * there is only ever one, and anyone in the group can replace it or turn it
  * off. Holding it changes nothing in the group. It can start a payment,
  * which goes to the person owed like any other, and it can be used to ask to
- * join (invites.ts), which someone in the group has to say yes to.
+ * join (joining.ts), which someone in the group has to say yes to.
  *
  * In a rupee group, a debt can also be paid by UPI from here, to someone who
  * has a UPI ID and hasn't turned that off for shared links. The

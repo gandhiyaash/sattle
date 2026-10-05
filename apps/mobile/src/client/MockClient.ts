@@ -33,7 +33,7 @@ import {
   type GroupGuestView,
   type GroupLink,
   type GuestView,
-  type InviteView,
+  type JoinView,
   type JoinAs,
   type JoinRequest,
   type LedgerBackup,
@@ -564,8 +564,8 @@ export class MockClient implements SattleClient {
     return `m${h.toString(36)}`;
   }
 
-  getInvite(token: string) {
-    return this.call((): InviteView => {
+  getJoinView(token: string) {
+    return this.call((): JoinView => {
       const link = this.findGroupLink(token);
       const members = this.members.filter((m) => m.groupId === link.groupId);
       return {

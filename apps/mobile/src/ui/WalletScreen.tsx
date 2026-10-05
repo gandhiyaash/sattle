@@ -477,7 +477,7 @@ function UpiIdCard() {
  *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
  *                       while upi_on_links is on, as it is from the start, or
  *                       members.upi_on_link where the person chose for that group
- *   Joining             routes/invites.ts: POST /join-requests makes a request, not a
+ *   Joining             routes/joining.ts: POST /join-requests makes a request, not a
  *                       member; only POST /join-requests/:id/approve, by someone in
  *                       the group, claims the member
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS

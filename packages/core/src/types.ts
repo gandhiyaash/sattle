@@ -248,7 +248,7 @@ export interface GuestView {
 // are, or add themselves, and someone already in the group lets them in.
 
 /** Someone the join page offers to join as. */
-export interface InviteMember {
+export interface JoinMember {
   /** What the page sends back to join as this person. Opaque, and only good with this link. */
   ref: string;
   name: string;
@@ -258,10 +258,10 @@ export interface InviteMember {
 export type JoinAs = { ref: string } | { displayName: string };
 
 /** Only what the join page may show before someone joins. Names, no ids. */
-export interface InviteView {
+export interface JoinView {
   groupName: string;
   /** Everyone in the group who hasn't joined: who the person opening this could be. */
-  members: InviteMember[];
+  members: JoinMember[];
   /**
    * The names of the people who have. The page shows them so the whole group is
    * on it, but they can't be picked: each belongs to an account already.

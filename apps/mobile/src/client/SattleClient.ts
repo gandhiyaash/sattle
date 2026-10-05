@@ -23,7 +23,7 @@ import type {
   GroupGuestView,
   GroupLink,
   GuestView,
-  InviteView,
+  JoinView,
   JoinAs,
   JoinRequest,
   LedgerBackup,
@@ -115,17 +115,17 @@ export interface SattleClient {
   // link can't be used to become someone.
 
   /** Public. Who the group's link offers to join as. Throws `not_found` for a link that was replaced or turned off. */
-  getInvite(token: string): Promise<InviteView>;
+  getJoinView(token: string): Promise<JoinView>;
   /**
    * The group a link is for, when the signed-in user is already in it; null
    * when they aren't. The link is the one in the group's chat, so the people in
    * the group open it too, and the join page has nobody to offer them: the app
-   * opens the group instead. Throws as `getInvite` does for a link that can't be used.
+   * opens the group instead. Throws as `getJoinView` does for a link that can't be used.
    */
   getJoinedGroup(token: string): Promise<Group | null>;
   /**
    * The signed-in user asks to join the link's group, and is in once someone
-   * there says yes. With a `ref`, one of `getInvite`'s, they ask to be that
+   * there says yes. With a `ref`, one of `getJoinView`'s, they ask to be that
    * member; throws `conflict` if someone has joined as that person since.
    * With a `displayName`, they ask to be added as a new member; throws
    * `conflict` if that name is a member still waiting to be picked. Asking

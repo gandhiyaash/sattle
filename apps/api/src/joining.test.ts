@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupLink, InviteView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
+import type { Expense, Group, GroupLink, JoinView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
 import { SimulatedPayments } from './payments';
-import { MAX_PENDING_JOINS } from './routes/invites';
+import { MAX_PENDING_JOINS } from './routes/joining';
 
 /**
  * A production-shaped server: no fixtures, no demo user. Riya has a group with two ghosts.
@@ -39,7 +39,7 @@ async function setup() {
   const base = `/groups/${group.id}`;
 
   const link = (as = riya.token) => call<GroupLink>('POST', `${base}/link`, undefined, as);
-  const page = (token: string) => call<InviteView>('GET', `/join/${token}`);
+  const page = (token: string) => call<JoinView>('GET', `/join/${token}`);
   /** What the page would send back for the person with that name. */
   const refOf = async (token: string, name: string) => (await page(token)).body.members.find((m) => m.name === name)!.ref;
   /** Asks to join as the person with that ref. Nothing changes in the group until someone lets them in. */
@@ -157,11 +157,11 @@ describe('GET /join/:token', () => {
   });
 });
 
-describe('GET /invites/:token/group', () => {
+describe('GET /links/:token/group', () => {
   it('is the group for someone already in it, and null for someone who isn’t, or who has only asked', async () => {
     const { call, signUp, link, refOf, ask, approve, group, riya } = await setup();
     const { token } = (await link()).body;
-    const path = `/invites/${token}/group`;
+    const path = `/links/${token}/group`;
 
     expect((await call<Group>('GET', path, undefined, riya.token)).body).toMatchObject({ id: group.id, name: 'Manali' });
 
@@ -176,11 +176,11 @@ describe('GET /invites/:token/group', () => {
   it('needs an account, and a link that still works', async () => {
     const { call, base, link, riya } = await setup();
     const { token } = (await link()).body;
-    expect((await call('GET', `/invites/${token}/group`)).status).toBe(401);
-    expect((await call('GET', '/invites/nope/group', undefined, riya.token)).status).toBe(404);
+    expect((await call('GET', `/links/${token}/group`)).status).toBe(401);
+    expect((await call('GET', '/links/nope/group', undefined, riya.token)).status).toBe(404);
 
     await call('DELETE', `${base}/link`, undefined, riya.token);
-    expect((await call('GET', `/invites/${token}/group`, undefined, riya.token)).status).toBe(404);
+    expect((await call('GET', `/links/${token}/group`, undefined, riya.token)).status).toBe(404);
   });
 });
 

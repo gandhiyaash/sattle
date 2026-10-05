@@ -74,8 +74,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   settlementOptions.ts       Resolves what's possible BEFORE the user taps.
   quote.ts                   Fiat → sats at a pinned rate, 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
-  invites.ts                 The /join/<token> path, and finding a group link's token in what someone pasted.
-  groupLinks.ts              The /g/<token> path.
+  groupLinks.ts              The /g/<token> and /join/<token> paths, and finding the link's token in what someone pasted.
   expenseRules.ts            Who may change or remove an expense. The app and the server both ask it.
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
@@ -85,7 +84,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, invites, groupLinks, wallet, ledger, upi.
+  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, upi.
   middleware.ts              Auth (with the public /s/ allowlist) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -237,7 +236,7 @@ Joining is full membership. There are no roles, so the new member can read every
 
 The link proves nothing about who is on the other end, since it can be forwarded, so a person checks instead: whoever lets someone in is vouching for them. That is the price of one link for everyone and no passwords. A link in the wrong hands is turned off, and its requests turned down; a wrong yes is undone only by the person leaving, so the card asks to let in only someone you know is them.
 
-`GET /join/:token` is public, like the group page, and returns names and nothing else: the group, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /invites/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
+`GET /join/:token` is public, like the group page, and returns names and nothing else: the group, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /links/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
 
 The shared link, `/g/<token>`, opens in the browser for everyone, so paying needs no app. On an Android phone with the app installed, **Join** hands over to the app, which claims `/join/` links, and opens the join screen there, or the group for someone already in it. Everywhere else it carries on in the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
 
