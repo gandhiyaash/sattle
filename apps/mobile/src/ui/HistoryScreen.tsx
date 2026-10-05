@@ -145,7 +145,11 @@ function happened(entry: HistoryEntry, by: string | undefined): string {
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
-/** "Today, 6:42 pm", "Yesterday, 9:10 am", "3 Oct, 6:42 pm", and with the year once it isn't this one. */
+/**
+ * "Today, 6:42 pm", "Yesterday, 9:10 am", "3 Oct, 6:42 pm", and with the year once it isn't this one.
+ * On a phone whose clock is behind the server's, something can land on what the phone still
+ * thinks is tomorrow. That shows its date, which is right, where calling it today would not be.
+ */
 function when(iso: string): string {
   const d = new Date(iso);
   const now = new Date();

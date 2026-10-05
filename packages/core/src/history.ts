@@ -40,9 +40,13 @@ export function buildHistory(expenses: Expense[], changes: ExpenseChange[], sett
     entries.push({ kind: 'settled', id: `settled-${s.id}`, at: s.updatedAt, byMemberId: s.recordedByMemberId, settlement: s });
   }
 
-  // Sorted oldest first, which leaves things that happened in the same instant in the order
-  // they were put in above (an expense before the changes to it). Then turned round.
-  return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).reverse();
+  // Newest first. Things that happened in the same instant go the other way round from how they
+  // were put in above, so a change sits above the expense being added, and a later change above
+  // an earlier one. That is said here rather than left to the sort keeping ties where they were.
+  return entries
+    .map((entry, i) => ({ entry, i }))
+    .sort((a, b) => (a.entry.at < b.entry.at ? 1 : a.entry.at > b.entry.at ? -1 : b.i - a.i))
+    .map(({ entry }) => entry);
 }
 
 /** One person's part of an expense on either side of an edit. A side is absent when they weren't in the split then. */
