@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseUpiId, parseUpiResponse, upiPayUri } from './upi';
+import { parseUpiId, parseUpiResponse, upiIdHasPhoneNumber, upiPayUri } from './upi';
 
 describe('parseUpiId', () => {
   it('takes the IDs people have, and lower-cases them', () => {
@@ -19,6 +19,37 @@ describe('parseUpiId', () => {
     for (const bad of ['', '   ', 'om', '@ybl', 'om@', 'om swami@ybl', 'om@@ybl', 'o@ybl', 'om@y', 'om@9bank']) {
       expect([bad, parseUpiId(bad).ok]).toEqual([bad, false]);
     }
+  });
+});
+
+describe('upiIdHasPhoneNumber', () => {
+  it('finds a mobile number used as the ID, bare or with 91 or 0 in front', () => {
+    expect(upiIdHasPhoneNumber('9876543210@ybl')).toBe(true);
+    expect(upiIdHasPhoneNumber('919876543210@paytm')).toBe(true);
+    expect(upiIdHasPhoneNumber('09876543210@upi')).toBe(true);
+    expect(upiIdHasPhoneNumber(' 6000012345@okaxis ')).toBe(true);
+  });
+
+  it('finds one among other characters', () => {
+    expect(upiIdHasPhoneNumber('9876543210-2@okhdfcbank')).toBe(true);
+    expect(upiIdHasPhoneNumber('riya.9876543210@okicici')).toBe(true);
+    expect(upiIdHasPhoneNumber('riya9876543210@okicici')).toBe(true);
+  });
+
+  it('says nothing about an ID with no phone number in it', () => {
+    expect(upiIdHasPhoneNumber('riya@okhdfcbank')).toBe(false);
+    expect(upiIdHasPhoneNumber('riya.sharma-1998@okaxis')).toBe(false);
+    expect(upiIdHasPhoneNumber('riya12345@ybl')).toBe(false);
+  });
+
+  it('doesn’t take other numbers for one', () => {
+    // Ten digits, but no mobile number starts below 6.
+    expect(upiIdHasPhoneNumber('1234567890@ybl')).toBe(false);
+    // The ten digits inside an account number.
+    expect(upiIdHasPhoneNumber('50109876543210@hdfcbank')).toBe(false);
+    expect(upiIdHasPhoneNumber('98765432101@ybl')).toBe(false);
+    // Digits in the handle are the bank's, not theirs.
+    expect(upiIdHasPhoneNumber('riya@9876543210')).toBe(false);
   });
 });
 
