@@ -151,3 +151,35 @@ describe('MockClient: a pay link paid by UPI', () => {
     await expect(c.getPayLinkUpi(token)).rejects.toMatchObject({ code: 'member_cannot_receive' });
   });
 });
+
+describe('MockClient: a UPI payment the payer’s UPI app reported', () => {
+  it('settles the debt on the spot, keeps the ids the app gave, and shows them in the history', async () => {
+    const c = client();
+    const debt = await yashOwesOm(c);
+    const { groupId, fromMemberId, toMemberId, amount } = debt;
+
+    const paid = await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount, txnId: 'AXI8f2c9d', approvalRef: '412345678901', txnRef: '  ' });
+    expect(paid).toMatchObject({ rail: 'upi', status: 'manually_confirmed', amount, note: 'Paid by UPI', recordedByMemberId: 'm-goa-yash' });
+    // The link's own reference came back blank, so it isn't kept.
+    expect(paid.upi).toEqual({ txnId: 'AXI8f2c9d', approvalRef: '412345678901' });
+
+    expect(await yashOwesOm(c)).toBeUndefined();
+    expect(await c.getUpiClaims('g-goa')).toEqual([]);
+    expect((await c.getHistory('g-goa'))[0]).toMatchObject({ kind: 'settled', byMemberId: 'm-goa-yash', settlement: { id: paid.id, upi: paid.upi } });
+  });
+
+  it('takes the place of a claim that was waiting, and follows the same rules as one', async () => {
+    const c = client();
+    const { groupId, fromMemberId, toMemberId, amount } = await yashOwesOm(c);
+    await c.createUpiClaim({ groupId, fromMemberId, toMemberId, amount });
+    await expect(c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount: amount + 1, txnId: 'AXI1' })).rejects.toMatchObject({ code: 'conflict' });
+
+    await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount, txnId: 'AXI1' });
+    expect(await c.getUpiClaims('g-goa')).toEqual([]);
+    // Aman is owed too, and has no UPI ID to have been paid at.
+    const toAman = (await c.getDebts('g-goa')).find((d) => d.fromMemberId === 'm-goa-yash' && d.toMemberId === 'm-goa-aman')!;
+    await expect(
+      c.reportUpiPayment({ groupId, fromMemberId, toMemberId: 'm-goa-aman', amount: toAman.amount, txnId: 'AXI2' })
+    ).rejects.toMatchObject({ code: 'member_cannot_receive' });
+  });
+});

@@ -33,6 +33,7 @@ import {
   type PayLink,
   type PaymentMode,
   type ReceiveAddress,
+  type ReportUpiPaymentInput,
   type Settlement,
   type UpiClaim,
   type UpiOnGroupLink,
@@ -334,6 +335,10 @@ export class ApiClient implements SattleClient {
   createUpiClaim(input: CreateUpiClaimInput, idempotencyKey = newIdempotencyKey()) {
     const { groupId, ...body } = input;
     return this.request<UpiClaim>('POST', `/groups/${groupId}/upi-claims`, body, idempotencyKey);
+  }
+  reportUpiPayment(input: ReportUpiPaymentInput, idempotencyKey = newIdempotencyKey()) {
+    const { groupId, ...body } = input;
+    return this.request<Settlement>('POST', `/groups/${groupId}/upi-payments`, body, idempotencyKey);
   }
   confirmUpiClaim(claimId: string, idempotencyKey = newIdempotencyKey()) {
     return this.request<Settlement>('POST', `/upi-claims/${claimId}/confirm`, undefined, idempotencyKey);

@@ -8,6 +8,14 @@
  * makes it a settlement like "mark as settled", or says it didn't arrive.
  * It is the payee's word to give, the same rule as checkManualRecorder.
  *
+ * There is one case where nobody is asked. On Android the UPI app that was
+ * opened to pay hands back what happened, and when it says the payment went
+ * through, the payer's phone reports that here with the ids the app gave
+ * (/upi-payments). The debt is settled on the spot, on that app's word. The
+ * server still can't see the payment: it is told so by the payer's phone and
+ * takes it as true, which is the group's choice to trust each other's apps.
+ * The ids are kept so anyone can check the payment against a statement.
+ *
  * A UPI ID often holds a phone number, so it isn't in the member list.
  * Someone who owes that person right now can read it, and so can whoever
  * holds one of their groups' shared links, for the debt they choose to pay
@@ -50,6 +58,18 @@ const ClaimBody = z.object({
   toMemberId: z.string(),
   amount: minor,
   reference: z.string().trim().min(1).max(64).optional(),
+});
+
+/** An id a UPI app handed back. Left out, not sent empty, when the app gave none. */
+const ReceiptId = z.string().trim().min(1).max(64).optional();
+
+const PaymentBody = z.object({
+  fromMemberId: z.string(),
+  toMemberId: z.string(),
+  amount: minor,
+  txnId: ReceiptId,
+  approvalRef: ReceiptId,
+  txnRef: ReceiptId,
 });
 
 /** Whether this member has given a UPI ID to be paid at. A ghost has no account to have put one on. */
@@ -214,6 +234,43 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
       return repo.replaceUpiClaim(made);
     });
     return c.json(claim, 201);
+  });
+
+  /**
+   * The payer's UPI app said the payment went through, and their phone
+   * reports it with the ids the app handed back. The debt is settled
+   * straight away: 201 Settlement, `manually_confirmed`, rail `upi`, with
+   * those ids as `upi` and the payer as the one whose word it was. Nothing
+   * is asked of the person owed, and nothing undoes it. A claim waiting for
+   * the same debt goes, since this is the later word on it.
+   *   not the payer, more than is owed, nothing owed   → as for any payment
+   *   the group isn't in rupees                        → 400 invalid_input
+   *   the payee hasn't given a UPI ID                  → 409 member_cannot_receive
+   *   a Lightning payment for it is under way          → 409 conflict
+   */
+  r.post('/groups/:id/upi-payments', once, async (c) => {
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    const { txnId, approvalRef, txnRef, ...body } = parse(PaymentBody, await c.req.json());
+
+    const settlement = transaction(db, () => {
+      const payee = checkSettlement(repo, g, body);
+      checkPayer(repo, body, user.id);
+      checkRupees(g);
+      upiIdOf(payee);
+      if (inProgressFor(repo, g, body)) {
+        throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+      }
+      repo.dropUpiClaimFor({ groupId: g.id, ...body });
+      return repo.insertSettlement({
+        ...newSettlement(g, body, 'upi', 'manually_confirmed'),
+        note: 'Paid by UPI',
+        recordedByMemberId: body.fromMemberId,
+        // Only the ids the app gave: one it left out isn't stored as an empty one.
+        upi: { ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) },
+      });
+    });
+    return c.json(settlement, 201);
   });
 
   /**

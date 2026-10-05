@@ -85,6 +85,7 @@ const toSettlement = (r: Row): Settlement => ({
   note: opt(r.note),
   failureReason: opt(r.failure_reason),
   recordedByMemberId: opt(r.recorded_by_member_id),
+  upi: r.upi_receipt ? JSON.parse(r.upi_receipt as string) : undefined,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
 });
@@ -230,8 +231,8 @@ export function createRepo(db: Db) {
     ),
     insertSettlement: db.prepare(
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status,
-                                note, recorded_by_member_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                note, recorded_by_member_id, upi_receipt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     payLinkByToken: db.prepare('SELECT * FROM pay_links WHERE token = ?'),
     insertPayLink: db.prepare(
@@ -520,7 +521,7 @@ export function createRepo(db: Db) {
     insertSettlement(s: Settlement) {
       q.insertSettlement.run(
         s.id, s.groupId, s.fromMemberId, s.toMemberId, s.amount, s.currency, s.rail, s.status,
-        s.note ?? null, s.recordedByMemberId ?? null, s.createdAt, s.updatedAt
+        s.note ?? null, s.recordedByMemberId ?? null, s.upi ? JSON.stringify(s.upi) : null, s.createdAt, s.updatedAt
       );
       return s;
     },
@@ -638,6 +639,10 @@ export function createRepo(db: Db) {
     },
     deleteUpiClaim(id: string) {
       q.deleteUpiClaim.run(id);
+    },
+    /** Drops whatever claim there is for a debt, waiting or turned down: something later has been said about it. */
+    dropUpiClaimFor(pair: Pick<UpiClaim, 'groupId' | 'fromMemberId' | 'toMemberId'>) {
+      q.deleteUpiClaimForPair.run(pair.groupId, pair.fromMemberId, pair.toMemberId);
     },
 
     joinRequest: (id: string) => {

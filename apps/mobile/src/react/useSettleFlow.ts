@@ -9,12 +9,15 @@
  *      │   └──────failed─────────┘   (error shown, nothing moved)
  *      ├──startAddressEntry──▶ entering_address ──save──▶ choosing (re-resolved)
  *      ├──choose('upi')──▶ upi ──claimUpi──▶ upi_sent   (the payee confirms, elsewhere)
+ *      │                    └──the UPI app says it went through (Android)──▶ done
  *      └──markManual──────────────────────────────────▶ done
  *
- * UPI is paid outside Sattle, in the payer's UPI app, so its branch ends in a
- * claim, not a settlement: nothing here can see the money move. On Android
- * the UPI app is opened for them and its answer makes the claim; elsewhere
- * the payer pays and says so.
+ * UPI is paid outside Sattle, in the payer's UPI app, and nothing here can
+ * see the money move. On Android the UPI app is opened for them and hands
+ * back what happened. When it says the payment went through, that settles
+ * the debt then and there, on that app's word, with the ids it gave kept for
+ * checking. Anything short of that, and everywhere else, the branch ends in
+ * a claim: the payer says they paid, and the person owed confirms it.
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything. Only the ways
@@ -82,9 +85,12 @@ export interface SettleFlow {
   upi: UpiSession | null;
   /** The payer's word that they paid, once given. Set on `upi_sent`. */
   upiClaim: UpiClaim | null;
-  /** Opens the UPI app again and acts on what it says. Null where no UPI app reports back (iOS, web). */
+  /** Opens the UPI app again and acts on what it says: a success settles it. Null where no UPI app reports back (iOS, web). */
   openUpiApp: (() => Promise<void>) | null;
-  /** Tells the person owed it has been paid. They confirm it. */
+  /**
+   * Tells the person owed it has been paid, and they confirm it. Unless the UPI app said the
+   * payment went through and recording that failed: then this records it, and it is settled.
+   */
   claimUpi: () => Promise<void>;
   /** Back to the options, with nothing recorded. */
   leaveUpi: () => void;
@@ -193,8 +199,17 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
       throw new Error('No UPI app on this phone could open this. Pay the UPI ID below from your UPI app, then mark it as paid.');
     }
     setUpi({ ...session, outcome });
-    // The app says the money left, so tell the person owed, with the reference to check it against.
-    if (outcome.status === 'success') await claimUpi(outcome.reference);
+    if (outcome.status === 'success') await settleByUpi(outcome);
+  };
+
+  /**
+   * The UPI app said the money left. That settles it: nobody is asked to confirm, and what the
+   * app handed back goes with it, so the payment can be found in a statement. Asking again with
+   * the same answer, after the server couldn't be reached, is one request and not a second payment.
+   */
+  const settleByUpi = async ({ txnId, approvalRef, txnRef }: UpiOutcome) => {
+    const input = { ...pick(debt), ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) };
+    onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
   };
 
   const choose = (rail: Rail) =>
@@ -253,7 +268,9 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     upi,
     upiClaim,
     openUpiApp: launchUpi && upi ? () => run(() => openUpiApp(upi)) : null,
-    claimUpi: () => run(() => claimUpi(upi?.outcome?.reference)),
+    // After a success that couldn't be recorded, this is the way to record it, not a claim to be confirmed.
+    claimUpi: () =>
+      run(() => (upi?.outcome?.status === 'success' ? settleByUpi(upi.outcome) : claimUpi(upi?.outcome?.reference))),
     leaveUpi: () => {
       setError(null);
       setUpi(null);

@@ -132,7 +132,7 @@ describe('UPI', () => {
       (d) => d.fromMemberId === 'm-goa-yash' && d.toMemberId === 'm-goa-om'
     )?.amount ?? 0;
 
-  it('"the balance moves only when the person who is owed confirms it arrived": the payer’s word settles nothing, and he can’t confirm it himself', async () => {
+  it('"the balance moves when the person who is owed confirms it arrived": the payer’s word settles nothing, and he can’t confirm it himself', async () => {
     const { db, call } = setup();
     db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
     const owed = await yashOwesOm(call);
@@ -154,6 +154,28 @@ describe('UPI', () => {
     expect(confirmed.body).toMatchObject({ rail: 'upi', status: 'manually_confirmed' });
     expect(confirmed.body).not.toHaveProperty('preimage');
     expect(await yashOwesOm(call)).toBe(0);
+  });
+
+  it('"when the payer’s UPI app says the payment went through, the balance moves straight away, on that app’s word, and its transaction ID is kept": nobody is asked, and it is in the history', async () => {
+    const { db, call } = setup();
+    db.prepare("UPDATE users SET upi_id = 'om@okhdfcbank', token = 't-om' WHERE id = 'u-om'").run();
+    const owed = await yashOwesOm(call);
+
+    const paid = await call<Settlement>('POST', '/groups/g-goa/upi-payments', {
+      fromMemberId: 'm-goa-yash',
+      toMemberId: 'm-goa-om',
+      amount: owed,
+      txnId: 'AXI8f2c9d',
+      approvalRef: '412345678901',
+    });
+    expect(paid.status).toBe(201);
+    expect(await yashOwesOm(call)).toBe(0);
+    // It is the payer's app's word, kept as that: no proof, and nothing waiting on Om.
+    expect(paid.body).toMatchObject({ rail: 'upi', recordedByMemberId: 'm-goa-yash', upi: { txnId: 'AXI8f2c9d', approvalRef: '412345678901' } });
+    expect(paid.body).not.toHaveProperty('preimage');
+    expect((await call<UpiClaim[]>('GET', '/groups/g-goa/upi-claims', undefined, { authorization: 'Bearer t-om' })).body).toEqual([]);
+    const history = (await call<{ kind: string; settlement?: Settlement }[]>('GET', '/groups/g-goa/history')).body;
+    expect(history[0]).toMatchObject({ kind: 'settled', settlement: { id: paid.body.id, upi: { txnId: 'AXI8f2c9d' } } });
   });
 
   it('"someone in the group who owes you is shown it": Yash, who owes Om, is; the member list never carries it', async () => {

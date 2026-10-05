@@ -44,6 +44,7 @@ import {
   type PayLink,
   type PendingJoin,
   type ReceiveAddress,
+  type ReportUpiPaymentInput,
   type Settlement,
   type UpiClaim,
   type UpiOnGroupLink,
@@ -1321,6 +1322,48 @@ export class MockClient implements SattleClient {
         claim,
       ];
       return claim;
+    }, idempotencyKey);
+  }
+
+  /** As the server's /upi-payments: settled on the spot, on the word of the payer's UPI app. */
+  reportUpiPayment(input: ReportUpiPaymentInput, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(input.groupId);
+      this.checkCaller(input, 'payer');
+      const debt = this.debtsOf(input.groupId).find(
+        (d) => d.fromMemberId === input.fromMemberId && d.toMemberId === input.toMemberId
+      );
+      if (!debt) throw new SattleError('conflict', 'Nothing is owed here any more.');
+      if (input.amount > debt.amount) throw new SattleError('conflict', 'That’s more than is owed. Refresh and try again.');
+      this.checkRupees(input.groupId);
+      const payee = this.members.find((m) => m.id === input.toMemberId)!;
+      if (!this.takesUpi(payee)) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} hasn’t added a UPI ID.`);
+      }
+      // The later word on this debt: a claim that was waiting on it goes.
+      this.upiClaims = this.upiClaims.filter(
+        (x) => !(x.groupId === g.id && x.fromMemberId === input.fromMemberId && x.toMemberId === input.toMemberId)
+      );
+      // Only the ids the app gave: one it left out isn't kept as an empty one.
+      const given = (id?: string) => id?.trim() || undefined;
+      const [txnId, approvalRef, txnRef] = [given(input.txnId), given(input.approvalRef), given(input.txnRef)];
+      const s: Settlement = {
+        id: this.id('s'),
+        groupId: g.id,
+        fromMemberId: input.fromMemberId,
+        toMemberId: input.toMemberId,
+        amount: input.amount,
+        currency: g.currency,
+        rail: 'upi',
+        status: 'manually_confirmed',
+        note: 'Paid by UPI',
+        recordedByMemberId: input.fromMemberId,
+        upi: { ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) },
+        createdAt: this.now(),
+        updatedAt: this.now(),
+      };
+      this.settlements.push(s);
+      return s;
     }, idempotencyKey);
   }
 

@@ -8,6 +8,8 @@
  * person owed, who is the one that confirms.
  */
 
+import type { UpiReceipt } from './types';
+
 export type ParsedUpiId = { ok: true; upiId: string } | { ok: false; reason: string };
 
 /** name@handle. The handle is a bank's or app's short name and has no dot in it. */
@@ -84,8 +86,11 @@ const clean = (text: string, max: number) =>
     .slice(0, max)
     .trim();
 
-/** What the payer's UPI app said when it handed control back. */
-export interface UpiOutcome {
+/**
+ * What the payer's UPI app said when it handed control back: how it went,
+ * and the ids it gave (UpiReceipt), each present only when the app sent one.
+ */
+export interface UpiOutcome extends UpiReceipt {
   /**
    * success  the app says the money left
    * pending  the app says the bank hasn't answered yet
@@ -93,7 +98,7 @@ export interface UpiOutcome {
    * unknown  the app said nothing: closed, cancelled, or it doesn't report
    */
   status: 'success' | 'pending' | 'failed' | 'unknown';
-  /** The bank's reference for the payment, to match against the payee's own records. */
+  /** The best of those ids to match against the payee's own records: the approval reference, else the transaction ID. */
   reference?: string;
 }
 
@@ -128,8 +133,17 @@ export function parseUpiResponse(extras: Record<string, unknown> | string | null
   const said = (fields.get('status') ?? '').toLowerCase();
   const status: UpiOutcome['status'] =
     said === 'success' ? 'success' : said === 'submitted' || said === 'pending' ? 'pending' : said.startsWith('fail') ? 'failed' : 'unknown';
-  const reference = fields.get('approvalrefno') ?? fields.get('txnid') ?? fields.get('txnref');
-  return reference ? { status, reference: reference.slice(0, 64) } : { status };
+  // An app that has nothing for a field sends it empty or as "null", and neither was kept above.
+  const id = (name: string) => fields.get(name)?.slice(0, 64);
+  const receipt: UpiReceipt = {};
+  const txnId = id('txnid');
+  const approvalRef = id('approvalrefno');
+  const txnRef = id('txnref');
+  if (txnId) receipt.txnId = txnId;
+  if (approvalRef) receipt.approvalRef = approvalRef;
+  if (txnRef) receipt.txnRef = txnRef;
+  const reference = approvalRef ?? txnId ?? txnRef;
+  return { status, ...(reference ? { reference } : {}), ...receipt };
 }
 
 function safeDecode(text: string) {

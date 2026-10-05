@@ -32,6 +32,7 @@ import type {
   PayLink,
   PendingJoin,
   ReceiveAddress,
+  ReportUpiPaymentInput,
   Settlement,
   UpiClaim,
   UpiOnGroupLink,
@@ -298,6 +299,14 @@ export interface SattleClient {
    * their last claim for the same debt.
    */
   createUpiClaim(input: CreateUpiClaimInput, idempotencyKey?: string): Promise<UpiClaim>;
+  /**
+   * The payer's UPI app said the payment went through, which only Android
+   * hears. Settles the debt straight away on that app's word, keeping the ids
+   * it handed back, with nothing for the person owed to confirm and nothing
+   * that undoes it. A claim waiting for the same debt goes. Throws as
+   * createUpiClaim does.
+   */
+  reportUpiPayment(input: ReportUpiPaymentInput, idempotencyKey?: string): Promise<Settlement>;
   /** The person owed says it arrived: the claim becomes a settlement. */
   confirmUpiClaim(claimId: string, idempotencyKey?: string): Promise<Settlement>;
   /** The person owed says it didn't arrive. The payer is shown that. */

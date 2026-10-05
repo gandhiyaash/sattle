@@ -7,7 +7,9 @@
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
- *   upi / upi_sent    what to pay in a UPI app, then waiting on the payee
+ *   upi / upi_sent    what to pay in a UPI app, then waiting on the payee. On
+ *                     Android, a UPI app that says the payment went through
+ *                     settles it there and then, and the sheet goes to done
  *
  * The blocked screen is not an error state. It offers the routes to the
  * same outcome that can work here, ordered by how likely they are to: get an
@@ -29,6 +31,7 @@ import { Button, Card, ErrorState, QuoteBreakdown, SatLine } from './primitives'
 import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 import { UpiPanel } from './UpiPanel';
+import { UpiReceiptRows } from './UpiReceiptRows';
 
 export interface SettleUpSheetProps {
   debt: Debt;
@@ -105,15 +108,18 @@ export function SettleUpSheet({
     // Only Android hears back from the UPI app. Whatever it said short of success leaves it to the payer.
     const said = flow.openUpiApp ? flow.upi.outcome?.status : undefined;
     const instructions =
-      said === 'failed'
-        ? 'Your UPI app says the payment didn’t go through. Nothing was recorded, and you can try again.'
-        : said === 'pending'
-          ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
-          : said === 'unknown'
-            ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
-            : flow.openUpiApp
-              ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
-              : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
+      said === 'success'
+        ? // Only still on this step if telling the server failed: otherwise the sheet has gone to Settled.
+          'Your UPI app says the payment went through, but it couldn’t be recorded here. Tap I’ve paid to try again. Don’t pay a second time.'
+        : said === 'failed'
+          ? 'Your UPI app says the payment didn’t go through. Nothing was recorded, and you can try again.'
+          : said === 'pending'
+            ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
+            : said === 'unknown'
+              ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
+              : flow.openUpiApp
+                ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
+                : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
     return (
       <View style={s.sheet}>
         <Text style={s.title}>Pay {recipient.displayName} by UPI</Text>
@@ -193,13 +199,17 @@ export function SettleUpSheet({
 
   if (flow.step === 'paying' || flow.step === 'done') {
     const done = flow.step === 'done';
+    // Set when it was settled because the payer's UPI app said the payment went through.
+    const upiReceipt = done ? flow.settlement?.upi : undefined;
     return (
       <View style={s.sheet}>
         <Text style={s.title}>{done ? 'Settled' : 'Waiting for payment'}</Text>
         <Text style={s.body}>
-          {done
-            ? `${amount} to ${recipient.displayName} is settled.`
-            : `Sending ${amount} to ${recipient.displayName}.`}
+          {upiReceipt
+            ? `Your UPI app says ${amount} went to ${recipient.displayName}, so it’s settled. ${recipient.displayName} has nothing to confirm.`
+            : done
+              ? `${amount} to ${recipient.displayName} is settled.`
+              : `Sending ${amount} to ${recipient.displayName}.`}
         </Text>
 
         {!done && (
@@ -222,6 +232,13 @@ export function SettleUpSheet({
             <Text style={s.receiptValue} numberOfLines={1}>
               {flow.settlement.preimage}
             </Text>
+          </View>
+        )}
+
+        {/* What the UPI app handed back, kept with the payment and shown in the group's history. */}
+        {upiReceipt && (
+          <View style={s.receiptRows}>
+            <UpiReceiptRows receipt={upiReceipt} />
           </View>
         )}
 
@@ -410,6 +427,13 @@ const useStyles = makeStyles((color) => ({
     borderRadius: radius.md,
     padding: space.md,
     gap: 2,
+    marginBottom: space.md,
+  },
+  receiptRows: {
+    backgroundColor: color.surfaceSunken,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
     marginBottom: space.md,
   },
   receiptLabel: { ...type.caption, color: color.inkFaint },
