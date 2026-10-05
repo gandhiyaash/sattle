@@ -23,6 +23,7 @@ import {
   type GroupGuestView,
   type GroupLink,
   type GuestView,
+  type HistoryEntry,
   type JoinView,
   type JoinRequest,
   type PendingJoin,
@@ -171,6 +172,9 @@ export class ApiClient implements SattleClient {
   }
   getLedgerBackup(groupId: string) {
     return this.request<LedgerBackup>('GET', `/groups/${groupId}/ledger`);
+  }
+  getHistory(groupId: string) {
+    return this.request<HistoryEntry[]>('GET', `/groups/${groupId}/history`);
   }
   createSettlement(input: CreateSettlementInput, idempotencyKey = newIdempotencyKey()) {
     return this.request<Settlement>('POST', `/groups/${input.groupId}/settlements`, input, idempotencyKey);

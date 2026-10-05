@@ -12,6 +12,7 @@
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
+ *   routes/history.ts      what has happened in a group: expenses added, changed and removed, and debts settled
  *   routes/upi.ts          a UPI ID on the account, and paying a debt over UPI
  */
 
@@ -33,6 +34,7 @@ import type { LnurlClient } from './lnurl';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
 import { groupLinkRoutes } from './routes/groupLinks';
+import { historyRoutes } from './routes/history';
 import { joinRoutes } from './routes/joining';
 import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
@@ -99,6 +101,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', walletRoutes(ctx));
   app.route('/', eventRoutes(ctx, deps.events));
   app.route('/', ledgerRoutes(ctx));
+  app.route('/', historyRoutes(ctx));
   app.route('/', upiRoutes(ctx));
 
   return app;

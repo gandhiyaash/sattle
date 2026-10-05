@@ -72,6 +72,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   types.ts                   Domain vocabulary. Member ≠ User. Debt is in the group's currency.
   currency.ts                The currencies a group can be kept in, and how an amount in each is typed and shown.
   ledger.ts                  Pure maths: splits, balances, netting.
+  history.ts                 A group's history, read off its expenses, the changes to them and its settlements.
   settlementOptions.ts       Resolves what's possible BEFORE the user taps, from the ways to pay the payer uses.
   quote.ts                   What a debt comes to in sats: a pinned rate for rupees, none for a group kept in bitcoin. 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
@@ -86,7 +87,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, upi.
+  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, history, upi.
   middleware.ts              Auth (with the public /s/, /g/ and /join/ prefixes) and idempotency.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -143,6 +144,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name and the people in it.
       GroupDetailScreen.tsx  The balance, then three tabs: expenses, members and their states, settle up.
+      HistoryScreen.tsx      Everything added, changed, removed and settled, and the sheet one entry opens in.
       AddExpenseScreen.tsx   Live split preview as you type.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
@@ -359,6 +361,17 @@ Leaving is the reverse of joining. The member's row stays, as a ghost, with its 
 Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links it made and its requests to join are removed; the names its members had in shared groups stay.
 
 An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
+
+### History
+
+On a group's **Settle up** tab, the button at the bottom is **History** rather than Add expense. It lists everything that has happened to the group's money, newest first: each expense added, changed or removed, and each debt settled, with who did it and when (`GET /groups/:id/history`, members only). Tapping an entry opens it in full:
+
+- **A payment**: when it was paid or marked as paid, how, and its proof if it has one. A Lightning payment has the preimage, in full and copyable, and in a rupee group the sats sent and the rate. A debt marked as settled, or a UPI payment someone confirmed, has no proof, and the entry says so and names whose word it was settled on.
+- **An expense**: who paid and each person's part. A change shows both sides of whatever it changed: the name, the amount, who paid, and each part.
+
+Nothing is stored as a history. `buildHistory` in `@sattle/core` reads it off three things the server already keeps, and the mock builds it the same way: the expenses, the changes to them, and the settlements. Migration 019 added what those didn't say: who added an expense, who changed or removed one and how it read before, and who marked a debt as settled or confirmed a UPI payment. Each "who" is the member that person was in the group. Things from before 019 show without a name, and an expense edited before it shows as added the way it read after that first edit, since the earlier reading wasn't kept.
+
+Two things are left out on purpose. A payment that failed or ran out isn't in the history, because it moved nothing. And saving an expense exactly as it stood isn't a change: the server notes nothing for it, in the history or on Nostr.
 
 ### Deploying
 

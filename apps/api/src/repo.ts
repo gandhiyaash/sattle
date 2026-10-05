@@ -12,6 +12,7 @@ import {
   SattleError,
   TERMINAL_STATUSES,
   type Expense,
+  type ExpenseChange,
   type Debt,
   type Group,
   type GroupLink,
@@ -57,6 +58,16 @@ const toExpense = (r: Row): Expense => ({
   splitMode: r.split_mode as Expense['splitMode'],
   parts: JSON.parse(r.parts as string),
   createdAt: r.created_at as string,
+  addedByMemberId: opt(r.added_by_member_id),
+});
+
+const toExpenseChange = (r: Row): ExpenseChange => ({
+  id: String(r.id),
+  expenseId: r.expense_id as string,
+  before: r.expense_before ? JSON.parse(r.expense_before as string) : undefined,
+  after: r.expense ? JSON.parse(r.expense as string) : undefined,
+  byMemberId: opt(r.by_member_id),
+  at: r.created_at as string,
 });
 
 const toSettlement = (r: Row): Settlement => ({
@@ -73,6 +84,7 @@ const toSettlement = (r: Row): Settlement => ({
   preimage: opt(r.preimage),
   note: opt(r.note),
   failureReason: opt(r.failure_reason),
+  recordedByMemberId: opt(r.recorded_by_member_id),
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
 });
@@ -187,8 +199,9 @@ export function createRepo(db: Db) {
     ),
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
-      `INSERT INTO expenses (id, group_id, description, amount, paid_by_member_id, split_mode, parts, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO expenses (id, group_id, description, amount, paid_by_member_id, split_mode, parts, created_at,
+                             added_by_member_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     expenseById: db.prepare('SELECT * FROM expenses WHERE id = ?'),
     updateExpense: db.prepare(
@@ -196,8 +209,10 @@ export function createRepo(db: Db) {
     ),
     deleteExpense: db.prepare('DELETE FROM expenses WHERE id = ?'),
     insertExpenseChange: db.prepare(
-      'INSERT INTO expense_changes (group_id, expense_id, expense, created_at) VALUES (?, ?, ?, ?)'
+      `INSERT INTO expense_changes (group_id, expense_id, expense, expense_before, by_member_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     ),
+    expenseChangesOfGroup: db.prepare('SELECT * FROM expense_changes WHERE group_id = ? ORDER BY id'),
     settlementsOfGroup: db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY created_at'),
     settlementById: db.prepare('SELECT * FROM settlements WHERE id = ?'),
     settlementByPaymentHash: db.prepare('SELECT * FROM settlements WHERE payment_hash = ?'),
@@ -215,8 +230,8 @@ export function createRepo(db: Db) {
     ),
     insertSettlement: db.prepare(
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status,
-                                note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                note, recorded_by_member_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     payLinkByToken: db.prepare('SELECT * FROM pay_links WHERE token = ?'),
     insertPayLink: db.prepare(
@@ -461,24 +476,33 @@ export function createRepo(db: Db) {
 
     expenses: (groupId: string) => (q.expensesOfGroup.all(groupId) as Row[]).map(toExpense),
     insertExpense(e: Expense) {
-      q.insertExpense.run(e.id, e.groupId, e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.createdAt);
+      q.insertExpense.run(
+        e.id, e.groupId, e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.createdAt,
+        e.addedByMemberId ?? null
+      );
       return e;
     },
     expense: (id: string) => {
       const r = q.expenseById.get(id) as Row | undefined;
       return r && toExpense(r);
     },
-    /** Replaces what the expense says, and notes the change for the ledger on Nostr. */
-    updateExpense(e: Expense) {
+    /**
+     * Replaces what the expense says, and notes the change: for the ledger on
+     * Nostr, and with how it read `before` and who changed it, for the
+     * group's history.
+     */
+    updateExpense(e: Expense, before: Expense, byMemberId: string) {
       q.updateExpense.run(e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.id);
-      q.insertExpenseChange.run(e.groupId, e.id, JSON.stringify(e), nowIso());
+      q.insertExpenseChange.run(e.groupId, e.id, JSON.stringify(e), JSON.stringify(before), byMemberId, nowIso());
       return e;
     },
-    /** Removes the expense, and notes that for the ledger on Nostr. */
-    deleteExpense(e: Expense) {
+    /** Removes the expense, and notes that the same way. What it said goes with the note, since its row is gone. */
+    deleteExpense(e: Expense, byMemberId: string) {
       q.deleteExpense.run(e.id);
-      q.insertExpenseChange.run(e.groupId, e.id, null, nowIso());
+      q.insertExpenseChange.run(e.groupId, e.id, null, JSON.stringify(e), byMemberId, nowIso());
     },
+    /** Every edit and removal in the group, in the order they were made. */
+    expenseChanges: (groupId: string) => (q.expenseChangesOfGroup.all(groupId) as Row[]).map(toExpenseChange),
 
     settlements: (groupId: string) => (q.settlementsOfGroup.all(groupId) as Row[]).map(toSettlement),
     settlement: (id: string) => {
@@ -494,7 +518,7 @@ export function createRepo(db: Db) {
     insertSettlement(s: Settlement) {
       q.insertSettlement.run(
         s.id, s.groupId, s.fromMemberId, s.toMemberId, s.amount, s.currency, s.rail, s.status,
-        s.note ?? null, s.createdAt, s.updatedAt
+        s.note ?? null, s.recordedByMemberId ?? null, s.createdAt, s.updatedAt
       );
       return s;
     },

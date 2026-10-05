@@ -62,7 +62,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
     return c.json(settlement, 201);
   });
 
-  /** The payee records it; the payer only when the payee is a ghost. See checkManualRecorder. */
+  /** The payee records it; the payer only when the payee is a ghost. See checkManualRecorder. Whoever does is kept with it. */
   r.post('/groups/:id/settlements/manual', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
@@ -73,6 +73,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
       return repo.insertSettlement({
         ...newSettlement(g, body, 'manual', 'manually_confirmed'),
         note: body.note,
+        recordedByMemberId: repo.memberForUser(g.id, user.id)!.id,
       });
     });
     return c.json(settlement, 201);

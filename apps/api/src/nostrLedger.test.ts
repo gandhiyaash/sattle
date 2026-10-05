@@ -56,12 +56,18 @@ describe('expenses that change after they were written down', () => {
     return readLedger(relay.events, access(groupId));
   };
   const chai = (groupId: string) => createRepo(db).expense('e-chai')!;
+  /** Whoever made the change. The ledger doesn't say, so anyone in the group will do. */
+  const by = 'm-goa-yash';
 
   it('reads an edited expense as it now stands, without breaking the chain', async () => {
     addExpense('g-goa', 'e-chai', 200);
     const before = await read('g-goa');
     const repo = createRepo(db);
-    repo.updateExpense({ ...chai('g-goa'), description: 'Chai and samosa', amount: 500, parts: chai('g-goa').parts.map((p) => ({ ...p, amount: 250 })) });
+    repo.updateExpense(
+      { ...chai('g-goa'), description: 'Chai and samosa', amount: 500, parts: chai('g-goa').parts.map((p) => ({ ...p, amount: 250 })) },
+      chai('g-goa'),
+      by
+    );
 
     const after = await read('g-goa');
     expect(after.problems).toEqual([]);
@@ -78,7 +84,7 @@ describe('expenses that change after they were written down', () => {
     addExpense('g-goa', 'e-chai', 200);
     const before = await read('g-goa');
     const repo = createRepo(db);
-    repo.deleteExpense(chai('g-goa'));
+    repo.deleteExpense(chai('g-goa'), by);
 
     const after = await read('g-goa');
     expect(after.problems).toEqual([]);
@@ -90,7 +96,7 @@ describe('expenses that change after they were written down', () => {
   it('keeps several changes made in the same instant in the order they happened', async () => {
     addExpense('g-goa', 'e-chai', 200);
     const repo = createRepo(db);
-    for (const amount of [300, 400, 500]) repo.updateExpense({ ...chai('g-goa'), amount });
+    for (const amount of [300, 400, 500]) repo.updateExpense({ ...chai('g-goa'), amount }, chai('g-goa'), by);
 
     const after = await read('g-goa');
     expect(after.problems).toEqual([]);
@@ -101,7 +107,7 @@ describe('expenses that change after they were written down', () => {
     await ledger.tick();
     addExpense('g-goa', 'e-chai', 200);
     const repo = createRepo(db);
-    repo.deleteExpense(chai('g-goa'));
+    repo.deleteExpense(chai('g-goa'), by);
 
     const after = await read('g-goa');
     expect(after.problems).toEqual([]);
