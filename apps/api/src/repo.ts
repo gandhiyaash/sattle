@@ -14,6 +14,7 @@ import {
   type Group,
   type GroupLink,
   type Invite,
+  type JoinRequest,
   type Member,
   type PayLink,
   type Settlement,
@@ -94,6 +95,26 @@ const toUpiClaim = (r: Row): UpiClaim => ({
   amount: r.amount as number,
   reference: opt(r.reference),
   status: r.status as UpiClaim['status'],
+  ...(r.via_link ? { viaLink: true } : {}),
+  createdAt: r.created_at as string,
+});
+
+/** A request to join, with what only the server needs: who asked, and which member they'd be. */
+export interface StoredJoinRequest extends Omit<JoinRequest, 'groupName' | 'name'> {
+  groupId: string;
+  userId: string;
+  memberId?: string;
+  displayName: string;
+}
+
+const toJoinRequest = (r: Row): StoredJoinRequest => ({
+  id: r.id as string,
+  groupId: r.group_id as string,
+  userId: r.user_id as string,
+  memberId: opt(r.member_id),
+  displayName: r.display_name as string,
+  code: r.code as string,
+  status: r.status as JoinRequest['status'],
   createdAt: r.created_at as string,
 });
 
@@ -200,13 +221,32 @@ export function createRepo(db: Db) {
     upiClaimById: db.prepare('SELECT * FROM upi_claims WHERE id = ?'),
     upiClaimsOfGroup: db.prepare('SELECT * FROM upi_claims WHERE group_id = ? ORDER BY created_at'),
     insertUpiClaim: db.prepare(
-      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, via_link, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     setUpiClaimStatus: db.prepare('UPDATE upi_claims SET status = ? WHERE id = ?'),
     deleteUpiClaim: db.prepare('DELETE FROM upi_claims WHERE id = ?'),
     deleteUpiClaimForPair: db.prepare(
       'DELETE FROM upi_claims WHERE group_id = ? AND from_member_id = ? AND to_member_id = ?'
+    ),
+    joinRequestById: db.prepare('SELECT * FROM join_requests WHERE id = ?'),
+    joinRequestsOfGroup: db.prepare(
+      `SELECT * FROM join_requests WHERE group_id = ? AND status = 'pending' ORDER BY created_at, rowid`
+    ),
+    joinRequestsOfUser: db.prepare('SELECT * FROM join_requests WHERE user_id = ? ORDER BY created_at, rowid'),
+    pendingJoinCount: db.prepare(`SELECT COUNT(*) AS n FROM join_requests WHERE group_id = ? AND status = 'pending'`),
+    // One per person per group: asking again replaces the last, whatever became of it.
+    upsertJoinRequest: db.prepare(
+      `INSERT INTO join_requests (id, group_id, user_id, member_id, display_name, code, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+       ON CONFLICT (group_id, user_id) DO UPDATE SET id = excluded.id, member_id = excluded.member_id,
+         display_name = excluded.display_name, code = excluded.code, status = 'pending', created_at = excluded.created_at`
+    ),
+    setJoinRequestStatus: db.prepare('UPDATE join_requests SET status = ? WHERE id = ?'),
+    deleteJoinRequest: db.prepare('DELETE FROM join_requests WHERE id = ?'),
+    // Everyone else asking to be a member who has just been let in, or removed, can't be them now.
+    declineJoinRequestsFor: db.prepare(
+      `UPDATE join_requests SET status = 'declined', member_id = NULL WHERE member_id = ?`
     ),
     deleteUpiClaimsOfMember: db.prepare('DELETE FROM upi_claims WHERE from_member_id = ? OR to_member_id = ?'),
     deleteUpiClaimsOfUser: db.prepare(
@@ -236,6 +276,7 @@ export function createRepo(db: Db) {
     'DELETE FROM invites WHERE group_id = ?',
     'DELETE FROM group_links WHERE group_id = ?',
     'DELETE FROM upi_claims WHERE group_id = ?',
+    'DELETE FROM join_requests WHERE group_id = ?',
     'DELETE FROM expenses WHERE group_id = ?',
     'DELETE FROM expense_changes WHERE group_id = ?',
     'DELETE FROM ledger_entries WHERE group_id = ?',
@@ -248,6 +289,7 @@ export function createRepo(db: Db) {
     'UPDATE settlements SET pay_link_token = NULL WHERE pay_link_token IN (SELECT token FROM pay_links WHERE created_by_user_id = ?)',
     'DELETE FROM pay_links WHERE created_by_user_id = ?',
     'DELETE FROM invites WHERE created_by_user_id = ?',
+    'DELETE FROM join_requests WHERE user_id = ?',
     'DELETE FROM idempotency_keys WHERE user_id = ?',
     'DELETE FROM users WHERE id = ?',
   ].map((sql) => db.prepare(sql));
@@ -363,6 +405,7 @@ export function createRepo(db: Db) {
     /** Only for a member with no history. */
     deleteMember(id: string) {
       q.deleteUpiClaimsOfMember.run(id, id);
+      q.declineJoinRequestsFor.run(id);
       q.deleteMember.run(id);
     },
 
@@ -520,7 +563,7 @@ export function createRepo(db: Db) {
       q.deleteUpiClaimForPair.run(claim.groupId, claim.fromMemberId, claim.toMemberId);
       q.insertUpiClaim.run(
         claim.id, claim.groupId, claim.fromMemberId, claim.toMemberId, claim.amount,
-        claim.reference ?? null, claim.status, claim.createdAt
+        claim.reference ?? null, claim.status, claim.viaLink ? 1 : 0, claim.createdAt
       );
       return claim;
     },
@@ -530,6 +573,31 @@ export function createRepo(db: Db) {
     },
     deleteUpiClaim(id: string) {
       q.deleteUpiClaim.run(id);
+    },
+
+    joinRequest: (id: string) => {
+      const r = q.joinRequestById.get(id) as Row | undefined;
+      return r && toJoinRequest(r);
+    },
+    /** The requests waiting on someone in the group, oldest first. */
+    pendingJoins: (groupId: string) => (q.joinRequestsOfGroup.all(groupId) as Row[]).map(toJoinRequest),
+    pendingJoinCount: (groupId: string) => (q.pendingJoinCount.get(groupId) as { n: number }).n,
+    /** Everything this user has asked to join, waiting or turned down. */
+    joinRequestsOf: (userId: string) => (q.joinRequestsOfUser.all(userId) as Row[]).map(toJoinRequest),
+    /** Takes the place of the user's last request for this group. */
+    putJoinRequest(r: Omit<StoredJoinRequest, 'status'>) {
+      q.upsertJoinRequest.run(r.id, r.groupId, r.userId, r.memberId ?? null, r.displayName, r.code, r.createdAt);
+      return repo.joinRequest(r.id)!;
+    },
+    declineJoinRequest(id: string) {
+      q.setJoinRequestStatus.run('declined', id);
+    },
+    deleteJoinRequest(id: string) {
+      q.deleteJoinRequest.run(id);
+    },
+    /** Turns down everyone else asking to be this member: someone has just been let in as them. */
+    declineJoinRequestsFor(memberId: string) {
+      q.declineJoinRequestsFor.run(memberId);
     },
   };
 

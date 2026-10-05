@@ -5,18 +5,32 @@
  * person's share, and who owes whom, so anyone in the chat the link went to
  * can check the numbers and pay what they owe. No app, no account.
  *
- * It only reads. Settle hands one debt to the pay page (GuestPayScreen),
- * which is where the invoice is made and the wallet opens. Nothing here can
- * change the group, and the page can't tell who is looking, so every debt
- * gets the same button: paying someone else's is allowed and harmless.
+ * It only reads. Paying with Lightning hands one debt to the pay page
+ * (GuestPayScreen), which is where the invoice is made and the wallet opens.
+ * Paying by UPI, offered when the person owed allows it from shared links,
+ * opens the UPI app or shows a QR here; then the page says it was paid, and
+ * the person owed confirms it in the app. Nothing here can change the group,
+ * and the page can't tell who is looking, so every debt gets the same
+ * buttons: paying someone else's is allowed and harmless.
+ *
+ * Someone in the group who wants to add spends needs the invite instead,
+ * which is a different link; the page says so at the bottom.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { SattleError, formatFiat, type GroupGuestDebt, type GroupGuestExpense } from '@sattle/core';
-import { useAsync, useClient } from '../react/SattleProvider';
+import {
+  SattleError,
+  formatFiat,
+  upiPayUri,
+  type GroupGuestDebt,
+  type GroupGuestExpense,
+  type UpiPayee,
+} from '@sattle/core';
+import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { GuestPayScreen } from './GuestPayScreen';
+import { UpiPanel } from './UpiPanel';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, space, type, useColors } from './theme';
 
@@ -37,6 +51,10 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   // A ref as well as the state: two taps can land before the state has updated.
   const settling = useRef(false);
   const [failed, setFailed] = useState<{ ref: string; message: string } | null>(null);
+  /** The debt being paid by UPI, and who to pay, once the page has asked. */
+  const [upi, setUpi] = useState<{ ref: string; payee: UpiPayee | null } | null>(null);
+  const keys = useActionKeys();
+  const [saying, setSaying] = useState(false);
 
   // Someone else in the chat may pay while this is open. Keep the list current.
   useEffect(() => {
@@ -63,6 +81,35 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     } finally {
       settling.current = false;
       setStarting(null);
+    }
+  };
+
+  const openUpi = async (ref: string) => {
+    if (upi?.ref === ref) return setUpi(null);
+    setFailed(null);
+    setUpi({ ref, payee: null });
+    try {
+      const payee = await client.getGroupLinkUpi(token, ref);
+      setUpi((now) => (now?.ref === ref ? { ref, payee } : now));
+    } catch (e) {
+      setUpi(null);
+      setFailed({ ref, message: e instanceof Error ? e.message : 'Couldn’t get the UPI details. Try again.' });
+      refresh();
+    }
+  };
+
+  // Moves nothing: the person owed is asked whether it arrived.
+  const sayPaid = async (ref: string) => {
+    setSaying(true);
+    setFailed(null);
+    try {
+      await keys.run('upi-claim', { token, ref }, (k) => client.claimUpiFromGroupLink(token, ref, k));
+      setUpi(null);
+    } catch (e) {
+      setFailed({ ref, message: e instanceof Error ? e.message : 'Couldn’t send that. Try again.' });
+    } finally {
+      setSaying(false);
+      refresh();
     }
   };
 
@@ -118,10 +165,14 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
                 key={debt.ref}
                 debt={debt}
                 currency={data.currency}
+                groupName={data.groupName}
                 busy={starting === debt.ref}
                 disabled={starting !== null && starting !== debt.ref}
                 error={failed?.ref === debt.ref ? failed.message : null}
                 onSettle={() => settle(debt.ref)}
+                upi={upi?.ref === debt.ref ? { payee: upi.payee, saying } : null}
+                onUpi={() => openUpi(debt.ref)}
+                onPaidByUpi={() => sayPaid(debt.ref)}
               />
             ))}
           </View>
@@ -144,9 +195,17 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
         )}
       </View>
 
+      <Card style={{ gap: space.xs }}>
+        <Text style={s.joinTitle}>In this group?</Text>
+        <Text style={s.body}>
+          This link only shows the group and lets you pay. To add spends, ask someone in it for the invite link: you
+          pick your name, they let you in, and you can use the app from then on.
+        </Text>
+      </Card>
+
       <Text style={s.note}>
-        You’re seeing this group through a shared link. You can pay what you owe from any Lightning wallet, but only
-        the people in the group can change it.
+        You’re seeing this group through a shared link. You can pay what you owe from here, but only the people in the
+        group can change it.
       </Text>
     </Screen>
   );
@@ -155,21 +214,33 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
 function DebtCard({
   debt,
   currency,
+  groupName,
   busy,
   disabled,
   error,
   onSettle,
+  upi,
+  onUpi,
+  onPaidByUpi,
 }: {
   debt: GroupGuestDebt;
   currency: string;
+  groupName: string;
   busy: boolean;
-  /** Another debt's Settle is starting. */
+  /** Another debt's payment is starting. */
   disabled: boolean;
   error: string | null;
   onSettle: () => void;
+  /** Open when this debt is being paid by UPI; `payee` is null while the page asks who to pay. */
+  upi: { payee: UpiPayee | null; saying: boolean } | null;
+  onUpi: () => void;
+  onPaidByUpi: () => void;
 }) {
   const color = useColors();
   const s = useStyles();
+  // Someone said it was paid by UPI. Paying again would pay twice, so the buttons wait with it.
+  const claimed = debt.upiClaim === 'pending';
+  const canPay = (debt.payable || debt.upi) && !claimed;
   return (
     <Card style={{ padding: space.md, gap: space.sm }}>
       <View style={s.debtRow}>
@@ -180,9 +251,53 @@ function DebtCard({
           </Text>
           <Amount minor={debt.amount} currency={currency} size="sm" />
         </View>
-        {debt.payable && <Button label="Settle" variant="primary" busy={busy} disabled={disabled} onPress={onSettle} />}
       </View>
-      {!debt.payable && (
+      {claimed && (
+        <Text style={s.indented}>
+          Someone said this was paid by UPI. Waiting for {debt.to} to confirm it arrived.
+        </Text>
+      )}
+      {debt.upiClaim === 'declined' && (
+        <Text style={[s.indented, { color: color.danger }]}>
+          {debt.to} says the UPI payment didn’t arrive. Check with them before paying again.
+        </Text>
+      )}
+      {canPay && (
+        <View style={[s.payButtons, s.indentedBlock]}>
+          {debt.upi && (
+            <Button label="Pay by UPI" variant={upi ? 'secondary' : 'primary'} disabled={disabled} onPress={onUpi} />
+          )}
+          {debt.payable && (
+            <Button
+              label="Pay with Lightning"
+              variant={debt.upi ? 'secondary' : 'primary'}
+              busy={busy}
+              disabled={disabled}
+              onPress={onSettle}
+            />
+          )}
+        </View>
+      )}
+      {upi && !claimed && (
+        <View style={[s.indentedBlock, { gap: space.sm }]}>
+          {upi.payee ? (
+            <>
+              <UpiPanel
+                payee={upi.payee}
+                uri={upiPayUri({ upiId: upi.payee.upiId, name: upi.payee.name, amount: debt.amount, note: groupName })}
+              />
+              <Text style={s.caption}>
+                Pay {formatFiat(debt.amount, currency)}, then tap below. {debt.to} confirms it arrived, and then it’s
+                settled.
+              </Text>
+              <Button label="I’ve paid" variant="primary" busy={upi.saying} onPress={onPaidByUpi} />
+            </>
+          ) : (
+            <Loading lines={2} />
+          )}
+        </View>
+      )}
+      {!debt.payable && !debt.upi && (
         <Text style={s.indented}>
           {debt.to} can’t be paid here yet. Settle with them directly.
         </Text>
@@ -219,6 +334,10 @@ const useStyles = makeStyles((color) => ({
   debtText: { ...type.body, color: color.ink },
   // Lines up under the names: avatar, gap.
   indented: { ...type.caption, color: color.inkMuted, marginLeft: 36 + space.md },
+  indentedBlock: { marginLeft: 36 + space.md },
+  payButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  caption: { ...type.caption, color: color.inkMuted },
+  joinTitle: { ...type.body, fontWeight: '600', color: color.ink },
   spend: { padding: space.lg, gap: space.sm },
   spendTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   spendName: { ...type.body, fontWeight: '500', color: color.ink },

@@ -13,7 +13,7 @@
 import React, { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import type { WalletConnection } from '@sattle/core';
+import type { UpiProfile, WalletConnection } from '@sattle/core';
 import { useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import { Badge, Button, Card, ConfirmButton, Divider, EmptyState, ErrorState, Loading, Screen, SectionLabel } from './primitives';
@@ -321,28 +321,31 @@ function ReceiveAtAddress() {
 
 /**
  * A UPI ID, for being paid in rupees outside Lightning. One for every group.
- * Sattle can't see a UPI payment, so the card says who confirms one, and that
- * the ID is only shown to people who owe them.
+ * Sattle can't see a UPI payment, so the card says who confirms one, and who
+ * is shown the ID: people who owe them, and, only if they turn it on, anyone
+ * holding one of their groups' shared links.
  */
 function UpiIdCard() {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
   const current = useAsync(() => client.getUpiId(), []);
-  const [saved, setSaved] = useState<string | null | undefined>(undefined);
+  const [saved, setSaved] = useState<UpiProfile | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const upiId = saved !== undefined ? saved : current.data?.upiId;
+  const profile = saved ?? current.data;
+  const upiId = profile?.upiId;
+  const onLinks = Boolean(profile?.onGroupLinks);
 
-  const run = async (fn: () => Promise<{ upiId: string | null }>) => {
+  const run = async (fn: () => Promise<UpiProfile>) => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      setSaved((await fn()).upiId);
+      setSaved(await fn());
       setInput('');
       setEditing(false);
     } catch (e) {
@@ -364,7 +367,10 @@ function UpiIdCard() {
           <View style={{ gap: space.sm }}>
             <Text style={s.label}>You can be paid at</Text>
             <Text style={s.address}>{upiId}</Text>
-            <Text style={s.rowBody}>In every group kept in rupees. Only people who owe you are shown it.</Text>
+            <Text style={s.rowBody}>
+              In every group kept in rupees. People in a group who owe you are shown it
+              {onLinks ? ', and so is anyone with one of your groups’ shared links.' : '.'}
+            </Text>
           </View>
         )}
 
@@ -401,6 +407,23 @@ function UpiIdCard() {
         )}
 
         {error && <Text style={s.error}>{error}</Text>}
+
+        {upiId && !editing && (
+          <View style={{ gap: space.sm }}>
+            <Divider />
+            <Text style={s.label}>On shared group links</Text>
+            <Text style={s.rowBody}>
+              {onLinks
+                ? 'On. Someone paying from a group’s shared link, without the app, can pay you by UPI. They see your UPI ID when they choose to pay you.'
+                : 'Off. Someone paying from a group’s shared link, without the app, can’t pay you by UPI. Turn it on and anyone holding that link can see your UPI ID, so only if the link stays with people you know.'}
+            </Text>
+            <Button
+              label={onLinks ? 'Turn off for shared links' : 'Let shared links show it'}
+              busy={busy}
+              onPress={() => run(() => client.setUpiOnGroupLinks(!onLinks))}
+            />
+          </View>
+        )}
 
         {upiId && !editing && (
           <View style={{ gap: space.sm }}>
@@ -443,7 +466,11 @@ function UpiIdCard() {
  *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement;
  *                       only the payee's confirm makes one; walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
- *                       doesn't owe them
+ *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
+ *                       only with upi_on_links, which a new ID resets
+ *   Invites             routes/invites.ts: POST /join-requests makes a request, not a
+ *                       member; only POST /join-requests/:id/approve, by someone in
+ *                       the group, claims the member
  *   Exchange rate       rates.ts (CoinGecko, last rate, fixed rate), QUOTE_TTL_MS
  */
 export function TrustModel() {
@@ -484,7 +511,7 @@ export function TrustModel() {
         <Divider />
         <Row
           title="UPI"
-          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and only someone who owes you is shown it."
+          body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and only someone in the group who owes you is shown it, unless you let shared group links show it: then anyone holding one of those links can see it."
         />
         <Divider />
         <Row
@@ -499,7 +526,12 @@ export function TrustModel() {
         <Divider />
         <Row
           title="Group links"
-          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
+          body="A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything: a UPI payment they say they made counts only once the person owed confirms it. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off."
+        />
+        <Divider />
+        <Row
+          title="Invites"
+          body="An invite link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it's really them. Until then they see nothing of the group. Once in, they see and can add to everything, like everyone else."
         />
         <Divider />
         <Row

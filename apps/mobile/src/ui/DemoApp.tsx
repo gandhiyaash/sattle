@@ -47,21 +47,18 @@ export interface DemoAppProps {
   client?: SattleClient;
   /** The token from a /join/<token> link. Opened with one, the app starts on the join screen; tapped later, it goes there. */
   invite?: string | null;
-  /** The join screen is finished with that link, whether or not anyone joined. */
+  /** The join screen is finished with that link, whether or not anyone asked to join. */
   onInviteDone?: () => void;
-  /** A group the person joined on their way in. It starts there. */
-  group?: string | null;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
 }
 
-export function DemoApp({ client, invite, onInviteDone, group, onAccountDeleted }: DemoAppProps) {
+export function DemoApp({ client, invite, onInviteDone, onAccountDeleted }: DemoAppProps) {
   return (
     <SattleProvider client={client}>
       <Navigator
         invite={invite ?? null}
         onInviteDone={onInviteDone}
-        group={group ?? null}
         onAccountDeleted={onAccountDeleted}
       />
     </SattleProvider>
@@ -71,18 +68,16 @@ export function DemoApp({ client, invite, onInviteDone, group, onAccountDeleted 
 function Navigator({
   invite,
   onInviteDone,
-  group,
   onAccountDeleted,
 }: {
   invite: string | null;
   onInviteDone?: () => void;
-  group: string | null;
   onAccountDeleted?: () => void;
 }) {
   const sheet = useSheet();
   const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>(
-    invite ? { name: 'join', token: invite } : group ? { name: 'group', groupId: group } : { name: 'groups' }
+    invite ? { name: 'join', token: invite } : { name: 'groups' }
   );
   const [settling, setSettling] = useState<{
     debt: Debt;
@@ -121,10 +116,10 @@ function Navigator({
               onInviteDone?.();
               setRoute({ name: 'groups' });
             }}
-            onJoined={(groupId) => {
+            onAsked={() => {
               onInviteDone?.();
               refresh();
-              setRoute({ name: 'group', groupId });
+              setRoute({ name: 'groups' });
             }}
           />
         );
@@ -153,6 +148,7 @@ function Navigator({
               setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
             }
             onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
+            onOpenWallet={() => setRoute({ name: 'wallet' })}
             onSettle={(debt, members, groupName, currency) => setSettling({ debt, members, groupName, currency })}
           />
         );

@@ -9,7 +9,9 @@
  * It is the payee's word to give, the same rule as checkManualRecorder.
  *
  * A UPI ID often holds a phone number, so it isn't in the member list. Only
- * someone who owes that person right now can read it.
+ * someone who owes that person right now can read it, and, if that person
+ * turns it on, whoever holds one of their groups' shared links (see
+ * groupLinks.ts).
  */
 
 import { Hono } from 'hono';
@@ -36,6 +38,8 @@ import type { WalletStore } from '../walletStore';
 
 const UpiBody = z.object({ upiId: z.string().max(320) });
 
+const OnLinksBody = z.object({ on: z.boolean() });
+
 const ClaimBody = z.object({
   fromMemberId: z.string(),
   toMemberId: z.string(),
@@ -46,6 +50,10 @@ const ClaimBody = z.object({
 /** Whether this member has given a UPI ID to be paid at. A ghost has no account to have put one on. */
 export const takesUpi = (wallets: WalletStore, member: Member) =>
   Boolean(member.claimedByUserId && wallets.upiId(member.claimedByUserId));
+
+/** Whether this member can be paid by UPI from a shared group link: they have an ID and chose to. */
+export const takesUpiOnLinks = (wallets: WalletStore, member: Member) =>
+  takesUpi(wallets, member) && wallets.upiOnLinks(member.claimedByUserId!);
 
 export function upiRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
@@ -68,26 +76,44 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     return claim;
   };
 
-  /** UpiProfile: the user's own UPI ID, or null. */
-  r.get('/me/upi', (c) => {
-    const body: UpiProfile = { upiId: wallets.upiId(c.get('user').id) ?? null };
-    return c.json(body);
+  const profileOf = (userId: string): UpiProfile => ({
+    upiId: wallets.upiId(userId) ?? null,
+    onGroupLinks: wallets.upiOnLinks(userId),
   });
 
-  /** Sets the user's own UPI ID, for every group they're in. 400 invalid_input when it isn't one. */
+  /** UpiProfile: the user's own UPI ID, or null, and whether shared links may show it. */
+  r.get('/me/upi', (c) => c.json(profileOf(c.get('user').id)));
+
+  /**
+   * Sets the user's own UPI ID, for every group they're in. 400 invalid_input
+   * when it isn't one. A different ID is off the shared links until they say
+   * otherwise, since that choice was made for the old one.
+   */
   r.put('/me/upi', async (c) => {
     const parsed = parseUpiId(parse(UpiBody, await c.req.json()).upiId);
     if (!parsed.ok) throw new SattleError('invalid_input', parsed.reason);
     wallets.setUpiId(c.get('user').id, parsed.upiId);
-    const body: UpiProfile = { upiId: parsed.upiId };
-    return c.json(body);
+    return c.json(profileOf(c.get('user').id));
+  });
+
+  /**
+   * Whether the user's groups' shared links may show their UPI ID, so anyone
+   * holding one can pay them by UPI. 400 invalid_input with no ID to show.
+   */
+  r.put('/me/upi/group-links', async (c) => {
+    const user = c.get('user');
+    const { on } = parse(OnLinksBody, await c.req.json());
+    if (on && !wallets.upiId(user.id)) {
+      throw new SattleError('invalid_input', 'Add your UPI ID first.');
+    }
+    wallets.setUpiOnLinks(user.id, on);
+    return c.json(profileOf(user.id));
   });
 
   /** Claims already made stay: the payer has paid, and the payee still has to say whether it arrived. */
   r.delete('/me/upi', (c) => {
     wallets.setUpiId(c.get('user').id, null);
-    const body: UpiProfile = { upiId: null };
-    return c.json(body);
+    return c.json(profileOf(c.get('user').id));
   });
 
   /**

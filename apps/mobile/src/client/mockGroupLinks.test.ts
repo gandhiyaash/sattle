@@ -86,4 +86,23 @@ describe('MockClient group links', () => {
     expect(toAman.payable).toBe(false);
     await expect(c.payFromGroupLink(link.token, toAman.ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
   });
+
+  it('offers UPI on a debt only once the person owed turns it on, and gives the ID for that debt', async () => {
+    const c = client();
+    await c.setUpiId('yash@okaxis');
+    const toYash = async () => (await c.getGroupGuestView('demo-group')).debts.find((d) => d.to === 'Yash')!;
+    expect((await toYash()).upi).toBeUndefined();
+    await expect(c.getGroupLinkUpi('demo-group', (await toYash()).ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
+
+    expect((await c.setUpiOnGroupLinks(true)).onGroupLinks).toBe(true);
+    const debt = await toYash();
+    expect(debt.upi).toBe(true);
+    expect(JSON.stringify(await c.getGroupGuestView('demo-group'))).not.toContain('yash@okaxis');
+    expect(await c.getGroupLinkUpi('demo-group', debt.ref)).toEqual({ upiId: 'yash@okaxis', name: 'Yash' });
+
+    await c.claimUpiFromGroupLink('demo-group', debt.ref);
+    expect((await toYash()).upiClaim).toBe('pending');
+    const [claim] = (await c.getUpiClaims('g-flat')).filter((x) => x.viaLink);
+    expect(claim).toMatchObject({ amount: debt.amount, status: 'pending' });
+  });
 });

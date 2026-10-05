@@ -24,6 +24,8 @@ import {
   type GuestView,
   type Invite,
   type InviteView,
+  type JoinRequest,
+  type PendingJoin,
   type JoinAs,
   type LedgerBackup,
   type Member,
@@ -200,8 +202,23 @@ export class ApiClient implements SattleClient {
   getInvite(token: string) {
     return this.request<InviteView>('GET', `/join/${encodeURIComponent(token)}`);
   }
-  acceptInvite(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
-    return this.request<Group>('POST', '/groups/join', { token, ...as }, idempotencyKey);
+  askToJoin(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
+    return this.request<JoinRequest>('POST', '/join-requests', { token, ...as }, idempotencyKey);
+  }
+  getMyJoinRequests() {
+    return this.request<JoinRequest[]>('GET', '/me/join-requests');
+  }
+  async withdrawJoinRequest(requestId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('DELETE', `/join-requests/${encodeURIComponent(requestId)}`, undefined, idempotencyKey);
+  }
+  getPendingJoins(groupId: string) {
+    return this.request<PendingJoin[]>('GET', `/groups/${groupId}/join-requests`);
+  }
+  approveJoin(requestId: string, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Member>('POST', `/join-requests/${encodeURIComponent(requestId)}/approve`, undefined, idempotencyKey);
+  }
+  async declineJoin(requestId: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request('POST', `/join-requests/${encodeURIComponent(requestId)}/decline`, undefined, idempotencyKey);
   }
 
   getGroupLink(groupId: string) {
@@ -220,6 +237,17 @@ export class ApiClient implements SattleClient {
     return this.request<{ token: string }>(
       'POST',
       `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/pay-link`,
+      undefined,
+      idempotencyKey
+    );
+  }
+  getGroupLinkUpi(token: string, ref: string) {
+    return this.request<UpiPayee>('GET', `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/upi`);
+  }
+  async claimUpiFromGroupLink(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request(
+      'POST',
+      `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/upi-claims`,
       undefined,
       idempotencyKey
     );
@@ -265,6 +293,9 @@ export class ApiClient implements SattleClient {
   }
   setUpiId(upiId: string) {
     return this.request<UpiProfile>('PUT', '/me/upi', { upiId });
+  }
+  setUpiOnGroupLinks(on: boolean) {
+    return this.request<UpiProfile>('PUT', '/me/upi/group-links', { on });
   }
   clearUpiId() {
     return this.request<UpiProfile>('DELETE', '/me/upi');

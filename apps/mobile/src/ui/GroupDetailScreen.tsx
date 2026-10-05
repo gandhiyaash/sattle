@@ -8,6 +8,8 @@
  *    of a line in a README. One invite, under the list, is for all of them.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
  *    positions rather than raw pairwise history. Fewer payments, lower fees.
+ * 3. Nobody joins by holding the invite: whoever asks to join shows up here,
+ *    with a code, and someone in the group lets them in or turns them down.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -25,7 +27,9 @@ import {
   type Expense,
   type Member,
   type PaymentMode,
+  type PendingJoin,
   type UpiClaim,
+  type UpiProfile,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
 import { APP_URL, inviteLink } from '../react/useSettleFlow';
@@ -52,6 +56,8 @@ export interface GroupDetailScreenProps {
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group. */
   onManage: () => void;
+  /** Opens Wallet, where the user sets up how they get paid. */
+  onOpenWallet: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string, currency: string) => void;
 }
 
@@ -63,6 +69,10 @@ interface GroupView {
   debts: Debt[];
   /** UPI payments someone says they made, to or from the user, that the person owed hasn't confirmed. */
   claims: UpiClaim[];
+  /** People asking to join, waiting on someone here to let them in. */
+  waiting: PendingJoin[];
+  /** The user's own UPI ID, and whether the group link may offer it. */
+  upi: UpiProfile;
   userId: string;
   myMemberId: string | null;
   myNet: number;
@@ -74,6 +84,7 @@ export function GroupDetailScreen({
   onAddExpense,
   onEditExpense,
   onManage,
+  onOpenWallet,
   onSettle,
 }: GroupDetailScreenProps) {
   const color = useColors();
@@ -82,14 +93,16 @@ export function GroupDetailScreen({
   const mode = usePaymentMode();
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
-    const [user, group, members, expenses, settlements, claims] = await Promise.all([
+    const [user, group, members, expenses, settlements, claims, waiting, upi] = await Promise.all([
       client.getCurrentUser(),
       client.getGroup(groupId),
       client.getMembers(groupId),
       client.getExpenses(groupId),
       client.getSettlements(groupId),
-      // A server from before UPI has no such route. The group still opens, with nothing waiting.
+      // A server from before UPI, or before join requests, has no such route. The group still opens, with nothing waiting.
       client.getUpiClaims(groupId).catch((): UpiClaim[] => []),
+      client.getPendingJoins(groupId).catch((): PendingJoin[] => []),
+      client.getUpiId().catch((): UpiProfile => ({ upiId: null })),
     ]);
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
@@ -103,6 +116,8 @@ export function GroupDetailScreen({
       expenses: [...expenses].reverse(),
       debts,
       claims,
+      waiting,
+      upi,
       userId: user.id,
       myMemberId: mine?.id ?? null,
       myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
@@ -145,6 +160,8 @@ export function GroupDetailScreen({
   const myDebts = data.debts.filter(
     (d) => d.fromMemberId === data.myMemberId || d.toMemberId === data.myMemberId
   );
+  const owingMe = myDebts.filter((d) => d.toMemberId === data.myMemberId).map((d) => nameOf(d.fromMemberId));
+  const rupees = data.currency === UPI_CURRENCY;
 
   return (
     <Screen
@@ -169,6 +186,28 @@ export function GroupDetailScreen({
           </>
         )}
       </Card>
+
+      {data.waiting.length > 0 && (
+        <View>
+          <SectionLabel>Asking to join</SectionLabel>
+          <View style={{ gap: space.sm }}>
+            {data.waiting.map((req) => (
+              <JoinRequestCard
+                key={req.id}
+                request={req}
+                // Two people asking to be one name: the code is how to tell which is real.
+                twin={data.waiting.some((x) => x.id !== req.id && x.existing && req.existing && x.name === req.name)}
+                groupName={data.name}
+                onChanged={refresh}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+
+      {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId && data.upi.onGroupLinks) && (
+        <GetPaidCard names={owingMe} hasUpi={rupees && Boolean(data.upi.upiId)} onOpenWallet={onOpenWallet} />
+      )}
 
       {myDebts.length > 0 && (
         <View>
@@ -253,7 +292,7 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} />
+              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} rupees={rupees} />
             </View>
           ))}
           <Divider />
@@ -300,6 +339,112 @@ export function GroupDetailScreen({
   );
 }
 
+/** "Om", "Om and N", "Om, N and Aman". */
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * People owe the user, and there is nowhere for them to pay it: no wallet or
+ * Lightning address, and no UPI the group link can offer. Without this, the
+ * people owing see "can't be paid here yet" and the user never finds out why.
+ */
+function GetPaidCard({ names, hasUpi, onOpenWallet }: { names: string[]; hasUpi: boolean; onOpenWallet: () => void }) {
+  const s = useStyles();
+  const who = listNames(names);
+  return (
+    <Card style={s.getPaid}>
+      <Text style={s.getPaidTitle}>{who} can’t pay you yet</Text>
+      <Text style={s.linkIntro}>
+        {hasUpi
+          ? 'They can pay your UPI ID in the app, but the group link can’t offer it until you turn that on in Wallet. Or add a Lightning wallet or address, and anyone can pay you from any Lightning wallet.'
+          : 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app or straight from the group link.'}
+      </Text>
+      <Button label={hasUpi ? 'Open Wallet' : 'Set up getting paid'} variant="primary" onPress={onOpenWallet} />
+    </Card>
+  );
+}
+
+/**
+ * Someone asking to join. They can't see or change anything until someone
+ * here lets them in. Holding the invite proves nothing, since it can be
+ * forwarded, so the card says to let in only someone you know is them.
+ */
+function JoinRequestCard({
+  request,
+  twin,
+  groupName,
+  onChanged,
+}: {
+  request: PendingJoin;
+  /** Someone else is asking to be the same person. */
+  twin: boolean;
+  groupName: string;
+  onChanged: () => void;
+}) {
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  const [busy, setBusy] = useState<'approve' | 'decline' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const act = async (action: 'approve' | 'decline') => {
+    setBusy(action);
+    setError(null);
+    try {
+      await keys.run<unknown>(`join-${action}`, { id: request.id }, (k) =>
+        action === 'approve' ? client.approveJoin(request.id, k) : client.declineJoin(request.id, k)
+      );
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That didn’t work. Try again.');
+      setBusy(null);
+      onChanged();
+    }
+  };
+
+  return (
+    <Card style={{ padding: space.md, gap: space.sm }}>
+      <View style={s.debtRow}>
+        <Avatar name={request.name} dim />
+        <View style={{ flex: 1 }}>
+          <Text style={s.debtText}>
+            {request.existing ? `Someone wants to join as ${request.name}` : `${request.name} wants to join`}
+          </Text>
+          <Text style={s.memberMeta}>
+            Code {request.code} · {ago(request.createdAt)}
+            {request.existing ? '' : ' · new to the group'}
+          </Text>
+        </View>
+      </View>
+      <Text style={[s.linkNote, s.indented]}>
+        {twin
+          ? `More than one person is asking to be ${request.name}. Ask ${request.name} which code they see, and let in only that one.`
+          : request.existing
+            ? `They’ll see everything in ${groupName} and take over ${request.name}’s balance. Let them in only if you know it’s ${request.name}: if unsure, ask which code they see.`
+            : `They’ll see everything in ${groupName} and can add to it.`}
+      </Text>
+      <View style={[s.joinActions, s.indented]}>
+        <Button label="Let in" variant="primary" busy={busy === 'approve'} disabled={busy !== null} onPress={() => act('approve')} />
+        <Button label="Not them" busy={busy === 'decline'} disabled={busy !== null} onPress={() => act('decline')} />
+      </View>
+      {error && <Text style={[s.linkError, s.indented]}>{error}</Text>}
+    </Card>
+  );
+}
+
+/** "just now", "5 min ago", "2 h ago", "3 days ago". */
+function ago(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+}
+
 /** How an expense was divided, e.g. "split by shares, 3 ways". */
 function splitSummary(expense: Expense, nameOf: (id: string) => string): string {
   const n = expense.parts.length;
@@ -332,8 +477,10 @@ type LinkState =
   | { kind: 'failed'; message: string };
 
 /** One member, with their state. */
-function MemberRow({ member, isMe, mode }: { member: Member; isMe: boolean; mode: PaymentMode }) {
+function MemberRow({ member, isMe, mode, rupees }: { member: Member; isMe: boolean; mode: PaymentMode; rupees: boolean }) {
   const s = useStyles();
+  // Someone with only a UPI ID can still be paid here, in a rupee group.
+  const upiOnly = rupees && member.upi && !canReceive(member, mode);
   return (
     <View style={s.memberRow}>
       <Avatar name={member.displayName} dim={member.status === 'ghost'} />
@@ -344,9 +491,11 @@ function MemberRow({ member, isMe, mode }: { member: Member; isMe: boolean; mode
         </Text>
         <Text style={s.memberMeta}>
           {member.status === 'joined'
-            ? mode === 'real' && !canReceive(member, mode)
-              ? 'In app · can’t receive yet'
-              : 'In app'
+            ? upiOnly
+              ? 'In app · takes UPI'
+              : mode === 'real' && !canReceive(member, mode)
+                ? 'In app · can’t receive yet'
+                : 'In app'
             : member.status === 'nwc_linked'
               ? 'External wallet'
               : member.lightningAddress
@@ -366,10 +515,11 @@ function MemberRow({ member, isMe, mode }: { member: Member; isMe: boolean; mode
 
 /**
  * One invite for everyone, for the chat they're all in. Whoever opens it picks
- * their own name from the list and becomes that member, or adds themselves if
- * they aren't on it, so nobody needs a link of their own. Joining is full
- * membership: they can see and add to the whole group, which is why it says
- * so before it's sent. Replacing it and turning it off are under Manage.
+ * their own name from the list, or adds themselves if they aren't on it, and
+ * asks to join; someone here lets them in. So nobody needs a link of their
+ * own, and a forwarded one can't make a stranger into someone. Joining is
+ * full membership: they can see and add to the whole group, which is why it
+ * says so before it's sent. Replacing it and turning it off are under Manage.
  */
 function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: string }) {
   const s = useStyles();
@@ -385,7 +535,7 @@ function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: stri
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make an invite. Try again.' });
       return;
     }
-    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this and pick your name, or add it: ${link.url}`;
+    const message = `Join "${groupName}" on Sattle to see what we’ve split and settle up. Open this, pick your name or add it, and I’ll let you in: ${link.url}`;
     setState({ kind: 'sent', url: link.url, note: await share(message, link.sentNote) });
   };
 
@@ -393,7 +543,7 @@ function InviteToJoin({ groupId, groupName }: { groupId: string; groupName: stri
     <View style={s.inviteBlock}>
       <Button
         label={state.kind === 'sent' ? 'Share the invite again' : 'Invite people to join'}
-        hint="One link for everyone. They pick their name, or add themselves, then can see this group and add to it."
+        hint="One link for everyone. They pick their name, or add themselves, and you or anyone here lets them in. Then they can see this group and add to it."
         busy={state.kind === 'busy'}
         onPress={send}
       />
@@ -480,7 +630,7 @@ function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: st
       setState({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
       return;
     }
-    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it from any Lightning wallet, no app needed: ${url}`;
+    const message = `Here’s what we’ve split in "${groupName}". See what you owe and pay it, no app needed: ${url}`;
     setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until someone in the group turns it off.') });
   };
 
@@ -489,8 +639,8 @@ function ShareGroupLink({ groupId, groupName }: { groupId: string; groupName: st
       <SectionLabel>Group link</SectionLabel>
       <Card style={{ gap: space.sm }}>
         <Text style={s.linkIntro}>
-          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe from
-          any Lightning wallet. They can’t change anything.
+          One link for everyone. Whoever opens it sees the spends and who owes what, and can pay what they owe with
+          Lightning, or by UPI to anyone who allows it. They can’t change anything.
         </Text>
         <Button
           label={state.kind === 'sent' ? 'Share it again' : 'Share the group link'}
@@ -658,8 +808,10 @@ function UpiClaimNote({
       <View style={s.linkBlock}>
         <Text style={declined ? s.linkError : s.linkNote}>
           {declined
-            ? `${otherName} says your UPI payment of ${amount} didn’t arrive. Check with them, or pay again.`
-            : `You told ${otherName} you paid ${amount} by UPI. It’s settled once they confirm it arrived.`}
+            ? `${otherName} says the UPI payment of ${amount} didn’t arrive. Check with them, or pay again.`
+            : claim.viaLink
+              ? `Someone on the group link told ${otherName} this was paid by UPI (${amount}). It’s settled once they confirm it arrived.`
+              : `You told ${otherName} you paid ${amount} by UPI. It’s settled once they confirm it arrived.`}
         </Text>
         <Button
           label={declined ? 'OK' : 'I didn’t pay after all'}
@@ -677,7 +829,7 @@ function UpiClaimNote({
       <Text style={s.linkNote}>
         {declined
           ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
-          : `${otherName} says they paid you ${amount} by UPI.${
+          : `${claim.viaLink ? `Someone on the group link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
               claim.reference ? ` Reference ${claim.reference}.` : ''
             } Check your bank or UPI app before you confirm.`}
       </Text>
@@ -773,6 +925,11 @@ const useStyles = makeStyles((color) => ({
     marginLeft: 48,
   },
   linkBlock: { marginTop: space.sm, marginLeft: 48, gap: space.xs },
+  // Lines up under the names: avatar, gap.
+  indented: { marginLeft: 48 },
+  joinActions: { flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' },
+  getPaid: { borderColor: color.accent, gap: space.sm },
+  getPaidTitle: { ...type.body, fontWeight: '600', color: color.ink },
   linkNote: { ...type.caption, color: color.inkMuted },
   linkIntro: { ...type.body, color: color.inkMuted },
   linkUrl: { ...type.amountSm, color: color.inkFaint },

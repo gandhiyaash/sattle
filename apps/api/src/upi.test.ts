@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Group, Invite, InviteView, Member, Settlement, UpiClaim, UpiPayee, UpiProfile, User } from '@sattle/core';
+import type { Debt, Group, GroupGuestView, Invite, InviteView, Member, Settlement, UpiClaim, UpiPayee, UpiProfile, User } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -42,11 +42,17 @@ async function setup() {
   const [mRiya, mKabir, mAman] = group.memberIds;
   const base = `/groups/${group.id}`;
 
-  /** Joins `as` to a group as the person called `name`, or as someone new. */
+  /** Joins `as` to a group as the person called `name`, or as someone new, and `by` lets them in. */
   const join = async (groupId: string, name: string, as: string, by = riya.token) => {
     const invite = (await call<Invite>('POST', `/groups/${groupId}/invites`, undefined, by)).body.token;
     const offered = (await call<InviteView>('GET', `/join/${invite}`)).body.members.find((m) => m.name === name);
-    return call('POST', '/groups/join', offered ? { token: invite, ref: offered.ref } : { token: invite, displayName: name }, as);
+    const asked = await call<{ id: string }>(
+      'POST',
+      '/join-requests',
+      offered ? { token: invite, ref: offered.ref } : { token: invite, displayName: name },
+      as
+    );
+    return call('POST', `/join-requests/${asked.body.id}/approve`, undefined, by);
   };
   await join(group.id, 'Kabir', kabir.token);
 
@@ -72,14 +78,37 @@ describe('/me/upi', () => {
   it('starts empty, is set, and can be cleared', async () => {
     const { call, signUp } = await setup();
     const dev = await signUp('Dev');
-    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual({ upiId: null });
+    const none = { upiId: null, onGroupLinks: false };
+    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual(none);
 
     const set = await call<UpiProfile>('PUT', '/me/upi', { upiId: '  Dev.D@OkAxis ' }, dev.token);
-    expect(set).toEqual({ status: 200, body: { upiId: 'dev.d@okaxis' } });
-    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual({ upiId: 'dev.d@okaxis' });
+    expect(set).toEqual({ status: 200, body: { upiId: 'dev.d@okaxis', onGroupLinks: false } });
+    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual({ upiId: 'dev.d@okaxis', onGroupLinks: false });
 
-    expect((await call<UpiProfile>('DELETE', '/me/upi', undefined, dev.token)).body).toEqual({ upiId: null });
-    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual({ upiId: null });
+    expect((await call<UpiProfile>('DELETE', '/me/upi', undefined, dev.token)).body).toEqual(none);
+    expect((await call<UpiProfile>('GET', '/me/upi', undefined, dev.token)).body).toEqual(none);
+  });
+
+  it('is off shared group links until the person turns it on, and again for a new ID', async () => {
+    const { call, signUp } = await setup();
+    const dev = await signUp('Dev');
+    const links = (on: boolean) => call<UpiProfile>('PUT', '/me/upi/group-links', { on }, dev.token);
+
+    // Nothing to show yet.
+    expect((await links(true)).status).toBe(400);
+
+    await call('PUT', '/me/upi', { upiId: 'dev@okaxis' }, dev.token);
+    expect((await links(true)).body).toEqual({ upiId: 'dev@okaxis', onGroupLinks: true });
+    // Saving the same ID again keeps the choice.
+    expect((await call<UpiProfile>('PUT', '/me/upi', { upiId: 'DEV@okaxis' }, dev.token)).body.onGroupLinks).toBe(true);
+    // A different one doesn't: the choice was made for the old one.
+    expect((await call<UpiProfile>('PUT', '/me/upi', { upiId: 'dev@ybl' }, dev.token)).body.onGroupLinks).toBe(false);
+
+    await links(true);
+    expect((await links(false)).body.onGroupLinks).toBe(false);
+    await links(true);
+    expect((await call<UpiProfile>('DELETE', '/me/upi', undefined, dev.token)).body.onGroupLinks).toBe(false);
+    expect((await call('PUT', '/me/upi/group-links', { on: 'yes' }, dev.token)).status).toBe(400);
   });
 
   it('refuses what isn’t a UPI ID, and says why for a Lightning address', async () => {
@@ -89,7 +118,7 @@ describe('/me/upi', () => {
     expect(address.body).toMatchObject({ code: 'invalid_input' });
     expect(address.body.message).toMatch(/Lightning address/);
     expect((await call('PUT', '/me/upi', { upiId: 'riya' }, riya.token)).status).toBe(400);
-    expect((await call<UpiProfile>('GET', '/me/upi', undefined, riya.token)).body).toEqual({ upiId: 'riya@okhdfcbank' });
+    expect((await call<UpiProfile>('GET', '/me/upi', undefined, riya.token)).body.upiId).toBe('riya@okhdfcbank');
   });
 
   it('needs an account', async () => {
@@ -346,5 +375,104 @@ describe('claims and people going', () => {
     expect(count('upi_claims')).toBe(1);
     expect((await call('DELETE', base, undefined, riya.token)).status).toBe(200);
     expect(count('upi_claims')).toBe(0);
+  });
+});
+
+describe('UPI on a group link', () => {
+  /** Riya shares the group link. Answers with helpers for the page. */
+  async function shared() {
+    const t = await setup();
+    const token = (await t.call<{ token: string }>('POST', `${t.base}/link`, undefined, t.riya.token)).body.token;
+    const view = async () => (await t.call<GroupGuestView>('GET', `/g/${token}`)).body;
+    const debtOf = async (from: string) => (await view()).debts.find((d) => d.from === from)!;
+    const payee = async (from: string) => t.call<UpiPayee & Err>('GET', `/g/${token}/debts/${(await debtOf(from)).ref}/upi`);
+    const say = async (from: string, headers?: Record<string, string>) =>
+      t.call<Err>('POST', `/g/${token}/debts/${(await debtOf(from)).ref}/upi-claims`, undefined, undefined, headers);
+    const onLinks = (on: boolean) => t.call<UpiProfile>('PUT', '/me/upi/group-links', { on }, t.riya.token);
+    return { ...t, token, view, debtOf, payee, say, onLinks };
+  }
+
+  it('isn’t offered until the person owed turns it on', async () => {
+    const { debtOf, payee, say, count } = await shared();
+    expect((await debtOf('Kabir')).upi).toBeUndefined();
+    expect((await payee('Kabir')).status).toBe(409);
+    expect((await say('Kabir')).status).toBe(409);
+    expect(count('upi_claims')).toBe(0);
+  });
+
+  it('then offers it on each debt to them, and gives the ID only for the debt someone asks to pay', async () => {
+    const { view, debtOf, payee, onLinks } = await shared();
+    await onLinks(true);
+    expect((await debtOf('Kabir')).upi).toBe(true);
+    expect((await debtOf('Aman')).upi).toBe(true);
+    expect(JSON.stringify(await view())).not.toContain('riya@okhdfcbank');
+
+    const res = await payee('Aman');
+    expect(res).toEqual({ status: 200, body: { upiId: 'riya@okhdfcbank', name: 'Riya' } });
+  });
+
+  it('stops when they turn it off, or the group isn’t in rupees', async () => {
+    const { call, riya, debtOf, payee, onLinks } = await shared();
+    await onLinks(true);
+    await onLinks(false);
+    expect((await debtOf('Kabir')).upi).toBeUndefined();
+    expect((await payee('Kabir')).status).toBe(409);
+
+    await onLinks(true);
+    const usd = (await call<Group>('POST', '/groups', { name: 'NYC', currency: 'USD', memberNames: ['Kabir'] }, riya.token)).body;
+    await call(
+      'POST',
+      `/groups/${usd.id}/expenses`,
+      { description: 'Cab', amount: 3000, paidByMemberId: usd.memberIds[0], splitMode: 'equal', parts: usd.memberIds.map((memberId) => ({ memberId })) },
+      riya.token
+    );
+    const token = (await call<{ token: string }>('POST', `/groups/${usd.id}/link`, undefined, riya.token)).body.token;
+    const debt = (await call<GroupGuestView>('GET', `/g/${token}`)).body.debts[0];
+    expect(debt.upi).toBeUndefined();
+    expect((await call('GET', `/g/${token}/debts/${debt.ref}/upi`)).status).toBe(409);
+  });
+
+  it('lets the page say it was paid, which the person owed confirms like any claim, marked as from the link', async () => {
+    const { call, riya, mAman, mRiya, view, debtOf, say, claims, onLinks, debts } = await shared();
+    await onLinks(true);
+    expect((await say('Aman')).status).toBe(201);
+    expect((await debtOf('Aman')).upiClaim).toBe('pending');
+    // Nothing moved yet.
+    expect((await debts()).find((d) => d.fromMemberId === mAman)?.amount).toBe(1000);
+
+    const [made] = await claims(riya.token);
+    expect(made).toMatchObject({ fromMemberId: mAman, toMemberId: mRiya, amount: 1000, status: 'pending', viaLink: true });
+    expect((await call('POST', `/upi-claims/${made.id}/confirm`, undefined, riya.token)).status).toBe(200);
+    expect((await view()).debts.map((d) => d.from)).toEqual(['Kabir']);
+  });
+
+  it('shows the person owed turning it down, and lets the page say so again', async () => {
+    const { call, riya, debtOf, say, claims, onLinks } = await shared();
+    await onLinks(true);
+    await say('Aman');
+    await call('POST', `/upi-claims/${(await claims(riya.token))[0].id}/decline`, undefined, riya.token);
+    expect((await debtOf('Aman')).upiClaim).toBe('declined');
+    expect((await say('Aman')).status).toBe(201);
+    expect((await debtOf('Aman')).upiClaim).toBe('pending');
+  });
+
+  it('won’t replace what the payer said in the app', async () => {
+    const { kabir, claim, claims, say, onLinks } = await shared();
+    await onLinks(true);
+    const theirs = (await claim(600, kabir.token, { reference: 'UPI123' })).body;
+    expect((await say('Kabir')).status).toBe(201);
+    expect(await claims(kabir.token)).toEqual([theirs]);
+  });
+
+  it('is 410 for a debt that has been settled, and 404 on a link that was turned off', async () => {
+    const { call, base, riya, token, debtOf, onLinks, mAman, mRiya } = await shared();
+    await onLinks(true);
+    const { ref } = await debtOf('Aman');
+    await call('POST', `${base}/settlements/manual`, { fromMemberId: mAman, toMemberId: mRiya, amount: 1000 }, riya.token);
+    expect((await call('GET', `/g/${token}/debts/${ref}/upi`)).status).toBe(410);
+    expect((await call('POST', `/g/${token}/debts/${ref}/upi-claims`)).status).toBe(410);
+
+    await call('DELETE', `${base}/link`, undefined, riya.token);
+    expect((await call('GET', `/g/${token}/debts/${ref}/upi`)).status).toBe(404);
   });
 });
