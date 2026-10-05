@@ -281,3 +281,30 @@ describe('Your Lightning address', () => {
     expect((await call('PUT', '/users/u-yash/receive-address', { address: 'om@blink.sv' }, { authorization: 'Bearer t-om' })).status).toBe(404);
   });
 });
+
+describe('The exchange rate', () => {
+  it('"A group kept in bitcoin is owed in sats already, so it is paid as it stands and no rate is used"', async () => {
+    const { db, call } = setup();
+    db.prepare(`UPDATE expense_groups SET currency = 'BTC' WHERE id = 'g-flat'`).run();
+    // The seeded demo link's invoice is already open for Om → Yash.
+    db.prepare(`UPDATE settlements SET status = 'expired' WHERE id = 'demo'`).run();
+    db.prepare(`UPDATE users SET token = 't-om' WHERE id = 'u-om'`).run();
+    const asOm = { authorization: 'Bearer t-om' };
+
+    const created = await call<Settlement>(
+      'POST',
+      '/groups/g-flat/settlements',
+      { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 15_000, rail: 'invoice' },
+      asOm
+    );
+    expect(created.status).toBe(201);
+
+    let s = created.body;
+    for (let i = 0; i < 200 && !s.quote; i++) {
+      await new Promise((r) => setTimeout(r, 2));
+      s = (await call<Settlement>('GET', `/settlements/${s.id}`, undefined, asOm)).body;
+    }
+    // Read as paise at the server's rupee rate, 15,000 would have come to 1,667 sats.
+    expect(s.quote).toMatchObject({ amountFiat: 15_000, amountSat: 15_000, rateFiatPerBtc: 1 });
+  });
+});

@@ -15,6 +15,8 @@
  *   one rather than leaving a dead QR on screen.
  * - Nothing on this page reveals the rest of the group. The token grants
  *   one debt, not the ledger — and GuestView carries no ids to leak.
+ * - A group kept in bitcoin owes in sats, so there is no rate on the page:
+ *   the amount is the sats to pay.
  * - Some payees receive at a Lightning address whose provider can't tell us
  *   it was paid. The payer's wallet can: it gets the payment proof (the
  *   preimage) when it pays. So a browser wallet (WebLN) pays and hands the
@@ -25,11 +27,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SattleError, formatFiat, formatRate, type GuestSettlement, type GuestView } from '@sattle/core';
+import {
+  SattleError,
+  formatAmount,
+  formatRate,
+  formatSats,
+  isBitcoin,
+  type GuestSettlement,
+  type GuestView,
+} from '@sattle/core';
 import { useClient } from '../react/SattleProvider';
 import { CopyInvoice } from './InvoicePanel';
 import { openAppLink } from './openLink';
-import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine, formatSats } from './primitives';
+import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { QrCode } from './QrCode';
 import { makeStyles, radius, shadow, space, type, useColors } from './theme';
 
@@ -147,7 +157,16 @@ function GuestPay({ token }: { token: string }) {
       );
 
     case 'expired':
-      return <Expired header={header} reason={view.reason} why={settlement.failureReason} onRenew={retry} proof={proof} />;
+      return (
+        <Expired
+          header={header}
+          reason={view.reason}
+          why={settlement.failureReason}
+          sats={isBitcoin(settlement.currency)}
+          onRenew={retry}
+          proof={proof}
+        />
+      );
 
     case 'in_flight':
       return (
@@ -198,8 +217,9 @@ function Invoice({
 }) {
   const s = useStyles();
   const left = useSecondsLeft(settlement.quote?.expiresAt);
+  const sats = isBitcoin(settlement.currency);
   // The server only marks it `expired` later; don't leave a dead QR up meanwhile.
-  if (left === 0) return <Expired header={header} reason={reason} onRenew={onRenew} proof={proof} />;
+  if (left === 0) return <Expired header={header} reason={reason} sats={sats} onRenew={onRenew} proof={proof} />;
 
   const { destination, quote } = settlement;
   return (
@@ -228,7 +248,11 @@ function Invoice({
             <Text style={s.invoice} numberOfLines={2} selectable>
               {destination}
             </Text>
-            {left !== null && <Text style={s.countdown}>Rate and invoice locked for {formatClock(left)}</Text>}
+            {left !== null && (
+              <Text style={s.countdown}>
+                {sats ? 'Invoice good for' : 'Rate and invoice locked for'} {formatClock(left)}
+              </Text>
+            )}
           </View>
           <CopyInvoice invoice={destination} />
         </>
@@ -244,6 +268,7 @@ function Expired({
   header,
   reason,
   why,
+  sats,
   onRenew,
   proof,
 }: {
@@ -251,6 +276,8 @@ function Expired({
   reason: string;
   /** The server's reason, when it couldn't tell whether this was paid. */
   why?: string;
+  /** The debt is in sats, so a new invoice is for the same amount: there's no rate to have moved. */
+  sats: boolean;
   onRenew: () => void;
   proof: React.ReactNode;
 }) {
@@ -264,7 +291,11 @@ function Expired({
       ) : (
         <Notice
           title="This invoice expired"
-          body="Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate."
+          body={
+            sats
+              ? 'Lightning invoices only last a few minutes. Get a new one for the same amount.'
+              : 'Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate.'
+          }
         />
       )}
       {/* Paid already? Their proof settles it; a new invoice would mean paying twice. */}
@@ -381,7 +412,9 @@ function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void
 /** A receipt: what was owed, what was sent, and the rate that joined them. */
 function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestSettlement }) {
   const s = useStyles();
-  const { quote, preimage } = settlement;
+  const { preimage } = settlement;
+  // In sats the amount owed is the amount sent, and no rate joined them.
+  const quote = isBitcoin(settlement.currency) ? undefined : settlement.quote;
   return (
     <Page>
       <View style={s.tick}>
@@ -390,7 +423,7 @@ function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestS
       <Text style={s.title}>Paid</Text>
       <Text style={s.reason}>{payeeName} has been paid. Nothing else to do — you can close this.</Text>
       <View style={s.receipt}>
-        <BreakdownRow label="Amount" value={formatFiat(settlement.amount, settlement.currency)} numeric />
+        <BreakdownRow label="Amount" value={formatAmount(settlement.amount, settlement.currency)} numeric />
         {quote && (
           <>
             <BreakdownRow label="Sent" value={formatSats(quote.amountSat)} numeric />
@@ -468,8 +501,9 @@ function AmountBlock({ settlement }: { settlement: GuestSettlement }) {
   const { quote } = settlement;
   return (
     <View style={s.amountBlock}>
-      <Text style={s.amount}>{formatFiat(settlement.amount, settlement.currency)}</Text>
-      {quote && <SatLine sats={quote.amountSat} />}
+      <Text style={s.amount}>{formatAmount(settlement.amount, settlement.currency)}</Text>
+      {/* Under a rupee amount, what it comes to. A sats amount says it already. */}
+      {quote && !isBitcoin(settlement.currency) && <SatLine sats={quote.amountSat} />}
     </View>
   );
 }

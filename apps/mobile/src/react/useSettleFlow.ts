@@ -17,7 +17,8 @@
  * the payer pays and says so.
  *
  * Options are resolved up front from the recipient's state, so a blocked
- * recipient shows remedies before the user commits to anything.
+ * recipient shows remedies before the user commits to anything. Only the ways
+ * to pay that go with the currencies the payer uses are among them (payWays).
  *
  * With one way to pay there is nothing to ask, so the sheet opens on it
  * (onlyRail): Lightning for someone who gave no UPI ID. It does that once.
@@ -37,6 +38,7 @@ import {
   upiPayUri,
   type Debt,
   type Member,
+  type PayWays,
   type Rail,
   type Settlement,
   type SettlementOptions,
@@ -45,6 +47,7 @@ import {
   type UpiPayee,
 } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
+import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { launchUpi } from '../upi/launchUpi';
 import { useActionKeys, useClient, usePaymentModeAnswer, useWallet } from './SattleProvider';
 
@@ -62,6 +65,8 @@ export interface SettleFlow {
   /** The sheet has just opened and isn't asking anything yet: there may be only one way to pay, which it starts. */
   opening: boolean;
   options: SettlementOptions | null;
+  /** Which ways to pay this payer is shown here: what they use, and what this group can be settled in. */
+  ways: PayWays;
   settlement: Settlement | null;
   error: Error | null;
   busy: boolean;
@@ -114,6 +119,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   // whose response was lost isn't started twice.
   const keys = useActionKeys();
   const { mode, pending } = usePaymentModeAnswer();
+  const ways = usePayWays(currency);
 
   const [recipient, setRecipient] = useState(() => members.find((m) => m.id === debt.toMemberId));
   const [step, setStep] = useState<SettleStep>('choosing');
@@ -138,9 +144,9 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   const options = useMemo(
     () =>
       recipient
-        ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable, mode, currency })
+        ? resolveSettlementOptions({ recipient, walletAvailable: wallet.isAvailable, mode, currency, ways })
         : null,
-    [recipient, wallet.isAvailable, mode, currency]
+    [recipient, wallet.isAvailable, mode, currency, ways]
   );
 
   const run = async (fn: () => Promise<void>) => {
@@ -240,6 +246,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     step,
     opening,
     options,
+    ways,
     settlement,
     error,
     busy,

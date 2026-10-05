@@ -26,10 +26,13 @@ let backend: LightningPayments | undefined;
 let lookup: () => Partial<NwcInvoice> | Error;
 let lookups: number;
 
+/** How many times the rate source was asked. */
+let rateLookups: number;
 /** Set to make every price source fail, with no earlier rate to fall back on. */
 let noPrice = false;
 const rates: RateService = {
   rate: async (currency) => {
+    rateLookups++;
     if (noPrice) throw new RateUnavailableError(currency);
     return { currency, rateFiatPerBtc: 8_000_000, source: 'live', provider: 'CoinGecko' };
   },
@@ -116,6 +119,7 @@ beforeEach(() => {
   backend = undefined;
   lookup = () => ({ state: 'pending' });
   lookups = 0;
+  rateLookups = 0;
 });
 
 describe('LightningPayments', () => {
@@ -140,6 +144,28 @@ describe('LightningPayments', () => {
 
     const row = db.prepare('SELECT payment_hash FROM settlements WHERE id = ?').get(s.id);
     expect(row).toEqual({ payment_hash: HASH });
+  });
+
+  it('asks for a group kept in bitcoin in its own sats, with no rate looked up', async () => {
+    db.prepare(`UPDATE expense_groups SET currency = 'BTC' WHERE id = 'g-flat'`).run();
+
+    const s = await settled((await omPaysYash('invoice', 15_000)).body.id);
+    expect(s).toMatchObject({ status: 'awaiting_payment', currency: 'BTC', amount: 15_000 });
+    // 15,000 sats owed is 15,000 sats to pay. Read as paise at the rate above, it would have been 1,875.
+    expect(s.quote).toMatchObject({ amountFiat: 15_000, amountSat: 15_000, rateFiatPerBtc: 1 });
+    expect(s.quote?.rateSource).toBeUndefined();
+    expect(minted[0]).toMatchObject({ amountMsat: 15_000_000 });
+    expect(rateLookups).toBe(0);
+  });
+
+  it('still asks for it when no price source answers: a debt in sats needs no price', async () => {
+    db.prepare(`UPDATE expense_groups SET currency = 'BTC' WHERE id = 'g-flat'`).run();
+    noPrice = true;
+
+    const s = await settled((await omPaysYash('invoice', 15_000)).body.id);
+    expect(s).toMatchObject({ status: 'awaiting_payment', destination: 'lnbc1real' });
+    expect(s.quote).toMatchObject({ amountSat: 15_000 });
+    expect(rateLookups).toBe(0);
   });
 
   it('lets the invoice expire no later than the quote', async () => {

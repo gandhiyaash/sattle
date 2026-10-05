@@ -22,8 +22,14 @@
  * confirms, so it is offered whenever they've given a UPI ID and the group
  * is in rupees, whatever the backend, and someone who can only be paid that
  * way isn't blocked.
+ *
+ * Above all of it is what the payer uses (payWays). Someone who said they
+ * don't use bitcoin is never shown Lightning, and someone who doesn't use
+ * rupees is never shown UPI, so what's left may be nothing: then they're
+ * blocked, in words about the way they do use.
  */
 
+import { BITCOIN } from './currency';
 import type { Member, Rail } from './types';
 
 export interface RailOption {
@@ -55,24 +61,56 @@ export function canReceive(member: Member, mode: PaymentMode = 'simulated'): boo
 /** UPI only moves rupees. */
 export const UPI_CURRENCY = 'INR';
 
+/** Which ways of paying someone is shown at all. */
+export interface PayWays {
+  lightning: boolean;
+  upi: boolean;
+}
+
+const EVERY_WAY: PayWays = { lightning: true, upi: true };
+
+/**
+ * What to show someone, from the currencies they said they use. Bitcoin
+ * brings Lightning and rupees bring UPI, so choosing one alone hides the
+ * other everywhere in the app.
+ *
+ * A group's own currency is the exception. One kept in bitcoin can only be
+ * settled over Lightning, so there it shows whatever they chose: hiding it
+ * would leave them a debt with no way to pay it. UPI moves only rupees, so in
+ * any other group it is hidden from everyone. `groupCurrency` is left out for
+ * a screen that isn't about one group.
+ */
+export function payWays(uses: readonly string[], groupCurrency?: string): PayWays {
+  return {
+    lightning: uses.includes(BITCOIN) || groupCurrency === BITCOIN,
+    upi: uses.includes(UPI_CURRENCY) && (groupCurrency === undefined || groupCurrency === UPI_CURRENCY),
+  };
+}
+
 export function resolveSettlementOptions({
   recipient,
   walletAvailable,
   mode = 'simulated',
   currency,
+  ways = EVERY_WAY,
 }: {
   recipient: Member;
   walletAvailable: boolean;
   mode?: PaymentMode;
   /** The group's. Without it UPI is never offered. */
   currency?: string;
+  /** What the payer is shown (payWays). Everything, unless they chose. */
+  ways?: PayWays;
 }): SettlementOptions {
   const real = mode === 'real';
-  const upi = Boolean(recipient.upi && recipient.claimedByUserId) && currency === UPI_CURRENCY;
+  const { lightning } = ways;
+  /** Whether UPI could pay a debt in this group at all, as far as this payer is concerned. */
+  const upiHere = ways.upi && currency === UPI_CURRENCY;
+  const upi = upiHere && Boolean(recipient.upi && recipient.claimedByUserId);
   const name = recipient.displayName;
   const candidates: Array<Omit<RailOption, 'rank'>> = [];
 
-  if (recipient.status === 'joined' && !real) {
+  if (lightning && recipient.status === 'joined' && !real) {
     candidates.push({
       rail: 'in_app',
       label: 'Pay from your balance',
@@ -83,7 +121,7 @@ export function resolveSettlementOptions({
     });
   }
 
-  if (real ? canReceive(recipient, mode) : recipient.status !== 'ghost') {
+  if (lightning && (real ? canReceive(recipient, mode) : recipient.status !== 'ghost')) {
     candidates.push({
       rail: 'invoice',
       label: 'Pay with Lightning',
@@ -92,7 +130,7 @@ export function resolveSettlementOptions({
     });
   }
 
-  if (recipient.status === 'ghost' && recipient.lightningAddress && !real) {
+  if (lightning && recipient.status === 'ghost' && recipient.lightningAddress && !real) {
     candidates.push({
       rail: 'lightning_address',
       label: `Pay ${recipient.lightningAddress}`,
@@ -123,7 +161,7 @@ export function resolveSettlementOptions({
       : {
           rail: 'manual',
           label: 'Mark as settled',
-          detail: 'Paid in cash, UPI, or forgiven.',
+          detail: ways.upi ? 'Paid in cash, UPI, or forgiven.' : 'Paid in cash, or forgiven.',
           availability: { available: true },
         }
   );
@@ -135,8 +173,8 @@ export function resolveSettlementOptions({
   ];
   const rails = ordered.map((c, i) => ({ ...c, rank: i + 1 }));
 
-  if (!canReceive(recipient, mode) && !upi) {
-    return { rails, blocked: blockedFor(recipient, mode) };
+  if (!(lightning && canReceive(recipient, mode)) && !upi) {
+    return { rails, blocked: blockedFor(recipient, mode, { lightning, upi: upiHere }) };
   }
 
   return { rails };
@@ -158,8 +196,22 @@ export function onlyRail(options: SettlementOptions): 'invoice' | null {
   return available[0].rail === 'invoice' ? 'invoice' : null;
 }
 
-function blockedFor(recipient: Member, mode: PaymentMode): NonNullable<SettlementOptions['blocked']> {
+/** `ways` is what could pay this debt at all, for this payer: the message asks the recipient for one of those. */
+function blockedFor(recipient: Member, mode: PaymentMode, ways: PayWays): NonNullable<SettlementOptions['blocked']> {
   const name = recipient.displayName;
+  // The payer doesn't use bitcoin, so a wallet or a Lightning address is no use to them.
+  if (!ways.lightning) {
+    if (recipient.claimedByUserId) {
+      return {
+        message: `${name} hasn't added a UPI ID yet, so there's nowhere to pay them here. Ask them to add one from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
+        remedies: ['remind'],
+      };
+    }
+    return {
+      message: `${name} isn't on Sattle yet, so there's nowhere to pay them. Invite them, and once they add a UPI ID you can pay here. Or mark it settled if you paid another way.`,
+      remedies: ['invite', 'mark_settled'],
+    };
+  }
   if (mode === 'simulated') {
     return {
       message: `${name} hasn't set up a way to get paid yet. Add their Lightning address, invite them, or mark it settled if you paid another way.`,
@@ -169,7 +221,9 @@ function blockedFor(recipient: Member, mode: PaymentMode): NonNullable<Settlemen
   // They have the app, so only they can connect a wallet or confirm a payment made another way.
   if (recipient.claimedByUserId) {
     return {
-      message: `${name} hasn't set up a way to get paid yet. Ask them to connect a wallet or add their Lightning address from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
+      message: `${name} hasn't set up a way to get paid yet. Ask them to ${
+        ways.upi ? 'add a UPI ID, connect a wallet' : 'connect a wallet'
+      } or add their Lightning address from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
       remedies: ['remind'],
     };
   }

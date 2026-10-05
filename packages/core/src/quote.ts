@@ -1,31 +1,59 @@
 /**
- * Fiat → sats at a pinned rate. Shared by the server and the mock so both
+ * What a debt comes to in sats. Shared by the server and the mock so both
  * quote the same way.
+ *
+ * A rupee debt is converted at a pinned rate. A debt in a group kept in
+ * bitcoin is in sats already, so there is nothing to convert.
  */
 
+import { isBitcoin } from './currency';
 import type { Currency, Quote, RateSource } from './types';
 
 export const QUOTE_TTL_MS = 90_000;
 
+/** `rateFiatPerBtc` and `rateSource` are for a fiat debt. A bitcoin one ignores the rate. */
 export function buildQuote(
-  amountFiat: number,
+  amount: number,
   currency: Currency,
   rateFiatPerBtc: number,
   rateSource: RateSource,
   now = Date.now()
 ): Quote {
-  // amountFiat is minor units; 1 BTC = 1e8 sats.
-  const amountSat = Math.round((amountFiat / 100 / rateFiatPerBtc) * 1e8);
+  if (isBitcoin(currency)) return buildSatsQuote(amount, now, rateSource);
+  // amount is minor units; 1 BTC = 1e8 sats.
+  const amountSat = Math.round((amount / 100 / rateFiatPerBtc) * 1e8);
   return {
-    amountFiat,
+    amountFiat: amount,
     currency,
     amountSat,
-    feeSat: Math.max(2, Math.round(amountSat * 0.003)),
+    feeSat: feeFor(amountSat),
     rateFiatPerBtc,
     rateSource,
     expiresAt: new Date(now + QUOTE_TTL_MS).toISOString(),
   };
 }
+
+/**
+ * The quote for a debt in a group kept in bitcoin: the sats owed are the sats
+ * to pay. No rate was used, so none is named, and one bitcoin is one bitcoin.
+ * It still runs out, because the invoice made from it does.
+ *
+ * `rateSource` is kept only when it says the payment is simulated, which is
+ * true whatever the currency and is how the payer is told.
+ */
+export function buildSatsQuote(amountSat: number, now = Date.now(), rateSource?: RateSource): Quote {
+  return {
+    amountFiat: amountSat,
+    currency: 'BTC',
+    amountSat,
+    feeSat: feeFor(amountSat),
+    rateFiatPerBtc: 1,
+    ...(rateSource?.kind === 'demo' ? { rateSource } : {}),
+    expiresAt: new Date(now + QUOTE_TTL_MS).toISOString(),
+  };
+}
+
+const feeFor = (amountSat: number) => Math.max(2, Math.round(amountSat * 0.003));
 
 /** "1 BTC = ₹90,00,000", whole units: paise on a bitcoin price is noise. */
 export function formatRate(q: Pick<Quote, 'rateFiatPerBtc' | 'currency'>): string {
