@@ -36,6 +36,8 @@ The story judges should take away, in order:
 
 **Screen:** title card "Sattle: split bills in sats. Only one of you needs the app." Then the empty Sattle welcome screen.
 
+A clean profile opens on the first-launch tour before the welcome screen. Its three screens make the same points as this scene, so either step through them under the narration or tap **Skip**. It is shown once per profile, so the dry run's profile won't show it again.
+
 **Say:**
 > Splitwise tells you that you owe Om seventeen hundred rupees, then sends you somewhere else to pay. Bitcoin can fix that, but every Bitcoin bill-splitter asks the whole group to install an app and fund a wallet. Nobody does that to pay back dinner. Sattle is built around the people who won't install it.
 

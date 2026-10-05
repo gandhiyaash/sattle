@@ -22,7 +22,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
 
 Try these flows:
 
@@ -132,6 +132,8 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Rename the group, remove a member, leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, and deleting the account.
+      OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
+      tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
 ```
