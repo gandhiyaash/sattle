@@ -307,7 +307,8 @@ export interface CreateGroupInput {
   currency: Currency;
   /** Everyone except the creator. They start as ghosts. */
   memberNames: string[];
-  simplifyDebts: boolean;
+  /** On if left out, as every group was before it was a choice (Group.simplifyDebts). */
+  simplifyDebts?: boolean;
 }
 
 // -- pay links -------------------------------------------------------------

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { computeBalances, type LedgerBackup } from '@sattle/core';
 import type { Event } from 'nostr-tools';
 import * as nip19 from 'nostr-tools/nip19';
-import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure';
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty, type Db } from './db';
@@ -224,6 +224,14 @@ describe('readLedger', () => {
     expect(readLedger([e1, e2], { pubkey: e1.pubkey, key }).problems).toEqual([
       'Entry 2 doesn’t follow the entry before it.',
     ]);
+  });
+
+  it('reads a group as simplifying its debts when its entry is from before it could choose', () => {
+    const { group } = entry(1, null);
+    const read = (g: LedgerEntry['group']) =>
+      readLedger([signEntry({ ...entry(1, null), group: g }, key, server, at)], { pubkey: getPublicKey(server), key }).group;
+    expect(read({ id: group.id, name: group.name, currency: group.currency })?.simplifyDebts).toBe(true);
+    expect(read({ ...group, simplifyDebts: false })?.simplifyDebts).toBe(false);
   });
 
   it('ignores entries signed by anyone but the server', () => {

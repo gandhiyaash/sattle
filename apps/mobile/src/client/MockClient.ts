@@ -267,7 +267,7 @@ export class MockClient implements SattleClient {
         currency,
         memberIds: [],
         createdAt: this.now(),
-        simplifyDebts: input.simplifyDebts,
+        simplifyDebts: input.simplifyDebts ?? true,
       };
       const me = fixtures.currentUser;
       const add = (m: Omit<Member, 'id' | 'groupId'>) => {

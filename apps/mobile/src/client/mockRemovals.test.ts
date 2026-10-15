@@ -41,6 +41,7 @@ describe('MockClient: groups and members', () => {
 
   it('pays back whoever paid in a group that doesn’t simplify its debts, until it does', async () => {
     const c = client();
+    expect((await c.createGroup({ name: 'Trip', currency: 'INR', memberNames: [] })).simplifyDebts).toBe(true);
     const g = await c.createGroup({ name: 'Flat', currency: 'INR', memberNames: ['Dev', 'Ira'], simplifyDebts: false });
     expect(g.simplifyDebts).toBe(false);
     const [me, dev, ira] = g.memberIds;
@@ -71,7 +72,7 @@ describe('MockClient: groups and members', () => {
 
   it('deletes a group that has nothing owed', async () => {
     const c = client();
-    const g = await c.createGroup({ name: 'Empty', currency: 'INR', memberNames: ['Dev'], simplifyDebts: true });
+    const g = await c.createGroup({ name: 'Empty', currency: 'INR', memberNames: ['Dev'] });
     await c.deleteGroup(g.id);
     expect((await c.getGroups()).map((x) => x.id)).not.toContain(g.id);
   });
@@ -97,7 +98,7 @@ describe('MockClient: groups and members', () => {
 
   it('won’t let the only person with an account leave', async () => {
     const c = client();
-    const g = await c.createGroup({ name: 'Solo', currency: 'INR', memberNames: ['Dev'], simplifyDebts: true });
+    const g = await c.createGroup({ name: 'Solo', currency: 'INR', memberNames: ['Dev'] });
     await expect(c.leaveGroup(g.id)).rejects.toMatchObject({ code: 'conflict' });
   });
 });

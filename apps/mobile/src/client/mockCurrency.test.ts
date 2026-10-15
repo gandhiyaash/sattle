@@ -6,7 +6,7 @@ import { MockClient } from './MockClient';
 /** A group kept in bitcoin: Yash, the mock's one user, and Dev, who paid 21,000 sats for both. */
 async function meetup() {
   const c = new MockClient({ latencyMs: 0, settleDelayMs: 0 });
-  const group = await c.createGroup({ name: 'Meetup', currency: 'btc', memberNames: ['Dev'], simplifyDebts: true });
+  const group = await c.createGroup({ name: 'Meetup', currency: 'btc', memberNames: ['Dev'] });
   const [yash, dev] = group.memberIds;
   const spend = (parts: Array<{ memberId: string; amount: number }>) =>
     c.addExpense({ groupId: group.id, description: 'Pizza', amount: 21_000, paidByMemberId: dev, splitMode: 'exact', parts });

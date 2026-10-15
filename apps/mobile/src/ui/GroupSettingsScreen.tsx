@@ -11,7 +11,7 @@
  * what an action leaves behind is said between the first tap and the second.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -193,8 +193,10 @@ function SettlingUp({
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
-  // Kept here once loaded, so the switch stays where it was put while the rest is read again.
+  // Kept here once loaded, so the switch stays where it was put while the rest is read again,
+  // and moved to whatever is read next: someone else in the group may have changed it.
   const [on, setOn] = useState(loaded);
+  useEffect(() => setOn(loaded), [loaded]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
