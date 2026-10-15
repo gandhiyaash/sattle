@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseUpiId, parseUpiResponse, upiIdHasPhoneNumber, upiPayUri } from './upi';
+import { parseUpiId, parseUpiReference, parseUpiResponse, upiIdHasPhoneNumber, upiPayUri } from './upi';
 
 describe('parseUpiId', () => {
   it('takes the IDs people have, and lower-cases them', () => {
@@ -18,6 +18,23 @@ describe('parseUpiId', () => {
   it('turns away anything else that isn’t one', () => {
     for (const bad of ['', '   ', 'om', '@ybl', 'om@', 'om swami@ybl', 'om@@ybl', 'o@ybl', 'om@y', 'om@9bank']) {
       expect([bad, parseUpiId(bad).ok]).toEqual([bad, false]);
+    }
+  });
+});
+
+describe('parseUpiReference', () => {
+  it('takes the number a UPI app shows, with the spaces and dashes it was copied with dropped', () => {
+    expect(parseUpiReference('412345678901')).toEqual({ ok: true, reference: '412345678901' });
+    expect(parseUpiReference(' 4123 4567 8901 ')).toEqual({ ok: true, reference: '412345678901' });
+    expect(parseUpiReference('4123-4567-8901')).toEqual({ ok: true, reference: '412345678901' });
+    // Not every app's is twelve digits.
+    expect(parseUpiReference('T2410051234567890123')).toEqual({ ok: true, reference: 'T2410051234567890123' });
+  });
+
+  it('asks for one when there is none, and turns away what couldn’t be one', () => {
+    expect(parseUpiReference('   ')).toEqual({ ok: false, reason: 'Enter the reference your UPI app shows for the payment.' });
+    for (const bad of ['12345', 'paid!', 'yes it went through', 'paid 100 rupees', 'ok@ybl', '9'.repeat(65)]) {
+      expect([bad, parseUpiReference(bad).ok]).toEqual([bad, false]);
     }
   });
 });
@@ -81,12 +98,32 @@ describe('parseUpiResponse', () => {
     expect(parseUpiResponse('txnId=AXI123&responseCode=00&Status=SUCCESS&txnRef=T1&ApprovalRefNo=412345678901')).toEqual({
       status: 'success',
       reference: '412345678901',
+      txnId: 'AXI123',
+      approvalRef: '412345678901',
+      txnRef: 'T1',
     });
   });
 
+  it('keeps each id the app gave, and leaves out the ones it sent empty or as "null"', () => {
+    // What a link with no reference of its own gets back: txnRef comes empty.
+    expect(parseUpiResponse('txnId=AXI123&responseCode=00&Status=SUCCESS&txnRef=&ApprovalRefNo=412345678901')).toEqual({
+      status: 'success',
+      reference: '412345678901',
+      txnId: 'AXI123',
+      approvalRef: '412345678901',
+    });
+    expect(parseUpiResponse('txnId=AXI123&Status=SUCCESS&txnRef=null&ApprovalRefNo=undefined')).toEqual({
+      status: 'success',
+      reference: 'AXI123',
+      txnId: 'AXI123',
+    });
+    expect(parseUpiResponse({ Status: 'SUCCESS' })).toEqual({ status: 'success' });
+    expect(parseUpiResponse(`Status=SUCCESS&txnId=${'9'.repeat(80)}`).txnId).toHaveLength(64);
+  });
+
   it('reads the string inside the extras, and fields sent on their own', () => {
-    expect(parseUpiResponse({ response: 'txnId=P99&Status=FAILURE&ApprovalRefNo=null' })).toEqual({ status: 'failed', reference: 'P99' });
-    expect(parseUpiResponse({ Status: 'success', txnRef: 'R7' })).toEqual({ status: 'success', reference: 'R7' });
+    expect(parseUpiResponse({ response: 'txnId=P99&Status=FAILURE&ApprovalRefNo=null' })).toEqual({ status: 'failed', reference: 'P99', txnId: 'P99' });
+    expect(parseUpiResponse({ Status: 'success', txnRef: 'R7' })).toEqual({ status: 'success', reference: 'R7', txnRef: 'R7' });
     expect(parseUpiResponse({ status: 'SUBMITTED' })).toEqual({ status: 'pending' });
   });
 

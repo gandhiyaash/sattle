@@ -33,7 +33,8 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   SattleError,
@@ -365,9 +366,6 @@ function Invoice({
             <View style={s.qrFrame}>
               <QrCode value={`lightning:${destination}`} size={220} />
             </View>
-            <Text style={s.invoice} numberOfLines={2} selectable>
-              {destination}
-            </Text>
             {left !== null && (
               <Text style={s.countdown}>
                 {sats ? 'Invoice good for' : 'Rate and invoice locked for'} {formatClock(left)}
@@ -687,12 +685,25 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
 // Pieces
 // ---------------------------------------------------------------------------
 
+/**
+ * The page scrolls. An invoice with its QR code is taller than a phone's screen, and a page that
+ * only centred itself was cut off at the top and the bottom alike, with no way to reach either:
+ * the amount gone above, the last button under whatever sat below.
+ */
 function Page({ children }: { children: React.ReactNode }) {
   const s = useStyles();
+  const insets = useSafeAreaInsets();
   return (
-    <View style={s.page}>
+    <ScrollView
+      style={s.page}
+      contentContainerStyle={[
+        s.pageBody,
+        { paddingTop: space.lg + insets.top, paddingBottom: space.lg + insets.bottom },
+      ]}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={s.sheet}>{children}</View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -751,13 +762,9 @@ function useSecondsLeft(iso: string | undefined) {
 const formatClock = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
 const useStyles = makeStyles((color) => ({
-  page: {
-    flex: 1,
-    backgroundColor: color.paper,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: space.lg,
-  },
+  page: { flex: 1, backgroundColor: color.paper },
+  // In the middle while it fits, and from the top once it doesn't.
+  pageBody: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
   sheet: {
     width: '100%',
     maxWidth: 420,
@@ -787,7 +794,6 @@ const useStyles = makeStyles((color) => ({
   qrBlock: { alignItems: 'center', gap: space.sm, marginTop: space.md },
   // QR needs a light ground and a quiet zone; the code draws its own margin.
   qrFrame: { borderRadius: radius.md, overflow: 'hidden', backgroundColor: '#FFFFFF' },
-  invoice: { ...type.amountSm, color: color.inkFaint, textAlign: 'center' },
   countdown: { ...type.caption, color: color.inkMuted },
 
   notice: {

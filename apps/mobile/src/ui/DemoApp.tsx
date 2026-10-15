@@ -20,13 +20,14 @@ import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
+import { GroupGuestScreen } from './GroupGuestScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
 import { GroupsListScreen } from './GroupsListScreen';
 import { GuestPayScreen } from './GuestPayScreen';
 import { HistoryEntrySheet, HistoryScreen } from './HistoryScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
-import { AboveBottomBar } from './primitives';
+import { AboveBottomBar, Loading, Screen } from './primitives';
 import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
@@ -44,6 +45,7 @@ type Route =
   | { name: 'wallet' }
   | { name: 'account' }
   | { name: 'join'; token?: string }
+  | { name: 'shared'; token: string }
   | { name: 'restore'; groupId: string; backupKey: string }
   | { name: 'guest'; token: string };
 
@@ -53,18 +55,35 @@ export interface DemoAppProps {
   joining?: string | null;
   /** The join screen is finished with that link, whether or not anyone asked to join. */
   onJoinDone?: () => void;
+  /**
+   * The token from the group's shared link, /g/<token>, tapped on a phone with the app. Someone in
+   * the group gets the group, on what there is to settle. Anyone else gets the group's page.
+   */
+  shared?: string | null;
+  /** The app is finished with that link: it has opened the group, gone on to joining, or been left. */
+  onSharedDone?: () => void;
   /** The account was deleted on the server. Whoever holds its token should forget it. */
   onAccountDeleted?: () => void;
   /** The account has a new sign-in key, already saved. The client passed in should be swapped for one with it. */
   onKeyReplaced?: (token: string) => void;
 }
 
-export function DemoApp({ client, joining, onJoinDone, onAccountDeleted, onKeyReplaced }: DemoAppProps) {
+export function DemoApp({
+  client,
+  joining,
+  onJoinDone,
+  shared,
+  onSharedDone,
+  onAccountDeleted,
+  onKeyReplaced,
+}: DemoAppProps) {
   return (
     <SattleProvider client={client}>
       <Navigator
         joining={joining ?? null}
         onJoinDone={onJoinDone}
+        shared={shared ?? null}
+        onSharedDone={onSharedDone}
         onAccountDeleted={onAccountDeleted}
         onKeyReplaced={onKeyReplaced}
       />
@@ -75,16 +94,20 @@ export function DemoApp({ client, joining, onJoinDone, onAccountDeleted, onKeyRe
 function Navigator({
   joining,
   onJoinDone,
+  shared,
+  onSharedDone,
   onAccountDeleted,
   onKeyReplaced,
 }: {
   joining: string | null;
   onJoinDone?: () => void;
+  shared: string | null;
+  onSharedDone?: () => void;
   onAccountDeleted?: () => void;
   onKeyReplaced?: (token: string) => void;
 }) {
   const [route, setRoute] = useState<Route>(
-    joining ? { name: 'join', token: joining } : { name: 'groups' }
+    joining ? { name: 'join', token: joining } : shared ? { name: 'shared', token: shared } : { name: 'groups' }
   );
   const [settling, setSettling] = useState<{
     debt: Debt;
@@ -101,6 +124,9 @@ function Navigator({
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
   }, [joining]);
+  useEffect(() => {
+    if (shared) setRoute({ name: 'shared', token: shared });
+  }, [shared]);
 
   const refresh = () => setNonce((n) => n + 1);
 
@@ -119,6 +145,29 @@ function Navigator({
             onOpenGroup={openGroup}
             onNewGroup={() => setRoute({ name: 'newGroup' })}
             onJoin={() => setRoute({ name: 'join' })}
+          />
+        );
+
+      case 'shared':
+        return (
+          <SharedGroup
+            // A second link starts over.
+            key={route.token}
+            token={route.token}
+            // Already in it. The link is the one for seeing what's owed and paying it, so that is the tab.
+            onIn={(groupId) => {
+              onSharedDone?.();
+              setGroupTab('settle');
+              setRoute({ name: 'group', groupId });
+            }}
+            onJoin={() => {
+              onSharedDone?.();
+              setRoute({ name: 'join', token: route.token });
+            }}
+            onBack={() => {
+              onSharedDone?.();
+              setRoute({ name: 'groups' });
+            }}
           />
         );
 
@@ -302,11 +351,62 @@ function Navigator({
         onNavigate={(next) => {
           // A tab is a way off the join screen too. Left set, the link would do nothing when tapped again.
           if (route.name === 'join') onJoinDone?.();
+          if (route.name === 'shared') onSharedDone?.();
           setRoute(next);
         }}
       />
     </View>
   );
+}
+
+/**
+ * The group's shared link, opened in the app by someone who has an account.
+ *
+ * If they're in the group, the link is just a way to the group: `onIn`. If
+ * they aren't, they get the page the link is for, the same one a browser
+ * shows: what's been split, who owes whom, a way to pay, and Join, which here
+ * goes on to the app's own join screen. Holding the link is all that page
+ * ever asks for, so having the app installed doesn't take it away.
+ */
+function SharedGroup({
+  token,
+  onIn,
+  onJoin,
+  onBack,
+}: {
+  token: string;
+  onIn: (groupId: string) => void;
+  onJoin: () => void;
+  onBack: () => void;
+}) {
+  const client = useClient();
+  const [outside, setOutside] = useState(false);
+
+  // Not being able to tell is no reason to keep the page from them, so a failure reads as not being in it.
+  useEffect(() => {
+    let live = true;
+    client.getJoinedGroup(token).then(
+      (group) => {
+        if (!live) return;
+        if (group) onIn(group.id);
+        else setOutside(true);
+      },
+      () => live && setOutside(true)
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, token]);
+
+  if (!outside) {
+    return (
+      <Screen title="Sattle" onBack={onBack}>
+        <Loading lines={3} />
+      </Screen>
+    );
+  }
+  return <GroupGuestScreen token={token} onBack={onBack} onJoin={onJoin} />;
 }
 
 /** Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button. */

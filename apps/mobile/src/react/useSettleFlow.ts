@@ -8,13 +8,24 @@
  *      │   ▲                     │
  *      │   └──────failed─────────┘   (error shown, nothing moved)
  *      ├──startAddressEntry──▶ entering_address ──save──▶ choosing (re-resolved)
- *      ├──choose('upi')──▶ upi ──claimUpi──▶ upi_sent   (the payee confirms, elsewhere)
+ *      ├──choose('upi')──▶ upi ──the UPI app says it went through (Android)──▶ done
+ *      │                    │
+ *      │                    ▼  back from a UPI app that says nothing, or "I've paid"
+ *      │                 upi_ask ──yes──▶ done
+ *      │                    └──no──▶ upi
  *      └──markManual──────────────────────────────────▶ done
  *
- * UPI is paid outside Sattle, in the payer's UPI app, so its branch ends in a
- * claim, not a settlement: nothing here can see the money move. On Android
- * the UPI app is opened for them and its answer makes the claim; elsewhere
- * the payer pays and says so.
+ * UPI is paid outside Sattle, in the payer's UPI app, and nothing here can
+ * see the money move. On Android the UPI app is opened for them and hands
+ * back what happened. When it says the payment went through, that settles
+ * the debt then and there, on that app's word, with the ids it gave kept for
+ * checking.
+ *
+ * An iPhone and a browser are told nothing by a UPI app, and some Android
+ * apps stay quiet too. So when the payer comes back from one, or taps "I've
+ * paid", they are asked whether it went through (upi_ask). Their yes settles
+ * it the same way, on their word, and the reference their UPI app showed is
+ * kept with it when they type one in. Nobody is asked to confirm either.
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything. Only the ways
@@ -33,6 +44,7 @@ import {
   liveInvoiceFor,
   onlyRail,
   parseLightningAddress,
+  parseUpiReference,
   resolveSettlementOptions,
   TERMINAL_STATUSES,
   upiPayUri,
@@ -42,7 +54,6 @@ import {
   type Rail,
   type Settlement,
   type SettlementOptions,
-  type UpiClaim,
   type UpiOutcome,
   type UpiPayee,
 } from '@sattle/core';
@@ -50,8 +61,9 @@ import type { SattleClient } from '../client/SattleClient';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { launchUpi } from '../upi/launchUpi';
 import { useActionKeys, useClient, usePaymentModeAnswer, useWallet } from './SattleProvider';
+import { useBackFromUpi } from './useBackFromUpi';
 
-export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_sent';
+export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_ask';
 
 /** Paying by UPI: who to pay, the link that pays them, and what the UPI app last said, if it says anything. */
 export interface UpiSession {
@@ -80,12 +92,21 @@ export interface SettleFlow {
   createInvite: (groupName: string) => Promise<{ url: string; message: string; sentNote: string }>;
   /** Set on the `upi` step. */
   upi: UpiSession | null;
-  /** The payer's word that they paid, once given. Set on `upi_sent`. */
-  upiClaim: UpiClaim | null;
-  /** Opens the UPI app again and acts on what it says. Null where no UPI app reports back (iOS, web). */
+  /** Opens the UPI app again and acts on what it says: a success settles it. Null where no UPI app reports back (iOS, web). */
   openUpiApp: (() => Promise<void>) | null;
-  /** Tells the person owed it has been paid. They confirm it. */
-  claimUpi: () => Promise<void>;
+  /** The payer is being handed to a UPI app that won't say what happened. When they come back, the sheet asks. */
+  leftForUpi: () => void;
+  /** Asks whether the payment went through. Also where "I've paid" goes. */
+  askPaid: () => void;
+  /**
+   * Yes. Settles the debt, on their word. `reference` is what they typed in for the number their
+   * UPI app showed: empty is fine, and anything else has to be able to be one.
+   */
+  confirmPaid: (reference: string) => Promise<void>;
+  /** No. Back to paying, with nothing recorded. */
+  notPaid: () => void;
+  /** Set when the UPI app said the payment went through and telling the server failed: tries that again. */
+  recordUpiSuccess: (() => Promise<void>) | null;
   /** Back to the options, with nothing recorded. */
   leaveUpi: () => void;
 }
@@ -127,8 +148,8 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   const [upi, setUpi] = useState<UpiSession | null>(null);
-  const [upiClaim, setUpiClaim] = useState<UpiClaim | null>(null);
   const unsub = useRef<(() => void) | null>(null);
+  const upiApp = useBackFromUpi();
   const [opening, setOpening] = useState(true);
   const opened = useRef(false);
   const live = useRef(true);
@@ -140,6 +161,14 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     },
     []
   );
+
+  // Back from a UPI app that says nothing about what happened in it: ask.
+  useEffect(() => {
+    if (upiApp.back === null) return;
+    upiApp.answered();
+    setStep((now) => (now === 'upi' ? 'upi_ask' : now));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upiApp.back]);
 
   const options = useMemo(
     () =>
@@ -177,12 +206,6 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     }
   };
 
-  const claimUpi = async (reference?: string) => {
-    const input = { ...pick(debt), ...(reference ? { reference } : {}) };
-    setUpiClaim(await keys.run('upi-claim', input, (k) => client.createUpiClaim(input, k)));
-    setStep('upi_sent');
-  };
-
   /** Android: hands over to a UPI app, and acts on what it says when it hands back. */
   const openUpiApp = async (session: UpiSession) => {
     if (!launchUpi) return;
@@ -193,8 +216,17 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
       throw new Error('No UPI app on this phone could open this. Pay the UPI ID below from your UPI app, then mark it as paid.');
     }
     setUpi({ ...session, outcome });
-    // The app says the money left, so tell the person owed, with the reference to check it against.
-    if (outcome.status === 'success') await claimUpi(outcome.reference);
+    if (outcome.status === 'success') await settleByUpi(outcome);
+  };
+
+  /**
+   * The UPI app said the money left. That settles it: nobody is asked to confirm, and what the
+   * app handed back goes with it, so the payment can be found in a statement. Asking again with
+   * the same answer, after the server couldn't be reached, is one request and not a second payment.
+   */
+  const settleByUpi = async ({ txnId, approvalRef, txnRef }: UpiOutcome) => {
+    const input = { ...pick(debt), ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) };
+    onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
   };
 
   const choose = (rail: Rail) =>
@@ -251,12 +283,32 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     error,
     busy,
     upi,
-    upiClaim,
     openUpiApp: launchUpi && upi ? () => run(() => openUpiApp(upi)) : null,
-    claimUpi: () => run(() => claimUpi(upi?.outcome?.reference)),
+    leftForUpi: () => upiApp.leaving(),
+    askPaid: () => {
+      setError(null);
+      setStep('upi_ask');
+    },
+    confirmPaid: (raw) =>
+      run(async () => {
+        let reference: string | undefined;
+        if (raw.trim()) {
+          const parsed = parseUpiReference(raw);
+          if (!parsed.ok) throw new Error(parsed.reason);
+          reference = parsed.reference;
+        }
+        const input = { ...pick(debt), byPayer: true as const, ...(reference && { reference }) };
+        onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
+      }),
+    notPaid: () => {
+      setError(null);
+      setStep('upi');
+    },
+    recordUpiSuccess: upi?.outcome?.status === 'success' ? () => run(() => settleByUpi(upi.outcome!)) : null,
     leaveUpi: () => {
       setError(null);
       setUpi(null);
+      upiApp.answered();
       setStep('choosing');
     },
 

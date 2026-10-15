@@ -6,7 +6,10 @@
  * A row says what happened, who did it and when. Tapping one opens the rest
  * in a sheet (HistoryEntrySheet). For a payment that is when it was paid or
  * marked as paid, how, and its proof if it has one: a Lightning payment does,
- * and one settled on someone's word has their name in its place. For an
+ * and one settled on someone's word has their name in its place. A UPI
+ * payment settled because the payer's UPI app said it went through has the
+ * ids that app handed back, to find it by in a statement, and one the payer
+ * said went through has the reference they gave, if they gave one. For an
  * expense it is who paid and each person's part, and for a change, both sides
  * of it.
  *
@@ -32,6 +35,7 @@ import { splitSummary } from './GroupDetailScreen';
 import { Amount, BreakdownRow, Button, Card, Divider, ErrorState, Loading, Screen } from './primitives';
 import { copyText } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
+import { UpiReceiptRows } from './UpiReceiptRows';
 
 export interface HistoryScreenProps {
   groupId: string;
@@ -138,6 +142,9 @@ function happened(entry: HistoryEntry, by: string | undefined): string {
       return `Removed${who}`;
     case 'settled':
       if (entry.settlement.rail === 'manual') return `Marked as settled${who}`;
+      // Settled on the payer's side's word, and `by` is the payer. Nobody confirmed it.
+      if (entry.settlement.upi?.byPayer) return by ? `Paid by UPI, as ${by} said` : 'Paid by UPI, as the payer said';
+      if (entry.settlement.upi) return by ? `Paid by UPI, as ${by}’s UPI app reported` : 'Paid by UPI, as the UPI app reported';
       if (entry.settlement.rail === 'upi') return by ? `Paid by UPI, confirmed by ${by}` : 'Paid by UPI';
       return 'Paid over Lightning';
   }
@@ -225,6 +232,10 @@ function SettlementDetail({
 }) {
   const s = useStyles();
   const lightning = overLightning(st);
+  /** The payer's side said it went through, and that settled it. Otherwise UPI is the person owed confirming. */
+  const reported = Boolean(st.upi);
+  /** It was the payer who said so, and not their UPI app. */
+  const byPayer = Boolean(st.upi?.byPayer);
   // In sats the amount owed is the amount sent, and no rate joined them.
   const quote = lightning && !isBitcoin(st.currency) ? st.quote : undefined;
   // What was noted when it was settled says how, and for UPI it has the reference in it.
@@ -237,11 +248,17 @@ function SettlementDetail({
       </View>
       <View style={s.rows}>
         <BreakdownRow
-          label={st.rail === 'manual' ? 'Marked as settled' : st.rail === 'upi' ? 'Confirmed' : 'Paid'}
+          label={st.rail === 'manual' ? 'Marked as settled' : st.rail === 'upi' && !reported ? 'Confirmed' : 'Paid'}
           value={exactly(at)}
         />
-        {by && <BreakdownRow label={st.rail === 'upi' ? 'Confirmed by' : 'Marked by'} value={by} />}
+        {by &&
+          (reported ? (
+            <BreakdownRow label="Reported by" value={byPayer ? by : `${by}’s UPI app`} />
+          ) : (
+            <BreakdownRow label={st.rail === 'upi' ? 'Confirmed by' : 'Marked by'} value={by} />
+          ))}
         <BreakdownRow label="How" value={how} />
+        {st.upi && <UpiReceiptRows receipt={st.upi} />}
         {quote && (
           <>
             <BreakdownRow label="Sent" value={formatSats(quote.amountSat)} numeric />
@@ -249,9 +266,32 @@ function SettlementDetail({
           </>
         )}
       </View>
-      <Proof settlement={st} by={by} payeeName={nameOf(st.toMemberId)} />
+      <Proof settlement={st} by={by} payerName={nameOf(st.fromMemberId)} payeeName={nameOf(st.toMemberId)} />
     </>
   );
+}
+
+/** Why a payment has no proof, and whose word it was settled on instead. */
+function whyNoProof(st: Settlement, by: string | undefined, payerName: string, payeeName: string): string {
+  if (st.rail === 'manual') {
+    return `No payment proof. This was settled outside the app, on ${by ? `${by}’s word` : 'the word of whoever marked it'}.`;
+  }
+  if (st.upi?.byPayer) {
+    return st.upi.reference
+      ? `No payment proof. ${payerName} said this went through and gave the reference above, and Sattle can’t check that. The reference is for finding it in a bank or UPI statement.`
+      : `No payment proof. ${payerName} said this went through, and Sattle can’t check that. They gave no reference to find it by.`;
+  }
+  if (st.upi) {
+    // An app can say it went through and hand back no ids at all. The rows above then say so.
+    return st.upi.txnId || st.upi.approvalRef || st.upi.txnRef
+      ? `No payment proof. ${payerName}’s UPI app said this went through, and Sattle can’t check that. The ids above are for finding it in a bank or UPI statement.`
+      : `No payment proof. ${payerName}’s UPI app said this went through, and Sattle can’t check that. It gave no ids to find it by.`;
+  }
+  // Only the person owed can confirm a UPI payment.
+  if (st.rail === 'upi') {
+    return `No payment proof. Sattle can’t see a UPI payment, so this is settled on ${by ?? payeeName}’s word that it arrived.`;
+  }
+  return `No payment proof was kept. ${payeeName}’s wallet said the invoice was paid.`;
 }
 
 /**
@@ -259,21 +299,22 @@ function SettlementDetail({
  * payment can have one. Anything else was settled because someone said so,
  * and the sheet names them instead.
  */
-function Proof({ settlement: st, by, payeeName }: { settlement: Settlement; by: string | undefined; payeeName: string }) {
+function Proof({
+  settlement: st,
+  by,
+  payerName,
+  payeeName,
+}: {
+  settlement: Settlement;
+  by: string | undefined;
+  payerName: string;
+  payeeName: string;
+}) {
   const s = useStyles();
   const [copied, setCopied] = useState<string | null>(null);
 
   if (!st.preimage) {
-    return (
-      <Text style={s.note}>
-        {st.rail === 'manual'
-          ? `No payment proof. This was settled outside the app, on ${by ? `${by}’s word` : 'the word of whoever marked it'}.`
-          : st.rail === 'upi'
-            ? // Only the person owed can confirm a UPI payment.
-              `No payment proof. Sattle can’t see a UPI payment, so this is settled on ${by ?? payeeName}’s word that it arrived.`
-            : `No payment proof was kept. ${payeeName}’s wallet said the invoice was paid.`}
-      </Text>
-    );
+    return <Text style={s.note}>{whyNoProof(st, by, payerName, payeeName)}</Text>;
   }
 
   const { preimage } = st;
