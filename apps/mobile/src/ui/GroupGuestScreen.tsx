@@ -107,6 +107,9 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
       back.answered();
       return setUpi(null);
     }
+    // Paying another debt is moving on from the one they came back from. Still asking about that
+    // one, the next refresh would open its panel again, over this one.
+    if (back.back !== null && back.back !== ref) back.answered();
     setFailed(null);
     setUpi({ ref, payee: null });
     try {

@@ -282,7 +282,10 @@ function whyNoProof(st: Settlement, by: string | undefined, payerName: string, p
       : `No payment proof. ${payerName} said this went through, and Sattle can’t check that. They gave no reference to find it by.`;
   }
   if (st.upi) {
-    return `No payment proof. ${payerName}’s UPI app said this went through, and Sattle can’t check that. The ids above are for finding it in a bank or UPI statement.`;
+    // An app can say it went through and hand back no ids at all. The rows above then say so.
+    return st.upi.txnId || st.upi.approvalRef || st.upi.txnRef
+      ? `No payment proof. ${payerName}’s UPI app said this went through, and Sattle can’t check that. The ids above are for finding it in a bank or UPI statement.`
+      : `No payment proof. ${payerName}’s UPI app said this went through, and Sattle can’t check that. It gave no ids to find it by.`;
   }
   // Only the person owed can confirm a UPI payment.
   if (st.rail === 'upi') {
