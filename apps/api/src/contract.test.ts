@@ -48,7 +48,7 @@ describe('migrations', () => {
   it('records each applied file once', () => {
     const { db } = setup();
     const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all() as { name: string }[];
-    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql', '011_unique_payment_hash.sql', '012_address_invoices.sql', '013_receive_address.sql', '014_upi.sql', '015_join_requests.sql', '016_one_group_link.sql', '017_take_over.sql', '018_nostr_sign_in.sql', '019_history.sql']);
+    expect(rows.map((r) => r.name)).toEqual(['001_init.sql', '002_pay_links.sql', '003_wallet_connections.sql', '004_payment_hash.sql', '005_invites.sql', '006_nostr_ledger.sql', '007_expense_changes.sql', '008_group_links.sql', '009_group_invites.sql', '010_address_owner.sql', '011_unique_payment_hash.sql', '012_address_invoices.sql', '013_receive_address.sql', '014_upi.sql', '015_join_requests.sql', '016_one_group_link.sql', '017_take_over.sql', '018_nostr_sign_in.sql', '019_history.sql', '020_upi_from_pay_links.sql']);
   });
 
   it('010 clears the addresses joined members inherited as ghosts, and keeps ghosts’ own', () => {

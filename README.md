@@ -152,7 +152,7 @@ apps/mobile/                 @sattle/mobile: Expo
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
       WalletScreen.tsx       Balance, address, and the trust disclosure.
-      GuestPayScreen.tsx     The /s/<token> page. No app, no signup.
+      GuestPayScreen.tsx     The /s/<token> page. No app, no signup. Lightning, UPI, or a choice of the two.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
       GroupSettingsScreen.tsx  Manage: rename the group, its link, its Nostr backup (copy the key, read it back), leave it, delete it.
@@ -236,7 +236,7 @@ A group is kept in one currency, picked when it is made and never changed: rupee
 Under **Account**, **Currencies** lets someone turn one of the two off. Nobody is asked to; it is there for someone who only ever uses one. Turning one off does two things.
 
 - **New groups aren't offered in it.** Someone who uses one currency is never asked which. Someone who uses both picks per group, starting from the one they said new groups start in.
-- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice, pay link or sats anywhere, and the trust screen leaves out the rows about them. With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
+- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice or sats anywhere, and the trust screen leaves out the rows about them. **Send pay link** stays either way: the link offers whichever ways its sender can be paid (see [Paying by UPI](#paying-by-upi)). With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
 
 Two things are never hidden, because hiding them would strand someone:
 
@@ -326,6 +326,16 @@ Sattle never learns that the money moved. No bank or UPI app tells a third party
 - UPI apps, GPay in particular, sometimes refuse or cap a payment started from another app's link to a personal UPI ID. When that happens the payer can still pay the ID shown on screen by hand and tap **I’ve paid**.
 
 `PUT`/`DELETE /me/upi` set and remove the ID. `PUT /me/upi/group-links` turns off, or back on, the group links offering it, and `GET`/`PUT /me/upi/group-links/:groupId` is the same choice for one group (below). `POST /groups/:id/upi-claims` makes a claim; `POST /upi-claims/:id/confirm` and `/decline` are the payee's; `DELETE /upi-claims/:id` is the payer taking it back.
+
+**A pay link offers UPI too.** A pay link (`/s/<token>`) can be paid whichever way the person owed can be paid, and its page shows only those:
+
+- **Lightning only.** It opens straight on the invoice, as it always has.
+- **Both.** In a rupee group, when they also have a UPI ID that shared links may show (the same switch as for the group link, below), the page asks first: **Pay by UPI** or **Pay with Lightning**. No invoice is minted until Lightning is chosen (`POST /s/:token/open` with `{ "rail": "lightning" }`). One nobody asked for would be a payment in progress, and would stand in the way of the UPI one.
+- **UPI only.** It opens on who to pay: the QR code, the ID, and on a phone a button that opens a UPI app.
+
+`GET /s/:token/upi` gives the ID, only to a page that asks to pay. **I’ve paid** is `POST /s/:token/upi-claims`: a claim, marked as coming from a link, that the person owed confirms or turns down in the app like any other. Meanwhile the page waits and offers nothing, so nobody pays twice. When they confirm, the settlement is tied to the link (`upi_claims.pay_link_token`, migration 020), so the page shows **Paid** and the link can't be paid a second time. With an invoice out for the debt, UPI waits until it has lapsed.
+
+**Send pay link** is on every debt owed to you, whichever ways you use. A link nobody could pay is never made. With nowhere to receive over Lightning, and in a rupee group no UPI ID that shared links may show, `POST /groups/:id/pay-links` answers `409 member_cannot_receive`, and the app says what to add, in terms of the ways you use, with **Set up getting paid** going to Wallet.
 
 ### The group link
 

@@ -7,6 +7,14 @@
  * much, what for, and one button.
  *
  * Constraints that shaped it:
+ * - It offers the ways the person owed can be paid, and only those. Lightning
+ *   alone opens straight on the invoice. In a rupee group they may take UPI
+ *   too: then the page asks which, and makes no invoice until it is told,
+ *   since one nobody asked for would stand in the way of the UPI payment.
+ *   UPI alone opens on who to pay.
+ * - Sattle can't see a UPI payment. So "I've paid" is the payer's word, and
+ *   the page waits for the person owed to confirm it in the app. Once they
+ *   have, it shows Paid like any other.
  * - It renders on web, where there is no embedded wallet. So the action is
  *   always "open your wallet" or "scan this", never "pay from balance".
  * - The invoice is minted when this page loads (openPayLink), not when the
@@ -33,15 +41,17 @@ import {
   formatRate,
   formatSats,
   isBitcoin,
+  upiPayUri,
   type GuestSettlement,
   type GuestView,
 } from '@sattle/core';
-import { useClient } from '../react/SattleProvider';
+import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CopyInvoice } from './InvoicePanel';
 import { openAppLink } from './openLink';
 import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { QrCode } from './QrCode';
 import { makeStyles, radius, shadow, space, type, useColors } from './theme';
+import { UpiPanel } from './UpiPanel';
 
 export interface GuestPayScreenProps {
   /** From /s/<token>. The only thing the page knows on arrival. */
@@ -51,6 +61,9 @@ export interface GuestPayScreenProps {
 }
 
 const FromGroup = createContext(false);
+
+/** How often the page asks whether the person owed has answered a UPI payment. */
+const UPI_CHECK_MS = 4000;
 
 type Load =
   | { kind: 'loading' }
@@ -69,17 +82,23 @@ function GuestPay({ token }: { token: string }) {
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  const fromGroup = useContext(FromGroup);
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   // Bumped to open the link again: after a failure, or once an invoice lapses.
   const [attempt, setAttempt] = useState(0);
   const retry = () => setAttempt((n) => n + 1);
+  // Set once the payer has chosen Lightning over UPI, which is what makes the invoice.
+  // Coming from the group page they chose it there.
+  const [rail, setRail] = useState<'lightning' | undefined>(fromGroup ? 'lightning' : undefined);
+  /** The payer is paying by UPI: who to pay is up, with "I've paid" under it. */
+  const [byUpi, setByUpi] = useState(false);
 
   useEffect(() => {
     let live = true;
     let unsub: (() => void) | undefined;
     setLoad({ kind: 'loading' });
     client
-      .openPayLink(token)
+      .openPayLink(token, rail)
       .then((view) => {
         if (!live) return;
         setLoad({ kind: 'ready', view });
@@ -94,7 +113,21 @@ function GuestPay({ token }: { token: string }) {
       live = false;
       unsub?.();
     };
-  }, [client, token, attempt]);
+  }, [client, token, attempt, rail]);
+
+  // The person owed answers a UPI payment in the app. Once they have, open the link again:
+  // it is paid, or they said it didn't arrive and it is there to pay again.
+  const waitingOnUpi = load.kind === 'ready' && load.view.upiClaim === 'pending';
+  useEffect(() => {
+    if (!waitingOnUpi) return;
+    const t = setInterval(() => {
+      client
+        .getGuestView(token)
+        .then((v) => v.upiClaim !== 'pending' && setAttempt((n) => n + 1))
+        .catch(() => {});
+    }, UPI_CHECK_MS);
+    return () => clearInterval(t);
+  }, [client, token, waitingOnUpi]);
 
   if (load.kind === 'loading') {
     return (
@@ -123,6 +156,89 @@ function GuestPay({ token }: { token: string }) {
     </>
   );
 
+  const owed = (
+    <View style={s.amountBlock}>
+      <Text style={s.amount}>{formatAmount(view.amount, view.currency)}</Text>
+    </View>
+  );
+
+  if (settlement?.status === 'confirmed' || settlement?.status === 'manually_confirmed') {
+    return <Paid payeeName={view.payeeName} settlement={settlement} />;
+  }
+
+  // Paying again now would pay it twice, so there is nothing to tap until the person owed has answered.
+  if (view.upiClaim === 'pending') {
+    return (
+      <Page>
+        {header}
+        {owed}
+        <Text style={s.reason}>{view.reason}</Text>
+        <Notice
+          title={`Waiting for ${view.payeeName}`}
+          body={`Someone said this was paid by UPI. It’s settled once ${view.payeeName} confirms it arrived. You can close this.`}
+        />
+        <Footer />
+      </Page>
+    );
+  }
+
+  // On the group page UPI has its own button next to this one, so from there this page is Lightning's.
+  const upiOffered = Boolean(view.upi) && !fromGroup;
+  const turnedDown = view.upiClaim === 'declined' && (
+    <Notice
+      title="The UPI payment didn’t arrive"
+      body={`${view.payeeName} says it didn’t reach them. Check with them before paying again.`}
+    />
+  );
+  const payWithLightning = () => {
+    setByUpi(false);
+    // Already chosen once, so asking again is for a fresh invoice.
+    if (rail === 'lightning') retry();
+    else setRail('lightning');
+  };
+  /** For under an invoice that is dead: the other way to pay, when there is one. */
+  const upiInstead = upiOffered && <Button label="Pay by UPI instead" onPress={() => setByUpi(true)} />;
+
+  // Chosen, or the only way there is: then there was nothing to ask.
+  if (upiOffered && (byUpi || (!settlement && !view.payable))) {
+    return (
+      <UpiPay
+        token={token}
+        view={view}
+        header={header}
+        notice={turnedDown}
+        onLightning={view.payable ? payWithLightning : undefined}
+        onSaid={() => {
+          setByUpi(false);
+          retry();
+        }}
+      />
+    );
+  }
+
+  if (!settlement && upiOffered) {
+    return (
+      <Page>
+        {header}
+        {owed}
+        <Text style={s.reason}>{view.reason}</Text>
+        {turnedDown}
+        <Button
+          label="Pay by UPI"
+          variant="primary"
+          hint={`From GPay, PhonePe or any UPI app. ${view.payeeName} confirms once it arrives.`}
+          onPress={() => setByUpi(true)}
+        />
+        <Button
+          label="Pay with Lightning"
+          hint="Get an invoice in sats to pay from any Lightning wallet."
+          onPress={payWithLightning}
+        />
+        <Footer />
+      </Page>
+    );
+  }
+
   if (!settlement || settlement.status === 'created') {
     return (
       <Page>
@@ -138,10 +254,6 @@ function GuestPay({ token }: { token: string }) {
   }
 
   switch (settlement.status) {
-    case 'confirmed':
-    case 'manually_confirmed':
-      return <Paid payeeName={view.payeeName} settlement={settlement} />;
-
     case 'failed':
       return (
         <Page>
@@ -152,6 +264,7 @@ function GuestPay({ token }: { token: string }) {
             body={`${settlement.failureReason ?? 'The payment failed.'} Nothing was taken — try again.`}
           />
           <Button label="Try again" variant="primary" onPress={retry} />
+          {upiInstead}
           <Footer />
         </Page>
       );
@@ -165,6 +278,7 @@ function GuestPay({ token }: { token: string }) {
           sats={isBitcoin(settlement.currency)}
           onRenew={retry}
           proof={proof}
+          other={upiInstead}
         />
       );
 
@@ -190,6 +304,7 @@ function GuestPay({ token }: { token: string }) {
           settlement={settlement}
           onRenew={retry}
           proof={proof}
+          other={upiInstead}
           onPaidInBrowser={(preimage) => sendProof(preimage)}
         />
       );
@@ -206,6 +321,7 @@ function Invoice({
   settlement,
   onRenew,
   proof,
+  other,
   onPaidInBrowser,
 }: {
   header: React.ReactNode;
@@ -213,13 +329,17 @@ function Invoice({
   settlement: GuestSettlement;
   onRenew: () => void;
   proof: React.ReactNode;
+  /** Another way to pay. Not offered while the invoice is live: the two together could pay it twice. */
+  other?: React.ReactNode;
   onPaidInBrowser: (preimage: string) => Promise<void>;
 }) {
   const s = useStyles();
   const left = useSecondsLeft(settlement.quote?.expiresAt);
   const sats = isBitcoin(settlement.currency);
   // The server only marks it `expired` later; don't leave a dead QR up meanwhile.
-  if (left === 0) return <Expired header={header} reason={reason} sats={sats} onRenew={onRenew} proof={proof} />;
+  if (left === 0) {
+    return <Expired header={header} reason={reason} sats={sats} onRenew={onRenew} proof={proof} other={other} />;
+  }
 
   const { destination, quote } = settlement;
   return (
@@ -271,6 +391,7 @@ function Expired({
   sats,
   onRenew,
   proof,
+  other,
 }: {
   header: React.ReactNode;
   reason: string;
@@ -280,6 +401,8 @@ function Expired({
   sats: boolean;
   onRenew: () => void;
   proof: React.ReactNode;
+  /** Another way to pay, now that this invoice is dead. */
+  other?: React.ReactNode;
 }) {
   const s = useStyles();
   return (
@@ -301,6 +424,83 @@ function Expired({
       {/* Paid already? Their proof settles it; a new invoice would mean paying twice. */}
       {proof}
       <Button label="Get a new invoice" variant={why ? 'secondary' : 'primary'} onPress={onRenew} />
+      {other}
+      <Footer />
+    </Page>
+  );
+}
+
+/**
+ * Paying the link by UPI: who to pay, then the payer's word that they did.
+ * The UPI ID is asked for here and not before, so it reaches only someone
+ * who went to pay.
+ */
+function UpiPay({
+  token,
+  view,
+  header,
+  notice,
+  onLightning,
+  onSaid,
+}: {
+  token: string;
+  view: GuestView;
+  header: React.ReactNode;
+  /** Said above the details: that the last UPI payment was turned down. */
+  notice?: React.ReactNode;
+  /** The other way, when the person owed takes it. */
+  onLightning?: () => void;
+  /** They've said they paid. The page goes to waiting on the person owed. */
+  onSaid: () => void;
+}) {
+  const color = useColors();
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  const { data: payee, loading, error, reload } = useAsync(() => client.getPayLinkUpi(token), [token]);
+  const [saying, setSaying] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const amount = formatAmount(view.amount, view.currency);
+
+  // Moves nothing: the person owed is asked whether it arrived.
+  const sayPaid = async () => {
+    setSaying(true);
+    setFailed(null);
+    try {
+      await keys.run('upi-claim', { token }, (k) => client.claimUpiFromPayLink(token, k));
+      onSaid();
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : 'Couldn’t send that. Try again.');
+      setSaying(false);
+    }
+  };
+
+  return (
+    <Page>
+      {header}
+      <View style={s.amountBlock}>
+        <Text style={s.amount}>{amount}</Text>
+      </View>
+      <Text style={s.reason}>{view.reason}</Text>
+      {notice}
+      {loading ? (
+        <ActivityIndicator color={color.accent} />
+      ) : error || !payee ? (
+        <ErrorState message={error?.message ?? 'Couldn’t get the UPI details. Try again.'} onRetry={reload} />
+      ) : (
+        <>
+          <UpiPanel
+            payee={payee}
+            uri={upiPayUri({ upiId: payee.upiId, name: payee.name, amount: view.amount, note: view.reason })}
+          />
+          <Text style={s.hint}>
+            Pay {amount}, then tap below. {view.payeeName} confirms it arrived, and then it’s settled.
+          </Text>
+          <Button label="I’ve paid" variant="primary" busy={saying} onPress={sayPaid} />
+        </>
+      )}
+      {failed && <Text style={s.proofError}>{failed}</Text>}
+      {onLightning && <Button label="Pay with Lightning instead" variant="quiet" onPress={onLightning} />}
       <Footer />
     </Page>
   );

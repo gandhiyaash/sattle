@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import { SattleError, UPI_CURRENCY, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
+import { SattleError, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -32,7 +32,7 @@ import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
 import { debtsOf, inProgressFor } from '../settlementRules';
 import { newPayLinkToken } from './payLinks';
-import { takesUpiOnLinks } from './upi';
+import { upiOnLink } from './upi';
 
 /** 16 random bytes, base64url: 22 characters, unguessable. */
 export const newGroupLinkToken = () => randomBytes(16).toString('base64url');
@@ -64,8 +64,7 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
   };
 
   /** Whether the person owed takes UPI from this page. */
-  const upiHere = (g: Group, toMemberId: string) =>
-    g.currency === UPI_CURRENCY && takesUpiOnLinks(wallets, repo.member(toMemberId)!);
+  const upiHere = (g: Group, toMemberId: string) => upiOnLink(wallets, g, repo.member(toMemberId)!);
 
   /** The payee, for a debt someone wants to pay by UPI from the page. 409 member_cannot_receive if they can't be. */
   const upiPayee = (link: GroupLink, ref: string) => {

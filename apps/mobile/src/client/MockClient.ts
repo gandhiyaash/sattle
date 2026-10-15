@@ -91,6 +91,8 @@ export class MockClient implements SattleClient {
   /** user id → their UPI ID. Om has one, so the demo has someone to pay by UPI. */
   private upiIds: Record<string, string> = { 'u-om': 'om@okhdfcbank' };
   private upiClaims: UpiClaim[] = [];
+  /** claim id → the pay link it was said from, which the claim itself doesn't carry. The server's upi_claims.pay_link_token. */
+  private upiClaimPayLinks: Record<string, string> = {};
   /** user id → whether shared group links may show their UPI ID, in every group they're in. On until they choose. */
   private upiOnLinks: Record<string, boolean> = {};
   /** member id → what that person chose for that one group, which wins. Absent while the group follows the other. */
@@ -498,14 +500,43 @@ export class MockClient implements SattleClient {
   }
 
   private guestView(link: PayLink): GuestView {
-    const name = (id: string) => this.members.find((m) => m.id === id)!.displayName;
+    const member = (id: string) => this.members.find((m) => m.id === id)!;
+    const g = this.findGroup(link.groupId);
+    const payee = member(link.toMemberId);
     const sid = this.payLinkSettlements[link.token];
+    const claim = this.claimForLink(link);
     return {
-      payerName: name(link.fromMemberId),
-      payeeName: name(link.toMemberId),
-      reason: this.findGroup(link.groupId).name,
+      payerName: member(link.fromMemberId).displayName,
+      payeeName: payee.displayName,
+      reason: g.name,
+      amount: link.amount,
+      currency: g.currency,
+      payable: canReceive(payee),
+      ...(this.upiOnLink(g.id, payee) ? { upi: true } : {}),
+      ...(claim ? { upiClaim: claim.status } : {}),
       settlement: sid ? toGuestSettlement(this.findSettlement(sid)) : undefined,
     };
+  }
+
+  /** A UPI payment someone has said they made for the link's debt, from the link or anywhere else. */
+  private claimForLink(link: PayLink) {
+    return this.upiClaims.find(
+      (x) => x.groupId === link.groupId && x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId
+    );
+  }
+
+  /** Whether what is owed between the link's two people still covers the link. */
+  private linkOwed(link: PayLink) {
+    const debt = this.debtsOf(link.groupId).find(
+      (d) => d.fromMemberId === link.fromMemberId && d.toMemberId === link.toMemberId
+    );
+    return Boolean(debt && debt.amount >= link.amount);
+  }
+
+  /** Whether the link has been paid, over Lightning or by a UPI payment the person owed confirmed. A link pays once. */
+  private linkPaid(link: PayLink) {
+    const sid = this.payLinkSettlements[link.token];
+    return Boolean(sid) && LEDGER_STATUSES.includes(this.findSettlement(sid).status);
   }
 
   createPayLink(input: CreatePayLinkInput, idempotencyKey?: string) {
@@ -515,6 +546,18 @@ export class MockClient implements SattleClient {
       if (!payee || !g.memberIds.includes(payee.id)) throw new SattleError('not_found', 'That member isn’t in this group.');
       if (payee.claimedByUserId !== fixtures.currentUser.id) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
+      }
+      // As the server: a link nobody could pay isn't made, and they're told what to add. The demo's
+      // one user can always receive over Lightning, so here it only keeps the two the same.
+      if (!canReceive(payee) && !this.upiOnLink(g.id, payee)) {
+        throw new SattleError(
+          'member_cannot_receive',
+          g.currency !== 'INR'
+            ? 'Add a way to get paid first, from Wallet: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.'
+            : this.takesUpi(payee)
+              ? 'Your UPI ID is turned off for shared links here, and you have no Lightning wallet, so nobody could pay this link. Turn it back on, or add a wallet.'
+              : 'Add a way to get paid first, from Wallet: a UPI ID, a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.'
+        );
       }
       const link: PayLink = {
         token: Math.random().toString(36).slice(2, 12),
@@ -526,28 +569,25 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
-  openPayLink(token: string) {
+  openPayLink(token: string, rail?: 'lightning') {
     return this.call(() => {
       const link = this.findLink(token);
       const sid = this.payLinkSettlements[token];
       const current = sid ? this.findSettlement(sid) : undefined;
-      if (current && (isInProgress(current) || current.status === 'confirmed')) return this.guestView(link);
+      if (current && (isInProgress(current) || this.linkPaid(link))) return this.guestView(link);
 
       const g = this.findGroup(link.groupId);
-      const balances = computeBalances(
-        g.memberIds,
-        this.expenses.filter((e) => e.groupId === g.id),
-        this.settlements.filter((s) => s.groupId === g.id)
-      );
-      const debt = simplifyDebts(g.id, balances).find(
-        (d) => d.fromMemberId === link.fromMemberId && d.toMemberId === link.toMemberId
-      );
-      if (!debt || debt.amount < link.amount) {
-        throw new SattleError('link_expired', 'This has already been settled.');
-      }
+      if (!this.linkOwed(link)) throw new SattleError('link_expired', 'This has already been settled.');
       const payee = this.members.find((m) => m.id === link.toMemberId)!;
-      if (!canReceive(payee)) {
+      const lightning = canReceive(payee);
+      const upi = this.upiOnLink(g.id, payee);
+      if (!lightning && !upi) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
+      }
+      // Someone said it was paid by UPI, or it can be and the payer hasn't chosen Lightning: nothing is minted.
+      if (this.claimForLink(link)?.status === 'pending' || (upi && rail !== 'lightning')) return this.guestView(link);
+      if (!lightning) {
+        throw new SattleError('member_cannot_receive', `${payee.displayName} can’t be paid over Lightning yet. Pay by UPI.`);
       }
 
       const s: Settlement = {
@@ -577,6 +617,49 @@ export class MockClient implements SattleClient {
     const sid = this.payLinkSettlements[token];
     if (!sid) return () => {};
     return this.onSettlementUpdate(sid, () => cb(structuredClone(this.guestView(this.findLink(token)))));
+  }
+
+  /** The link, for paying it by UPI. Same rules as the server's /s/:token/upi. */
+  private payLinkForUpi(token: string) {
+    const link = this.findLink(token);
+    if (this.linkPaid(link) || !this.linkOwed(link)) throw new SattleError('link_expired', 'This has already been settled.');
+    const payee = this.members.find((m) => m.id === link.toMemberId)!;
+    if (!this.upiOnLink(link.groupId, payee)) {
+      throw new SattleError('member_cannot_receive', `${payee.displayName} can’t be paid by UPI from here.`);
+    }
+    return { link, payee };
+  }
+
+  getPayLinkUpi(token: string) {
+    return this.call((): UpiPayee => {
+      const { payee } = this.payLinkForUpi(token);
+      return { upiId: this.upiIds[payee.claimedByUserId!], name: payee.displayName };
+    });
+  }
+
+  claimUpiFromPayLink(token: string, idempotencyKey?: string) {
+    return this.call(() => {
+      const { link } = this.payLinkForUpi(token);
+      const pair = (x: { groupId: string; fromMemberId: string; toMemberId: string }) =>
+        x.groupId === link.groupId && x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId;
+      if (this.settlements.some((s) => pair(s) && isInProgress(s))) {
+        throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+      }
+      // What the payer said in the app stays.
+      if (this.claimForLink(link)?.status === 'pending') return;
+      const claim: UpiClaim = {
+        id: this.id('uc'),
+        groupId: link.groupId,
+        fromMemberId: link.fromMemberId,
+        toMemberId: link.toMemberId,
+        amount: link.amount,
+        status: 'pending',
+        viaLink: true,
+        createdAt: this.now(),
+      };
+      this.upiClaims = [...this.upiClaims.filter((x) => !pair(x)), claim];
+      this.upiClaimPayLinks[claim.id] = token;
+    }, idempotencyKey);
   }
 
   // -- joining -------------------------------------------------------------
@@ -1270,6 +1353,10 @@ export class MockClient implements SattleClient {
       };
       this.settlements.push(s);
       this.upiClaims = this.upiClaims.filter((x) => x !== claim);
+      // Said from a pay link: that link now shows this as what paid it.
+      const token = this.upiClaimPayLinks[claim.id];
+      if (token && this.payLinks.some((l) => l.token === token)) this.payLinkSettlements[token] = s.id;
+      delete this.upiClaimPayLinks[claim.id];
       return s;
     }, idempotencyKey);
   }

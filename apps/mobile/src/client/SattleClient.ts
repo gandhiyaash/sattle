@@ -99,13 +99,21 @@ export interface SattleClient {
 
   // -- pay links ------------------------------------------------------------
 
-  /** Only the person owed can create one. Share `${APP_URL}${payLinkPath(token)}`. */
+  /**
+   * Only the person owed can create one. Share `${APP_URL}${payLinkPath(token)}`.
+   * It is paid whichever way they can be paid: over Lightning, or in a rupee
+   * group by UPI. Throws `member_cannot_receive` when there is no way at all,
+   * so a link nobody could pay is never sent.
+   */
   createPayLink(input: CreatePayLinkInput, idempotencyKey?: string): Promise<PayLink>;
   /**
-   * Public. Call once when the guest page loads: mints a fresh invoice unless
-   * one is already in progress. Throws `link_expired` if the debt is gone.
+   * Public. Call once when the guest page loads. The view says how the link
+   * can be paid (`payable`, `upi`). With Lightning the only way, it mints a
+   * fresh invoice unless one is already in progress. When it can also be paid
+   * by UPI it mints nothing until the payer has chosen: call it again with
+   * `'lightning'` for the invoice. Throws `link_expired` if the debt is gone.
    */
-  openPayLink(token: string): Promise<GuestView>;
+  openPayLink(token: string, rail?: 'lightning'): Promise<GuestView>;
   /** Public, read-only. */
   getGuestView(token: string): Promise<GuestView>;
   /**
@@ -115,6 +123,18 @@ export interface SattleClient {
   submitGuestProof(token: string, preimage: string, idempotencyKey?: string): Promise<GuestView>;
   /** Public. Returns an unsubscribe function. */
   onGuestViewUpdate(token: string, cb: (v: GuestView) => void): () => void;
+  /**
+   * Public. Where to pay the link's debt by UPI, when the view says `upi`.
+   * Throws `member_cannot_receive` when it can't be, `link_expired` once the
+   * link has been paid or the debt is gone.
+   */
+  getPayLinkUpi(token: string): Promise<UpiPayee>;
+  /**
+   * Public. Says the link's debt was paid by UPI. Moves nothing: the person
+   * owed confirms it, and the link then shows it paid. A claim already
+   * waiting for the debt is left as it is.
+   */
+  claimUpiFromPayLink(token: string, idempotencyKey?: string): Promise<void>;
 
   // -- joining -------------------------------------------------------------
   //
