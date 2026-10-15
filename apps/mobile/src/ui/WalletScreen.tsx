@@ -573,8 +573,12 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
  *   Group links         routes/groupLinks.ts: no row in group_links until POST
  *                       /groups/:id/link, guestView, and nothing under /g/ that writes
- *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement;
- *                       only the payee's confirm makes one; walletStore.ts upi_id, and
+ *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement,
+ *                       and the payee's confirm makes one; so does /upi-payments, where
+ *                       the payer's phone passes on a UPI app's success (Android only:
+ *                       upi/launchUpi.android.ts) or the payer's own yes, with the
+ *                       reference if they typed one (useSettleFlow confirmPaid, checked
+ *                       by parseUpiReference); walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
  *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
  *                       while upi_on_links is on, as it is from the start, or
@@ -643,8 +647,8 @@ export function TrustModel({ ways }: { ways: PayWays }) {
           title="Is it really paid?"
           body={
             lightning
-              ? "A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof."
-              : "Sattle can't see money move, so a debt is settled on someone's word, not proof. The person who is owed confirms that a UPI payment arrived or marks the debt settled, or the person paying marks it if the one owed hasn't joined."
+              ? "A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof. A UPI payment is someone's word too: the person owed confirms it arrived, or the payer's side says it went through, which settles it without asking anyone. That is their UPI app on Android, or the payer themselves, who is asked when no app says."
+              : "Sattle can't see money move, so a debt is settled on someone's word, not proof. The person who is owed confirms that a UPI payment arrived or marks the debt settled, or the person paying marks it if the one owed hasn't joined. A UPI payment can also be settled without asking the person owed: when the payer's UPI app says it went through (Android), or when the payer says so themselves. The payment's reference, when there is one, is kept in the group's history to check it by."
           }
         />
         {upi && (
@@ -652,7 +656,7 @@ export function TrustModel({ ways }: { ways: PayWays }) {
             <Divider />
             <Row
               title="UPI"
-              body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves only when the person who is owed confirms it arrived. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
+              body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves when the person who is owed confirms it arrived. There is one exception: when the payer's UPI app says the payment went through (Android), or the payer says so themselves, the balance moves straight away, on their word. The payment's reference, when they give one, is kept in the group's history to check it by. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
             />
           </>
         )}

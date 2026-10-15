@@ -147,9 +147,17 @@ export interface RateSource {
 
 /**
  * `upi` is a payment made outside Sattle, from the payer's UPI app to the
- * payee's UPI ID. Nothing can check it, so it starts as a UpiClaim and only
- * becomes a settlement, already `manually_confirmed`, when the payee says it
- * arrived.
+ * payee's UPI ID. Nothing can check it. It becomes a settlement, already
+ * `manually_confirmed`, in one of two ways:
+ *
+ * - The payer says they paid (a UpiClaim), and the payee says it arrived.
+ * - On Android the payer's UPI app itself says the payment went through, and
+ *   hands back its ids (UpiReceipt). That settles it straight away, on the
+ *   app's word, with nothing for the payee to do.
+ * - Where no app says anything (an iPhone, a browser, an Android UPI app that
+ *   stayed quiet), the payer is asked whether it went through. Their yes
+ *   settles it the same way, with the reference their UPI app showed them
+ *   kept when they give one.
  */
 export type Rail = 'in_app' | 'lightning_address' | 'invoice' | 'manual' | 'upi';
 
@@ -175,6 +183,31 @@ export const LEDGER_STATUSES: readonly SettlementStatus[] = [
   'manually_confirmed',
 ];
 
+/**
+ * What there is to find a UPI payment by, when it was settled on the payer's
+ * side's word: what their UPI app handed back when it said the payment went
+ * through, or the reference the payer typed in themselves where no app
+ * reports. Nothing here can check either: it carries no amount, no payee and
+ * no signature. What it is good for is anyone in the group looking the
+ * payment up in a statement.
+ */
+export interface UpiReceipt {
+  /** The UPI transaction ID. */
+  txnId?: string;
+  /** The bank's approval reference, the number both sides see in their statements. Some apps leave it out. */
+  approvalRef?: string;
+  /** The reference the link itself asked for, echoed back. Sattle's links ask for none, so this is rarely there. */
+  txnRef?: string;
+  /**
+   * Set when it was the payer who said the payment went through, because no
+   * app said it for them. The three ids above are then absent: only an app
+   * hands those back.
+   */
+  byPayer?: true;
+  /** With `byPayer`: the number their UPI app showed for the payment, if they typed it in. They don't have to. */
+  reference?: string;
+}
+
 export interface Settlement {
   id: string;
   groupId: string;
@@ -194,11 +227,18 @@ export interface Settlement {
   failureReason?: string;
   /**
    * Whose word settled it, when it was settled on someone's word: whoever
-   * marked it settled, or confirmed that the UPI payment arrived. Absent for a
+   * marked it settled, or confirmed that the UPI payment arrived. For a UPI
+   * payment settled on the payer's app's word (`upi`), the payer. Absent for a
    * Lightning payment, which nobody vouches for, and for one recorded before
    * this was kept.
    */
   recordedByMemberId?: string;
+  /**
+   * Set when this was settled because the payer's UPI app said the payment
+   * went through, without asking the person owed: what that app handed back.
+   * Absent for a UPI payment the person owed confirmed themselves.
+   */
+  upi?: UpiReceipt;
   createdAt: string;
   /** When it last changed status. Once it is settled, that is when it was paid or marked as paid. */
   updatedAt: string;
@@ -545,6 +585,17 @@ export interface CreateUpiClaimInput {
   toMemberId: string;
   amount: number;
   reference?: string;
+}
+
+/**
+ * A UPI payment said to have gone through, by the payer's UPI app or by the
+ * payer: the debt it paid, and what the app handed back or the payer typed.
+ */
+export interface ReportUpiPaymentInput extends UpiReceipt {
+  groupId: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amount: number;
 }
 
 export type SattleErrorCode =

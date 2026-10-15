@@ -3,7 +3,7 @@ import { Linking, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
-import { SattleError, parseGroupLinkToken } from '@sattle/core';
+import { SattleError, parseSharedLink } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import type { SattleClient } from './src/client/SattleClient';
@@ -69,6 +69,9 @@ function Root() {
   const [group] = useState(groupToken);
   const [restoring] = useState(isRestorePath);
   const [joining, setJoining] = useState(joinToken);
+  // Native only: the group's shared link, /g/<token>, was tapped on a phone with the app. On the
+  // web that link is `group` above, and gets the page with nothing of the app around it.
+  const [shared, setShared] = useState<string | null>(null);
   const currenciesRead = useCurrenciesRead();
   // Whether this device has been shown the tour. Undefined until it has said.
   const [toured, setToured] = useState<boolean>();
@@ -86,14 +89,22 @@ function Root() {
     setJoining(null);
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
   };
-  // Native: the /join/ link that opened the app, or one tapped while it was already open.
-  // The phone only hands the app the links app.json claims, and only once the site vouches
-  // for the app in public/.well-known.
+  // Native: the link that opened the app, or one tapped while it was already open. Either the
+  // group's shared link, /g/, which is what Invite sends and where people see what they owe and
+  // pay, or /join/, which is where Join on that page leads. The phone only hands the app the
+  // links app.json claims, and only once the site vouches for the app in public/.well-known.
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const open = (url: string | null) => {
-      const found = url ? parseGroupLinkToken(url) : null;
-      if (found) setJoining(found);
+      const link = url ? parseSharedLink(url) : null;
+      if (!link) return;
+      if (link.page === 'join') {
+        setShared(null);
+        setJoining(link.token);
+      } else {
+        setJoining(null);
+        setShared(link.token);
+      }
     };
     Linking.getInitialURL()
       .then(open)
@@ -127,8 +138,21 @@ function Root() {
   // First launch: how it works, in three screens. A /join/ link that brought them
   // here is kept, and is where they go once it's over.
   if (!toured) return <OnboardingScreen onDone={endTour} />;
-  if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} />;
-  return <AccountGate joining={joining} onJoinDone={joinDone} />;
+  const sharedDone = () => setShared(null);
+  if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} shared={shared} onSharedDone={sharedDone} />;
+  return (
+    <AccountGate
+      joining={joining}
+      onJoinDone={joinDone}
+      shared={shared}
+      onSharedDone={sharedDone}
+      // Join on the group's page, for someone with no account yet: on to saying who they are.
+      onJoinShared={(token) => {
+        setShared(null);
+        setJoining(token);
+      }}
+    />
+  );
 }
 
 function Starting() {
@@ -147,7 +171,20 @@ type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'restoring' } | 
  * again. Any other failure, like being offline, keeps the token: the screens
  * show their own errors and retry.
  */
-function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDone: () => void }) {
+function AccountGate({
+  joining,
+  onJoinDone,
+  shared,
+  onSharedDone,
+  onJoinShared,
+}: {
+  joining: string | null;
+  onJoinDone: () => void;
+  /** The group's shared link, opened in the app. */
+  shared: string | null;
+  onSharedDone: () => void;
+  onJoinShared: (token: string) => void;
+}) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
 
   useEffect(() => {
@@ -191,6 +228,15 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
           </SattleProvider>
         );
       }
+      if (shared) {
+        // The group's page needs no account, in the app as in a browser: see what's been split,
+        // pay what you owe. Join on it is where an account gets made.
+        return (
+          <SattleProvider>
+            <GroupGuestScreen token={shared} onBack={onSharedDone} onJoin={() => onJoinShared(shared)} />
+          </SattleProvider>
+        );
+      }
       return (
         <WelcomeScreen
           onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
@@ -205,6 +251,8 @@ function AccountGate({ joining, onJoinDone }: { joining: string | null; onJoinDo
           client={account.client}
           joining={joining}
           onJoinDone={onJoinDone}
+          shared={shared}
+          onSharedDone={onSharedDone}
           // The server no longer knows the token, so the device shouldn't keep it.
           onAccountDeleted={async () => {
             await clearToken();

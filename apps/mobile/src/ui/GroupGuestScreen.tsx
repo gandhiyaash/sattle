@@ -9,7 +9,10 @@
  * (GuestPayScreen), which is where the invoice is made and the wallet opens.
  * Paying by UPI, offered when the person owed allows it from shared links,
  * opens the UPI app or shows a QR here; then the page says it was paid, and
- * the person owed confirms it in the app. Nothing here can change the group,
+ * the person owed confirms it in the app. A browser hears nothing back from
+ * a UPI app, so when someone comes back from one the page asks whether the
+ * payment went through, and it still asks if the tab was reloaded while they
+ * were away (useBackFromUpi). Nothing here can change the group,
  * and the page can't tell who is looking, so every debt gets the same
  * buttons: paying someone else's is allowed and harmless.
  *
@@ -17,6 +20,11 @@
  * where someone says which of the people in the group they are and asks to
  * join; someone already in it lets them in (JoinScreen). For someone who has
  * joined, that opens the group.
+ *
+ * Mostly this is a page in a browser. On an Android phone with the app, the
+ * link opens the app instead, and someone who isn't in the group gets this
+ * same page inside it (`onBack`, `onJoin`): having the app installed doesn't
+ * take away what holding the link shows.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -32,19 +40,24 @@ import {
   type UpiPayee,
 } from '@sattle/core';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
+import { useBackFromUpi } from '../react/useBackFromUpi';
 import { GuestPayScreen } from './GuestPayScreen';
 import { UpiPanel } from './UpiPanel';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { makeStyles, space, type, useColors } from './theme';
+import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface GroupGuestScreenProps {
   /** From /g/<token>. The only thing the page knows on arrival. */
   token: string;
+  /** In the app: back to the app's own screens. A browser has nowhere of ours to go back to. */
+  onBack?: () => void;
+  /** In the app: on to its join screen. Without it Join is a link to /join/<token>, which is what a browser needs. */
+  onJoin?: () => void;
 }
 
 const REFRESH_MS = 4000;
 
-export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
+export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProps) {
   const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getGroupGuestView(token), [token]);
@@ -58,6 +71,8 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   const [upi, setUpi] = useState<{ ref: string; payee: UpiPayee | null } | null>(null);
   const keys = useActionKeys();
   const [saying, setSaying] = useState(false);
+  /** The debt someone left this page to pay in a UPI app, once they're back: the one to ask about. */
+  const back = useBackFromUpi(`g/${token}`);
 
   // Someone else in the chat may pay while this is open. Keep the list current.
   useEffect(() => {
@@ -88,7 +103,13 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   };
 
   const openUpi = async (ref: string) => {
-    if (upi?.ref === ref) return setUpi(null);
+    if (upi?.ref === ref) {
+      back.answered();
+      return setUpi(null);
+    }
+    // Paying another debt is moving on from the one they came back from. Still asking about that
+    // one, the next refresh would open its panel again, over this one.
+    if (back.back !== null && back.back !== ref) back.answered();
     setFailed(null);
     setUpi({ ref, payee: null });
     try {
@@ -96,10 +117,23 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
       setUpi((now) => (now?.ref === ref ? { ref, payee } : now));
     } catch (e) {
       setUpi(null);
+      back.answered();
       setFailed({ ref, message: e instanceof Error ? e.message : 'Couldn’t get the UPI details. Try again.' });
       refresh();
     }
   };
+
+  // A tab that was reloaded while they were in the UPI app comes back with every panel shut. Open
+  // the one for the debt they left to pay, so the question has its debt. If that debt was settled
+  // or said to be paid meanwhile, there is nothing left to ask.
+  const cameBackFor = back.back;
+  useEffect(() => {
+    if (cameBackFor === null || !data) return;
+    const debt = data.debts.find((d) => d.ref === cameBackFor);
+    if (!debt?.upi || debt.upiClaim === 'pending') return back.answered();
+    if (upi?.ref !== cameBackFor) void openUpi(cameBackFor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameBackFor, data]);
 
   // Moves nothing: the person owed is asked whether it arrived.
   const sayPaid = async (ref: string) => {
@@ -108,6 +142,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     try {
       await keys.run('upi-claim', { token, ref }, (k) => client.claimUpiFromGroupLink(token, ref, k));
       setUpi(null);
+      back.answered();
     } catch (e) {
       setFailed({ ref, message: e instanceof Error ? e.message : 'Couldn’t send that. Try again.' });
     } finally {
@@ -135,7 +170,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
 
   if (loading) {
     return (
-      <Screen title="Sattle">
+      <Screen title="Sattle" onBack={onBack}>
         <Loading lines={3} />
       </Screen>
     );
@@ -145,7 +180,7 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
     // A link that was replaced or turned off stays dead; only a network failure is worth retrying.
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
-      <Screen title="Sattle">
+      <Screen title="Sattle" onBack={onBack}>
         <ErrorState message={error?.message ?? 'Couldn’t load this group.'} onRetry={retry} />
       </Screen>
     );
@@ -154,7 +189,11 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
   const spends = [...data.expenses].reverse();
 
   return (
-    <Screen title={data.groupName} subtitle={`${spends.length} ${spends.length === 1 ? 'spend' : 'spends'} · shared by link`}>
+    <Screen
+      title={data.groupName}
+      subtitle={`${spends.length} ${spends.length === 1 ? 'spend' : 'spends'} · shared by link`}
+      onBack={onBack}
+    >
       <View>
         <SectionLabel>Who owes what</SectionLabel>
         {data.debts.length === 0 ? (
@@ -173,9 +212,11 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
                 disabled={starting !== null && starting !== debt.ref}
                 error={failed?.ref === debt.ref ? failed.message : null}
                 onSettle={() => settle(debt.ref)}
-                upi={upi?.ref === debt.ref ? { payee: upi.payee, saying } : null}
+                upi={upi?.ref === debt.ref ? { payee: upi.payee, saying, asked: back.back === debt.ref } : null}
                 onUpi={() => openUpi(debt.ref)}
+                onLeftForUpi={() => back.leaving(debt.ref)}
                 onPaidByUpi={() => sayPaid(debt.ref)}
+                onNotPaid={back.answered}
               />
             ))}
           </View>
@@ -188,9 +229,14 @@ export function GroupGuestScreen({ token }: GroupGuestScreenProps) {
           Join it to add what you’ve spent and settle up in the app. You pick your name, and someone in the group
           lets you in. Already joined? This opens the group.
         </Text>
-        {/* A real link, not a change of screen: Back returns here, and a phone with the app installed
-            can hand /join/ links to it. This page is only ever shown in a browser. */}
-        <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+        {onJoin ? (
+          // Inside the app, which has a join screen of its own to go to.
+          <Button label={`Join ${data.groupName}`} variant="primary" onPress={onJoin} />
+        ) : (
+          // In a browser, a real link and not a change of screen: Back returns here, and a phone
+          // with the app installed can hand /join/ links to it.
+          <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+        )}
       </Card>
 
       <View>
@@ -227,7 +273,9 @@ function DebtCard({
   onSettle,
   upi,
   onUpi,
+  onLeftForUpi,
   onPaidByUpi,
+  onNotPaid,
 }: {
   debt: GroupGuestDebt;
   currency: string;
@@ -237,10 +285,17 @@ function DebtCard({
   disabled: boolean;
   error: string | null;
   onSettle: () => void;
-  /** Open when this debt is being paid by UPI; `payee` is null while the page asks who to pay. */
-  upi: { payee: UpiPayee | null; saying: boolean } | null;
+  /**
+   * Open when this debt is being paid by UPI; `payee` is null while the page asks who to pay.
+   * `asked` once they are back from a UPI app the page handed them to: it asks what happened.
+   */
+  upi: { payee: UpiPayee | null; saying: boolean; asked: boolean } | null;
   onUpi: () => void;
+  /** The link is being handed to a UPI app. */
+  onLeftForUpi: () => void;
   onPaidByUpi: () => void;
+  /** They came back and the payment hadn't gone through. Back to paying. */
+  onNotPaid: () => void;
 }) {
   const color = useColors();
   const s = useStyles();
@@ -286,11 +341,24 @@ function DebtCard({
       )}
       {upi && !claimed && (
         <View style={[s.indentedBlock, { gap: space.sm }]}>
-          {upi.payee ? (
+          {upi.asked ? (
+            // Asked the moment they're back, so paying and then seeing nothing change isn't how it ends.
+            // Their yes is still only their word here: the page has no login, and the person owed confirms.
+            <View style={s.asked}>
+              <Text style={s.askedTitle}>Did the payment go through?</Text>
+              <Text style={s.caption}>
+                Your UPI app doesn’t tell this page what happened. If you paid {debt.to} the{' '}
+                {formatAmount(debt.amount, currency)}, say so here. {debt.to} confirms it arrived, and then it’s settled.
+              </Text>
+              <Button label="Yes, I’ve paid" variant="primary" busy={upi.saying} onPress={onPaidByUpi} />
+              <Button label="No, it didn’t go through" variant="quiet" disabled={upi.saying} onPress={onNotPaid} />
+            </View>
+          ) : upi.payee ? (
             <>
               <UpiPanel
                 payee={upi.payee}
                 uri={upiPayUri({ upiId: upi.payee.upiId, name: upi.payee.name, amount: debt.amount, note: groupName })}
+                onOpened={onLeftForUpi}
               />
               <Text style={s.caption}>
                 Pay {formatAmount(debt.amount, currency)}, then tap below. {debt.to} confirms it arrived, and then it’s
@@ -343,6 +411,8 @@ const useStyles = makeStyles((color) => ({
   indentedBlock: { marginLeft: 36 + space.md },
   payButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   caption: { ...type.caption, color: color.inkMuted },
+  asked: { gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: color.accentWash },
+  askedTitle: { ...type.body, fontWeight: '600', color: color.ink },
   // The other thing the page is for, after paying: set apart, so it isn't read as one more debt.
   joinCard: { gap: space.sm, backgroundColor: color.accentWash, borderColor: color.accent },
   joinTitle: { ...type.body, fontWeight: '600', color: color.ink },

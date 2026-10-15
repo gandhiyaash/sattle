@@ -10,7 +10,7 @@ A monorepo: an Expo (React Native) app for Android and web (iOS builds from the 
 
 ## Quick start
 
-Requires Node 22.13+ (the API uses the built-in `node:sqlite`).
+Requires Node 24+. The API uses the built-in `node:sqlite` and, for Nostr relays, the built-in `WebSocket`. On Node 22 that `WebSocket` reports an error again when a failing connection is closed, which sends `nostr-tools` into a loop that overflows the stack and takes the whole server down whenever a relay refuses a connection. CI runs on 24.
 
 ```bash
 git clone https://github.com/gandhiyaash/sattle.git
@@ -299,7 +299,13 @@ The link proves nothing about who is on the other end, since it can be forwarded
 
 `GET /join/:token` is public, like the group page, and returns names and nothing else: the group, each person who hasn't joined, with an opaque `ref` in place of an id, and the names of those who have. A `ref` is a hash of the link and the member, so it is no use with another link. Asking is `POST /join-requests` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, and asking again replaces the last request. `GET /links/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
 
-The shared link, `/g/<token>`, opens in the browser for everyone, so paying needs no app. On an Android phone with the app installed, **Join** hands over to the app, which claims `/join/` links, and opens the join screen there, or the group for someone already in it. Everywhere else it carries on in the web app, and in the installed app the link can still be pasted under **Join with a link** on the groups list.
+The shared link, `/g/<token>`, opens in a browser, so paying needs no app. On an Android phone with the app installed it opens the app instead, which claims `/g/` and `/join/` links (`intentFilters` in `app.json`):
+
+- **Someone already in the group** lands in the group, on **Settle up**. That is the point of handing the link to the app: paying by UPI from there goes through the app, which hears what the UPI app says, where a browser hears nothing.
+- **Anyone else**, with an account or without, gets the same group page inside the app: what's been split, who owes whom, the buttons to pay. Having the app installed doesn't take away what holding the link shows. **Join** on it goes to the app's join screen.
+- **A `/join/` link** opens the join screen, or the group for someone already in it, as before.
+
+Everywhere else the link carries on in the browser, and in the installed app it can still be pasted under **Join with a link** on the groups list. What the app claims is fixed when it is built, so a copy from before `/g/` was added still gets that link in the browser until it is updated. A pay link, `/s/<token>`, always opens in the browser.
 
 Android hands the app the link only when the site vouches for it. `apps/mobile/public/.well-known/assetlinks.json`, which the web deploy publishes, has to list the SHA-256 of every certificate a real copy is signed with: the upload key, which signs the APK on a GitHub release, and Play's app signing key, which signs what Play installs (Play Console, **App integrity**, **App signing**). A copy signed with a key that isn't listed, a debug build for one, gets the link in the browser as before.
 
@@ -311,11 +317,24 @@ The payer is only asked when there is something to choose. **Pay by UPI** is off
 
 What happens with UPI depends on the device, because only Android lets an app hear back from a UPI app:
 
-- **Android.** The app opens the `upi://pay` link as an activity that returns a result (`src/upi/launchUpi.android.ts`, over `expo-intent-launcher`). Android shows its chooser of UPI apps, the payer pays, and the UPI app hands back a status and a reference. On `SUCCESS` the app tells the person owed straight away. Anything else is left to the payer: try again, or say they paid.
+- **Android.** The app opens the `upi://pay` link as an activity that returns a result (`src/upi/launchUpi.android.ts`, over `expo-intent-launcher`). Android shows its chooser of UPI apps, the payer pays, and the UPI app hands back a status and a reference. On `SUCCESS` the debt is settled there and then (below). Anything else is left to the payer: try again, or say they paid.
 - **iPhone.** A UPI app says nothing back. The sheet opens one, shows the UPI ID, and asks the payer to come back and tap **I’ve paid**.
 - **Web.** The same link as a QR code to scan from a phone, then **I’ve paid**.
 
-Sattle never learns that the money moved. No bank or UPI app tells a third party that one person paid another, and what an Android UPI app hands back is the payer's own phone talking, so it is treated as a hint. The payer's word is therefore a **claim** (`upi_claims`), not a settlement, and it moves no balance. The person owed sees "Kabir says they paid you ₹500 by UPI", with the reference when there is one, and either confirms it, which makes it a settlement (`rail: upi`, `manually_confirmed`), or says it didn't arrive, which the payer is then shown. It is the same rule as marking a debt settled by hand: the person it costs if it's false is the one who says so.
+Sattle never learns that the money moved. No bank or UPI app tells a third party that one person paid another. The payer's word is therefore a **claim** (`upi_claims`), not a settlement, and it moves no balance. The person owed sees "Kabir says they paid you ₹500 by UPI", with the reference when there is one, and either confirms it, which makes it a settlement (`rail: upi`, `manually_confirmed`), or says it didn't arrive, which the payer is then shown. It is the same rule as marking a debt settled by hand: the person it costs if it's false is the one who says so.
+
+**The exception: a UPI app that says it went through.** On Android the UPI app hands back one line when it closes (`parseUpiResponse` reads it): a status, its transaction ID, the bank's approval reference, and the link's own reference when the link asked for one. When the status is `SUCCESS`, the payer's phone passes that on (`POST /groups/:id/upi-payments`) and the debt is settled on the spot: a settlement with `rail: upi`, already `manually_confirmed`, with those ids kept on it (`settlements.upi_receipt`, migration 021). The person owed is asked nothing, and nothing undoes it. The payer's sheet says **Settled** and shows the ids, and so does the entry in the group's history. A claim that was waiting on the same debt goes.
+
+This is a choice to trust each other's apps, and it has a cost worth knowing. The line carries no amount, no payee and no signature, and the server never talks to the UPI app: it is told "success" by the payer's phone and takes it as true, the same phone that could have been told to say it. The ids are what make it checkable afterwards, by anyone, against a bank or UPI statement. A browser hears nothing back from a UPI app, and neither does an iPhone.
+
+**Where no app says anything, the payer is asked.** On an iPhone and in a browser all the app can know is that the payer left for a UPI app and has come back (`useBackFromUpi`: the app going to the background and returning, or the page being hidden and shown). At that moment the settle sheet asks **Did the payment go through?**, and **I’ve paid** opens the same question, on Android too when the UPI app stayed quiet:
+
+- **Yes, it went through.** That settles the debt on the spot through the same route, on the payer's word (`upi.byPayer`), with nothing for the person owed to confirm. The sheet has a box for the reference the UPI app shows for the payment (its UPI transaction ID, UTR or UPI Ref No). It can be left empty. When one is typed it is kept as `upi.reference` and shown in the history, and `parseUpiReference` asks only that it could be a reference: letters and digits with at least six digits, spaces and dashes dropped.
+- **No, it didn’t go through.** Back to paying, with nothing recorded.
+
+So from the app a UPI payment no longer ends in a claim at all. Claims are what the shared pages make, below.
+
+The group's shared page asks the same question when someone comes back to it from a UPI app, and still asks if the browser reloaded the tab while they were away, which Android Chrome often does (`upi/upiReturn.ts` keeps it for the tab). There **Yes, I’ve paid** stays a claim that the person owed confirms. That page has no login, so letting it settle a debt outright would let anyone holding the link clear any debt in the group.
 
 - A debt has at most one claim; claiming again replaces it. While one is pending, the payer's **Pay** button waits, so they don't pay twice.
 - The claim can't be for more than is owed, and confirming is refused if less than that is owed by then.
@@ -378,7 +397,7 @@ An edited or deleted expense can't be changed on Nostr, where entries are perman
 
 On a group's **Settle up** tab, the button at the bottom is **History** rather than Add expense. It lists everything that has happened to the group's money, newest first: each expense added, changed or removed, and each debt settled, with who did it and when (`GET /groups/:id/history`, members only). Tapping an entry opens it in full:
 
-- **A payment**: when it was paid or marked as paid, how, and its proof if it has one. A Lightning payment has the preimage, in full and copyable, and in a rupee group the sats sent and the rate. A debt marked as settled, or a UPI payment someone confirmed, has no proof, and the entry says so and names whose word it was settled on.
+- **A payment**: when it was paid or marked as paid, how, and its proof if it has one. A Lightning payment has the preimage, in full and copyable, and in a rupee group the sats sent and the rate. A debt marked as settled, or a UPI payment someone confirmed, has no proof, and the entry says so and names whose word it was settled on. A UPI payment settled because the payer's UPI app said it went through shows what that app handed back: its transaction ID and the approval reference, and the link's own reference when there was one.
 - **An expense**: who paid and each person's part. A change shows both sides of whatever it changed: the name, the amount, who paid, and each part.
 
 Nothing is stored as a history. `buildHistory` in `@sattle/core` reads it off three things the server already keeps, and the mock builds it the same way: the expenses, the changes to them, and the settlements. Migration 019 added what those didn't say: who added an expense, who changed or removed one and how it read before, and who marked a debt as settled or confirmed a UPI payment. Each "who" is the member that person was in the group. Things from before 019 show without a name, and an expense edited before it shows as added the way it read after that first edit, since the earlier reading wasn't kept.
@@ -526,7 +545,7 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.
-- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles only `/join/<token>`, and only on Android.
+- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles `/g/<token>` and `/join/<token>`, and only on Android. A pay link, `/s/<token>`, opens in the browser on every phone.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Live status over SSE in the signed-in app. The server streams it, but a browser can't attach a sign-in token to an SSE connection, so the app polls; short-lived stream tickets would fix that.
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.

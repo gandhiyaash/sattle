@@ -1,7 +1,8 @@
 /**
  * An invoice someone has to pay from their own wallet: the button that
- * opens it, a QR code for paying from another device, the invoice text with
- * a way to copy it, and how long it has left.
+ * opens it, a QR code for paying from another device, a button that copies
+ * it, and how long it has left. The invoice itself isn't printed: it is a
+ * few hundred characters nobody reads, and the QR code and Copy carry it.
  *
  * Calls `onExpired` once the quote lapses, so the screen can swap the dead
  * QR for a way to get a new one. The server only marks it expired a moment
@@ -46,9 +47,6 @@ export function InvoicePanel({
       <View style={s.qrFrame}>
         <QrCode value={`lightning:${invoice}`} size={qrSize} />
       </View>
-      <Text style={s.invoice} numberOfLines={2} selectable>
-        {invoice}
-      </Text>
       <CopyInvoice invoice={invoice} />
       {left !== null && left > 0 && (
         <Text style={s.countdown}>
@@ -61,8 +59,8 @@ export function InvoicePanel({
 
 /**
  * Copies the whole invoice, for a wallet that can't be opened from here or
- * is on another device. The text on screen is cut to two lines, so selecting
- * it by hand wouldn't get all of it.
+ * is on another device. It is the only way to the text: the invoice isn't
+ * shown.
  */
 export function CopyInvoice({ invoice }: { invoice: string }) {
   const s = useStyles();
@@ -101,6 +99,5 @@ const useStyles = makeStyles((color) => ({
   hint: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
   // QR needs a light ground and a quiet zone; the code draws its own margin.
   qrFrame: { alignSelf: 'center', borderRadius: radius.md, overflow: 'hidden', backgroundColor: '#FFFFFF' },
-  invoice: { ...type.amountSm, color: color.inkFaint, textAlign: 'center' },
   countdown: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
 }));

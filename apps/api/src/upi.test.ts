@@ -5,6 +5,7 @@ import type {
   Group,
   GroupGuestView,
   GroupLink,
+  HistoryEntry,
   JoinView,
   Member,
   Settlement,
@@ -310,6 +311,162 @@ describe('POST /groups/:id/upi-claims', () => {
        VALUES ('s-open', ?, ?, ?, 100, 'INR', 'invoice', 'created', ?, ?)`
     ).run(group.id, mKabir, mRiya, now, now);
     expect((await claim()).status).toBe(409);
+  });
+});
+
+describe('POST /groups/:id/upi-payments', () => {
+  type T = Awaited<ReturnType<typeof setup>>;
+  /** Kabir's phone, passing on what his UPI app said about paying Riya the ₹10 he owes. */
+  const report = (t: T, body: Record<string, unknown> = {}, as = t.kabir.token, headers?: Record<string, string>) =>
+    t.call<Settlement & Err>(
+      'POST',
+      `${t.base}/upi-payments`,
+      { fromMemberId: t.mKabir, toMemberId: t.mRiya, amount: 1000, ...body },
+      as,
+      headers
+    );
+
+  it('settles the debt on the spot, on the word of the payer’s UPI app, and keeps what it handed back', async () => {
+    const t = await setup();
+    const res = await report(t, { txnId: 'AXI8f2c9d', approvalRef: '412345678901' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      rail: 'upi',
+      status: 'manually_confirmed',
+      amount: 1000,
+      note: 'Paid by UPI',
+      // Kabir's app said so, so it is his word, not Riya's.
+      recordedByMemberId: t.mKabir,
+    });
+    // The app sent no reference of the link's own, so none is kept as an empty one.
+    expect(res.body.upi).toEqual({ txnId: 'AXI8f2c9d', approvalRef: '412345678901' });
+
+    // It has moved, and nothing is waiting on Riya.
+    expect(await t.kabirOwes()).toBe(0);
+    expect(await t.claims(t.riya.token)).toEqual([]);
+  });
+
+  it('keeps the link’s own reference when the app sent one back, and shows all three in the history', async () => {
+    const t = await setup();
+    const paid = (await report(t, { txnId: 'AXI8f2c9d', approvalRef: '412345678901', txnRef: 'SATTLE42' })).body;
+    expect(paid.upi).toEqual({ txnId: 'AXI8f2c9d', approvalRef: '412345678901', txnRef: 'SATTLE42' });
+
+    const history = (await t.call<HistoryEntry[]>('GET', `${t.base}/history`, undefined, t.riya.token)).body;
+    expect(history[0]).toEqual({ kind: 'settled', id: `settled-${paid.id}`, at: paid.updatedAt, byMemberId: t.mKabir, settlement: paid });
+  });
+
+  it('takes whichever ids the app gave, down to none, and refuses one sent empty or too long', async () => {
+    const t = await setup();
+    expect((await report(t, { amount: 400, approvalRef: '412345678901' })).body.upi).toEqual({ approvalRef: '412345678901' });
+    // An app that says it went through and gives nothing to check it by. It is still its word.
+    expect((await report(t, { amount: 400 })).body.upi).toEqual({});
+
+    expect((await report(t, { amount: 100, txnId: '   ' })).status).toBe(400);
+    expect((await report(t, { amount: 100, approvalRef: '9'.repeat(65) })).status).toBe(400);
+    expect(await t.kabirOwes()).toBe(200);
+  });
+
+  it('settles the same way on the payer’s own word, with the reference they typed in', async () => {
+    const t = await setup();
+    // An iPhone or a browser: no app reported, so there are no ids, only what Kabir copied out of his UPI app.
+    const res = await report(t, { reference: ' 4123 4567 8901 ' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ rail: 'upi', status: 'manually_confirmed', recordedByMemberId: t.mKabir });
+    // A reference only comes from the payer, so sending one says it was him and not an app.
+    expect(res.body.upi).toEqual({ byPayer: true, reference: '412345678901' });
+    expect(await t.kabirOwes()).toBe(0);
+    expect(await t.claims(t.riya.token)).toEqual([]);
+  });
+
+  it('settles on the payer’s word with no reference at all, and keeps it apart from what an app reported', async () => {
+    const t = await setup();
+    const bare = await report(t, { amount: 400, byPayer: true });
+    expect(bare.status).toBe(201);
+    expect(bare.body.upi).toEqual({ byPayer: true });
+    // The box left empty, or with only spaces in it, is the same thing.
+    expect((await report(t, { amount: 400, byPayer: true, reference: '   ' })).body.upi).toEqual({ byPayer: true });
+    // An app that reported and gave nothing is not marked as the payer's own word.
+    expect((await report(t, { amount: 200 })).body.upi).toEqual({});
+    expect(await t.kabirOwes()).toBe(0);
+  });
+
+  it('refuses a reference that couldn’t be one, and says what one is', async () => {
+    const t = await setup();
+    const res = await report(t, { reference: 'yes it went through' });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      code: 'invalid_input',
+      message: 'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.',
+    });
+    expect(await t.kabirOwes()).toBe(1000);
+  });
+
+  it('is the payer’s to report, for no more than is owed, to someone who takes UPI', async () => {
+    const t = await setup();
+    const { call, base, riya, kabir, mRiya, mKabir, mAman } = t;
+    // Riya can't say Kabir's app paid her, and Kabir can't say Aman's did.
+    expect((await report(t, {}, riya.token)).status).toBe(400);
+    expect((await report(t, { fromMemberId: mAman }, kabir.token)).status).toBe(400);
+    expect((await report(t, { amount: 1001 })).status).toBe(409);
+    expect((await report(t, { fromMemberId: mRiya, toMemberId: mKabir, amount: 100 }, riya.token)).status).toBe(409);
+    expect((await call('POST', `${base}/upi-payments`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 })).status).toBe(401);
+
+    await call('DELETE', '/me/upi', undefined, riya.token);
+    expect((await report(t)).body).toMatchObject({ code: 'member_cannot_receive' });
+    expect(await t.kabirOwes()).toBe(1000);
+  });
+
+  it('is for a group in rupees', async () => {
+    const { call, signUp, join, riya } = await setup();
+    const usd = (await call<Group>('POST', '/groups', { name: 'NYC', currency: 'USD', memberNames: ['Kabir'] }, riya.token)).body;
+    const k2 = await signUp('Kabir');
+    await join(usd.id, 'Kabir', k2.token);
+    await call(
+      'POST',
+      `/groups/${usd.id}/expenses`,
+      { description: 'Cab', amount: 2000, paidByMemberId: usd.memberIds[0], splitMode: 'equal', parts: usd.memberIds.map((memberId) => ({ memberId })) },
+      riya.token
+    );
+    const res = await call<Err>(
+      'POST',
+      `/groups/${usd.id}/upi-payments`,
+      { fromMemberId: usd.memberIds[1], toMemberId: usd.memberIds[0], amount: 1000, txnId: 'AXI1' },
+      k2.token
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('takes the place of a claim that was waiting on the same debt', async () => {
+    const t = await setup();
+    await t.claim(1000, t.kabir.token, { reference: 'UPI123' });
+    expect(await t.claims(t.riya.token)).toHaveLength(1);
+
+    expect((await report(t, { txnId: 'AXI8f2c9d' })).status).toBe(201);
+    expect(await t.claims(t.riya.token)).toEqual([]);
+    expect(await t.kabirOwes()).toBe(0);
+  });
+
+  it('answers a retry with the same settlement, not a second one', async () => {
+    const t = await setup();
+    const key = { 'idempotency-key': 'paid-1' };
+    const first = await report(t, { amount: 400, txnId: 'AXI8f2c9d' }, t.kabir.token, key);
+    const again = await report(t, { amount: 400, txnId: 'AXI8f2c9d' }, t.kabir.token, key);
+    expect(again.body.id).toBe(first.body.id);
+    expect(await t.kabirOwes()).toBe(600);
+  });
+
+  it('waits for a Lightning payment that is under way for the same debt', async () => {
+    const t = await setup();
+    const now = new Date().toISOString();
+    t.db
+      .prepare(
+        `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, created_at, updated_at)
+         VALUES ('s-open', ?, ?, ?, 100, 'INR', 'invoice', 'created', ?, ?)`
+      )
+      .run(t.group.id, t.mKabir, t.mRiya, now, now);
+    expect((await report(t, { txnId: 'AXI8f2c9d' })).status).toBe(409);
   });
 });
 

@@ -8,6 +8,8 @@
  * person owed, who is the one that confirms.
  */
 
+import type { UpiReceipt } from './types';
+
 export type ParsedUpiId = { ok: true; upiId: string } | { ok: false; reason: string };
 
 /** name@handle. The handle is a bank's or app's short name and has no dot in it. */
@@ -26,6 +28,28 @@ export function parseUpiId(raw: string): ParsedUpiId {
     return { ok: false, reason: 'That doesn’t look like a UPI ID. It should look like name@okhdfcbank or 98xxxxxx10@ybl.' };
   }
   return { ok: true, upiId: input };
+}
+
+export type ParsedUpiReference = { ok: true; reference: string } | { ok: false; reason: string };
+
+/**
+ * The reference a payer types in for a payment they say went through: the
+ * number their UPI app shows for it, which apps call the UPI transaction ID,
+ * UTR or UPI Ref No. It is usually twelve digits, but apps differ, so this
+ * only asks that it looks like a reference at all: letters and digits, mostly
+ * digits. Spaces and dashes people copy along with it are dropped.
+ */
+export function parseUpiReference(raw: string): ParsedUpiReference {
+  const reference = raw.replace(/[\s-]+/g, '');
+  if (!reference) return { ok: false, reason: 'Enter the reference your UPI app shows for the payment.' };
+  // Six digits somewhere in it keeps out a sentence typed into the box.
+  if (!/^[A-Za-z0-9]{6,64}$/.test(reference) || reference.replace(/\D/g, '').length < 6) {
+    return {
+      ok: false,
+      reason: 'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.',
+    };
+  }
+  return { ok: true, reference };
 }
 
 /** A mobile number as a UPI ID carries it: ten digits from 6 to 9, bare or after 91 or 0. */
@@ -84,8 +108,11 @@ const clean = (text: string, max: number) =>
     .slice(0, max)
     .trim();
 
-/** What the payer's UPI app said when it handed control back. */
-export interface UpiOutcome {
+/**
+ * What the payer's UPI app said when it handed control back: how it went,
+ * and the ids it gave (UpiReceipt), each present only when the app sent one.
+ */
+export interface UpiOutcome extends UpiReceipt {
   /**
    * success  the app says the money left
    * pending  the app says the bank hasn't answered yet
@@ -93,7 +120,7 @@ export interface UpiOutcome {
    * unknown  the app said nothing: closed, cancelled, or it doesn't report
    */
   status: 'success' | 'pending' | 'failed' | 'unknown';
-  /** The bank's reference for the payment, to match against the payee's own records. */
+  /** The best of those ids to match against the payee's own records: the approval reference, else the transaction ID. */
   reference?: string;
 }
 
@@ -128,8 +155,17 @@ export function parseUpiResponse(extras: Record<string, unknown> | string | null
   const said = (fields.get('status') ?? '').toLowerCase();
   const status: UpiOutcome['status'] =
     said === 'success' ? 'success' : said === 'submitted' || said === 'pending' ? 'pending' : said.startsWith('fail') ? 'failed' : 'unknown';
-  const reference = fields.get('approvalrefno') ?? fields.get('txnid') ?? fields.get('txnref');
-  return reference ? { status, reference: reference.slice(0, 64) } : { status };
+  // An app that has nothing for a field sends it empty or as "null", and neither was kept above.
+  const id = (name: string) => fields.get(name)?.slice(0, 64);
+  const receipt: UpiReceipt = {};
+  const txnId = id('txnid');
+  const approvalRef = id('approvalrefno');
+  const txnRef = id('txnref');
+  if (txnId) receipt.txnId = txnId;
+  if (approvalRef) receipt.approvalRef = approvalRef;
+  if (txnRef) receipt.txnRef = txnRef;
+  const reference = approvalRef ?? txnId ?? txnRef;
+  return { status, ...(reference ? { reference } : {}), ...receipt };
 }
 
 function safeDecode(text: string) {
