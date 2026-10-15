@@ -58,6 +58,13 @@ export interface Group {
   currency: Currency;
   memberIds: string[];
   createdAt: string;
+  /**
+   * How the group settles up (groupDebts). On: debts are combined into as
+   * few payments as there can be, so someone may pay a person they never
+   * split with. Off: everyone pays back whoever paid for them. Anyone in the
+   * group can change it, except while a payment is under way.
+   */
+  simplifyDebts: boolean;
 }
 
 export type SplitMode = 'equal' | 'shares' | 'exact';
@@ -260,6 +267,7 @@ export interface CreateGroupInput {
   currency: Currency;
   /** Everyone except the creator. They start as ghosts. */
   memberNames: string[];
+  simplifyDebts: boolean;
 }
 
 // -- pay links -------------------------------------------------------------

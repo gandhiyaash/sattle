@@ -10,6 +10,9 @@
  * said new groups start in. A group's currency can't be changed afterwards,
  * since every amount in it is counted in that currency's units.
  *
+ * It simplifies its debts unless its maker turns that off here
+ * (SimplifyDebts.tsx). Unlike the currency, that can be changed later.
+ *
  * The names can be typed straight down without leaving the keyboard: Enter
  * goes on to the next one, and after the last it adds a field to go to.
  */
@@ -22,6 +25,7 @@ import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import { currencyNames } from './CurrencyPicker';
 import { Button, Card, ErrorState, Screen, SectionLabel, Segmented } from './primitives';
+import { SimplifyDebtsSwitch } from './SimplifyDebts';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface NewGroupScreenProps {
@@ -39,6 +43,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
   const [name, setName] = useState('');
   const [currency, setCurrency] = useState(prefs.newGroups);
   const [people, setPeople] = useState<string[]>(['']);
+  const [simplifyDebts, setSimplifyDebts] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +81,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
         name: name.trim(),
         currency,
         memberNames: people.map((p) => p.trim()).filter(Boolean),
+        simplifyDebts,
       };
       const group = await keys.run('create-group', input, (k) => client.createGroup(input, k));
       onCreated(group.id);
@@ -139,6 +145,14 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
           <Button label="Add another person" variant="quiet" onPress={addPerson} />
         </Card>
         <Text style={s.note}>They don’t need the app. You can add more people later.</Text>
+      </View>
+
+      <View>
+        <SectionLabel>Settling up</SectionLabel>
+        <Card>
+          <SimplifyDebtsSwitch value={simplifyDebts} onChange={setSimplifyDebts} />
+        </Card>
+        <Text style={s.note}>Anyone in the group can change this later, under Manage.</Text>
       </View>
 
       {error && <ErrorState message={error} />}

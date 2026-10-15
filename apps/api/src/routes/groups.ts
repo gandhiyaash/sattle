@@ -9,7 +9,7 @@ import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
 import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
-import { checkExpenseOwner, checkGroupCanGo, checkMemberCanGo, leaveGroup } from '../groupRules';
+import { checkDebtsCanChange, checkExpenseOwner, checkGroupCanGo, checkMemberCanGo, leaveGroup } from '../groupRules';
 import { debtsOf } from '../settlementRules';
 import { takesUpi } from './upi';
 
@@ -41,11 +41,17 @@ export const CreateGroupBody = z.object({
     .regex(/^[A-Z]{3}$/, 'expected a three-letter currency code like INR')
     .default('INR'),
   memberNames: z.array(z.string().trim().min(1).max(40)).max(50),
+  // On unless the group's maker turns it off, as it was for every group before it was a choice.
+  simplifyDebts: z.boolean().default(true),
 });
 
 export const AddMemberBody = z.object({ displayName: z.string().trim().min(1).max(40) });
 
-export const RenameGroupBody = CreateGroupBody.pick({ name: true });
+/** Its name, whether it simplifies its debts, or both. */
+export const ChangeGroupBody = z
+  .object({ name: CreateGroupBody.shape.name, simplifyDebts: z.boolean() })
+  .partial()
+  .refine((b) => b.name !== undefined || b.simplifyDebts !== undefined, 'expected name or simplifyDebts');
 
 const AddressBody = z.object({ address: z.string() });
 
@@ -69,7 +75,13 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const creatorStatus = wallets.connection(user.id).connected ? 'nwc_linked' : 'joined';
 
     transaction(db, () => {
-      repo.insertGroup({ id: groupId, name: body.name, currency: body.currency, createdAt: nowIso() });
+      repo.insertGroup({
+        id: groupId,
+        name: body.name,
+        currency: body.currency,
+        createdAt: nowIso(),
+        simplifyDebts: body.simplifyDebts,
+      });
       repo.appendMember({ id: newId('m'), groupId, displayName: user.displayName, status: creatorStatus, claimedByUserId: user.id });
       for (const displayName of body.memberNames) {
         repo.appendMember({ id: newId('m'), groupId, displayName, status: 'ghost' });
@@ -80,12 +92,22 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
 
   r.get('/groups/:id', (c) => c.json(repo.groupForUser(c.req.param('id'), c.get('user').id)));
 
-  /** Anyone in the group can rename it. Returns the Group. */
+  /**
+   * Anyone in the group can rename it, and turn simplifying its debts on or
+   * off. That changes who owes whom, so not while a payment is under way
+   * (409 conflict, checkDebtsCanChange). Returns the Group.
+   */
   r.put('/groups/:id', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    const { name } = parse(RenameGroupBody, await c.req.json());
-    repo.renameGroup(g.id, name);
+    const { name, simplifyDebts } = parse(ChangeGroupBody, await c.req.json());
+    transaction(db, () => {
+      if (simplifyDebts !== undefined && simplifyDebts !== g.simplifyDebts) {
+        checkDebtsCanChange(repo, g);
+        repo.setSimplifyDebts(g.id, simplifyDebts);
+      }
+      if (name !== undefined) repo.renameGroup(g.id, name);
+    });
     return c.json(repo.groupForUser(g.id, user.id));
   });
 

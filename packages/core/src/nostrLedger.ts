@@ -26,7 +26,8 @@ export interface LedgerEntry {
   seq: number;
   /** The previous entry's event id; null for seq 1. */
   prev: string | null;
-  group: { id: string; name: string; currency: string };
+  /** As it stood when the entry was made. simplifyDebts says how a restore works out who owes whom (groupDebts). */
+  group: { id: string; name: string; currency: string; simplifyDebts: boolean };
   /** Everyone in the group when the entry was made, so names and balances can be read without the server. */
   members: { id: string; displayName: string }[];
   /** A new expense, or an earlier one as it reads after an edit. */

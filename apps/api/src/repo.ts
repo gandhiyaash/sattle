@@ -164,7 +164,10 @@ export function createRepo(db: Db) {
     ),
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
     renameGroup: db.prepare('UPDATE expense_groups SET name = ? WHERE id = ?'),
-    insertGroup: db.prepare('INSERT INTO expense_groups (id, name, currency, created_at) VALUES (?, ?, ?, ?)'),
+    setSimplifyDebts: db.prepare('UPDATE expense_groups SET simplify_debts = ? WHERE id = ?'),
+    insertGroup: db.prepare(
+      'INSERT INTO expense_groups (id, name, currency, created_at, simplify_debts) VALUES (?, ?, ?, ?, ?)'
+    ),
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     memberForUser: db.prepare('SELECT * FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
@@ -384,6 +387,7 @@ export function createRepo(db: Db) {
         currency: r.currency as string,
         memberIds: repo.members(r.id as string).map((m) => m.id),
         createdAt: r.created_at as string,
+        simplifyDebts: r.simplify_debts === 1,
       };
     },
 
@@ -406,10 +410,13 @@ export function createRepo(db: Db) {
     },
 
     insertGroup(g: Omit<Group, 'memberIds'>) {
-      q.insertGroup.run(g.id, g.name, g.currency, g.createdAt);
+      q.insertGroup.run(g.id, g.name, g.currency, g.createdAt, g.simplifyDebts ? 1 : 0);
     },
     renameGroup(id: string, name: string) {
       q.renameGroup.run(name, id);
+    },
+    setSimplifyDebts(id: string, on: boolean) {
+      q.setSimplifyDebts.run(on ? 1 : 0, id);
     },
     /** The group and everything in it. Its ledger key goes too, so what was mirrored can't be read back from here. */
     deleteGroup(id: string) {

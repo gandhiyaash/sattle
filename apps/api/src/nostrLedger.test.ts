@@ -208,7 +208,7 @@ describe('publish', () => {
 
 describe('readLedger', () => {
   const entry = (seq: number, prev: string | null): LedgerEntry => ({
-    v: 1, seq, prev, group: { id: 'g', name: 'G', currency: 'INR' }, members: [],
+    v: 1, seq, prev, group: { id: 'g', name: 'G', currency: 'INR', simplifyDebts: true }, members: [],
   });
   const key = 'ab'.repeat(32);
   const server = generateSecretKey();

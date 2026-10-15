@@ -14,7 +14,7 @@
  * checks signatures and the chain, decrypts, and prints the balances.
  */
 
-import { computeBalances, formatAmount, simplifyDebts } from '@sattle/core';
+import { computeBalances, formatAmount, groupDebts } from '@sattle/core';
 import { npubEncode } from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 
@@ -102,7 +102,7 @@ try {
     console.log('No entries found for this group on those relays.');
     process.exitCode = 1;
   } else {
-    const { name, currency, id } = read.group;
+    const { name, currency } = read.group;
     const nameOf = (mid: string) => read.members.find((m) => m.id === mid)?.displayName ?? mid;
     const money = (n: number) => formatAmount(n, currency);
 
@@ -113,11 +113,12 @@ try {
     console.log(read.problems.length === 0 ? 'Chain intact. Every entry signed by the server.' : 'Problems:');
     for (const p of read.problems) console.log(`  ! ${p}`);
 
-    const balances = computeBalances(read.members.map((m) => m.id), read.expenses, read.settlements);
+    const memberIds = read.members.map((m) => m.id);
+    const balances = computeBalances(memberIds, read.expenses, read.settlements);
     console.log('\nBalances');
     for (const b of balances) console.log(`  ${nameOf(b.memberId).padEnd(16)} ${b.net >= 0 ? '+' : '−'}${money(Math.abs(b.net))}`);
 
-    const debts = simplifyDebts(id, balances);
+    const debts = groupDebts({ ...read.group, memberIds }, read.expenses, read.settlements);
     console.log('\nTo settle up');
     if (debts.length === 0) console.log('  Nothing. Everyone is square.');
     for (const d of debts) console.log(`  ${nameOf(d.fromMemberId)} pays ${nameOf(d.toMemberId)} ${money(d.amount)}`);

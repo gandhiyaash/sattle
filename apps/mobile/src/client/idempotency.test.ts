@@ -6,7 +6,7 @@ import { ApiClient } from './ApiClient';
 import { MockClient } from './MockClient';
 import { ActionKeys } from './SattleClient';
 
-const manali = { name: 'Manali', currency: 'INR', memberNames: ['Riya'] };
+const manali = { name: 'Manali', currency: 'INR', memberNames: ['Riya'], simplifyDebts: true };
 
 afterEach(() => vi.restoreAllMocks());
 

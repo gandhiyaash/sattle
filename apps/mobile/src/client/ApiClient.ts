@@ -281,6 +281,9 @@ export class ApiClient implements SattleClient {
   renameGroup(groupId: string, name: string, idempotencyKey = newIdempotencyKey()) {
     return this.request<Group>('PUT', `/groups/${groupId}`, { name }, idempotencyKey);
   }
+  setSimplifyDebts(groupId: string, on: boolean, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('PUT', `/groups/${groupId}`, { simplifyDebts: on }, idempotencyKey);
+  }
   async deleteGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
     await this.request('DELETE', `/groups/${groupId}`, undefined, idempotencyKey);
   }

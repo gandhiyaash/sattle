@@ -58,7 +58,7 @@ export interface SattleClient {
   getExpenses(groupId: string): Promise<Expense[]>;
   addExpense(input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
 
-  /** Netted debts, counting only confirmed settlements. */
+  /** What is owed, simplified or not as the group chose (groupDebts), counting only confirmed settlements. */
   getDebts(groupId: string): Promise<Debt[]>;
 
   getSettlements(groupId: string): Promise<Settlement[]>;
@@ -228,6 +228,12 @@ export interface SattleClient {
   deleteExpense(groupId: string, expenseId: string, idempotencyKey?: string): Promise<void>;
 
   renameGroup(groupId: string, name: string, idempotencyKey?: string): Promise<Group>;
+  /**
+   * Turns simplifying the group's debts on or off, for everyone in it
+   * (Group.simplifyDebts). Throws `conflict` while a payment is under way or
+   * a UPI payment hasn't been confirmed: the debt it's for could move.
+   */
+  setSimplifyDebts(groupId: string, on: boolean, idempotencyKey?: string): Promise<Group>;
   /** For everyone in it. Throws `conflict` while anything is owed or a payment is under way. */
   deleteGroup(groupId: string, idempotencyKey?: string): Promise<void>;
   /**
