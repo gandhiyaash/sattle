@@ -1,5 +1,6 @@
 /**
- * Managing a group: its name, its link, its backup, leaving it, deleting it.
+ * Managing a group: its name, whether it simplifies its debts, its link, its
+ * backup, leaving it, deleting it.
  * Who is in it is on the group screen, under Members.
  *
  * Everything here follows one rule, the server's (groupRules.ts): nobody can
@@ -10,14 +11,13 @@
  * what an action leaves behind is said between the first tap and the second.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
-  computeBalances,
+  groupDebts,
   groupLinkPath,
   isInProgress,
-  simplifyDebts,
   UPI_CURRENCY,
   type GroupLink,
   type UpiOnGroupLink,
@@ -36,6 +36,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
+import { SimplifyDebtsSwitch } from './SimplifyDebts';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface GroupSettingsScreenProps {
@@ -49,6 +50,7 @@ export interface GroupSettingsScreenProps {
 
 interface Settings {
   name: string;
+  simplifyDebts: boolean;
   /** People with an account, the user included. */
   accounts: number;
   settled: boolean;
@@ -68,7 +70,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
   const client = useClient();
   const keys = useActionKeys();
 
-  const { data, loading, error, reload } = useAsync<Settings>(async () => {
+  const { data, loading, error, reload, refresh } = useAsync<Settings>(async () => {
     const [group, members, expenses, settlements, link, upi, linkUpi] = await Promise.all([
       client.getGroup(groupId),
       client.getMembers(groupId),
@@ -80,8 +82,9 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
     ]);
     return {
       name: group.name,
+      simplifyDebts: group.simplifyDebts,
       accounts: members.filter((m) => m.claimedByUserId).length,
-      settled: simplifyDebts(groupId, computeBalances(group.memberIds, expenses, settlements)).length === 0,
+      settled: groupDebts(group, expenses, settlements).length === 0,
       paying: settlements.some(isInProgress),
       link,
       linkUpi: group.currency === UPI_CURRENCY && upi.upiId ? linkUpi : null,
@@ -108,6 +111,8 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
   return (
     <Screen title="Manage group" subtitle={data.name} onBack={onBack}>
       <Rename groupId={groupId} name={data.name} onRenamed={reload} />
+
+      <SettlingUp groupId={groupId} simplifyDebts={data.simplifyDebts} paying={data.paying} onChanged={refresh} />
 
       <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
 
@@ -163,6 +168,63 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
         </Card>
       </View>
     </Screen>
+  );
+}
+
+/**
+ * Whether the group simplifies its debts. It changes who owes whom for
+ * everyone, so it waits while a payment is under way, as the server does
+ * (checkDebtsCanChange). A UPI payment that hasn't been confirmed holds it
+ * too, but only the two people in it can see that here, so the server's
+ * refusal says so.
+ */
+function SettlingUp({
+  groupId,
+  simplifyDebts: loaded,
+  paying,
+  onChanged,
+}: {
+  groupId: string;
+  simplifyDebts: boolean;
+  paying: boolean;
+  /** Whether anything is owed can change with it, and Delete depends on that. */
+  onChanged: () => void;
+}) {
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  // Kept here once loaded, so the switch stays where it was put while the rest is read again,
+  // and moved to whatever is read next: someone else in the group may have changed it.
+  const [on, setOn] = useState(loaded);
+  useEffect(() => setOn(loaded), [loaded]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const change = async (next: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const group = await keys.run('simplify-debts', { groupId, on: next }, (k) =>
+        client.setSimplifyDebts(groupId, next, k)
+      );
+      setOn(group.simplifyDebts);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <SectionLabel>Settling up</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <SimplifyDebtsSwitch value={on} onChange={change} disabled={busy || paying} />
+        {paying && <Text style={s.caption}>A payment is still in progress. Change this once it has finished.</Text>}
+        {error && <Text style={s.error}>{error}</Text>}
+      </Card>
+    </View>
   );
 }
 

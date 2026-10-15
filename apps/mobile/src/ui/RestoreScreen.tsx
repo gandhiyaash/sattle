@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { computeBalances, formatFiat, simplifyDebts } from '@sattle/core';
+import { computeBalances, formatFiat, groupDebts } from '@sattle/core';
 import type { ReadBack } from '../ledger/readBack';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Screen, SectionLabel } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -97,14 +97,11 @@ function Restored({ read }: { read: ReadBack }) {
     );
   }
 
-  const { name, currency, id } = read.group;
+  const { name, currency } = read.group;
   const nameOf = (memberId: string) => read.members.find((m) => m.id === memberId)?.displayName ?? 'Someone';
-  const balances = computeBalances(
-    read.members.map((m) => m.id),
-    read.expenses,
-    read.settlements
-  );
-  const debts = simplifyDebts(id, balances);
+  const memberIds = read.members.map((m) => m.id);
+  const balances = computeBalances(memberIds, read.expenses, read.settlements);
+  const debts = groupDebts({ ...read.group, memberIds }, read.expenses, read.settlements);
   const spends = [...read.expenses].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 

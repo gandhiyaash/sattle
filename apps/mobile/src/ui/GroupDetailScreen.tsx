@@ -13,8 +13,9 @@
  *    for all of them. A member nothing has been built on yet can be removed
  *    from their row; that is the server's rule (groupRules.ts), not a choice
  *    made here.
- * 2. Debts come from simplifyDebts, so the settle buttons act on netted
- *    positions rather than raw pairwise history. Fewer payments, lower fees.
+ * 2. Debts come from groupDebts, so the settle buttons act on what the
+ *    group says is owed: simplified into as few payments as there can be,
+ *    unless the group turned that off and pays back whoever paid.
  * 3. Nobody joins by holding the link: whoever asks to join shows up here,
  *    with a code, and someone in the group lets them in or turns them down.
  *    They show above the tabs, since someone is waiting on the answer.
@@ -37,9 +38,9 @@ import {
   canReceive,
   computeBalances,
   formatAmount,
+  groupDebts,
   isBitcoin,
   payLinkPath,
-  simplifyDebts,
   UPI_CURRENCY,
   type Debt,
   type Expense,
@@ -150,7 +151,7 @@ export function GroupDetailScreen({
     ]);
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
-    const debts = simplifyDebts(groupId, balances);
+    const debts = groupDebts(group, expenses, settlements);
     const mine = members.find((m) => m.claimedByUserId === user.id) ?? null;
     const named = new Set<string>();
     for (const e of expenses) {

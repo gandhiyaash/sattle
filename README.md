@@ -73,7 +73,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 packages/core/src/           @sattle/core: pure, no I/O, imported by both app and API
   types.ts                   Domain vocabulary. Member ≠ User. Debt is in the group's currency.
   currency.ts                The currencies a group can be kept in, and how an amount in each is typed and shown.
-  ledger.ts                  Pure maths: splits, balances, netting.
+  ledger.ts                  Pure maths: splits, balances, and who pays whom, simplified or not.
   history.ts                 A group's history, read off its expenses, the changes to them and its settlements.
   settlementOptions.ts       Resolves what's possible BEFORE the user taps, from the ways to pay the payer uses.
   quote.ts                   What a debt comes to in sats: a pinned rate for rupees, none for a group kept in bitcoin. 90s TTL.
@@ -144,7 +144,8 @@ apps/mobile/                 @sattle/mobile: Expo
       WelcomeScreen.tsx      First launch against the real API: your name, and a device account. Or a sign-in key from another device.
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
-      NewGroupScreen.tsx     A group's name and the people in it.
+      NewGroupScreen.tsx     A group's name, the people in it, and whether it simplifies debts.
+      SimplifyDebts.tsx      The Simplify debts switch, on New group and under Manage.
       GroupDetailScreen.tsx  The balance, then three tabs: expenses, members and their states, settle up.
       HistoryScreen.tsx      Everything added, changed, removed and settled, and the sheet one entry opens in.
       AddExpenseScreen.tsx   Live split preview as you type.
@@ -155,7 +156,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup. Lightning, UPI, or a choice of the two.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
-      GroupSettingsScreen.tsx  Manage: rename the group, its link, its Nostr backup (copy the key, read it back), leave it, delete it.
+      GroupSettingsScreen.tsx  Manage: rename the group, simplify its debts or not, its link, its Nostr backup (copy the key, read it back), leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
@@ -250,7 +251,7 @@ The last currency can't be turned off. The choice is kept on the device (`prefs/
 `apps/api` implements every route `ApiClient` calls, and nets debts with the same `@sattle/core` ledger the app uses, so balances can never disagree. The server doesn't trust the client:
 
 - You only see groups you're a member of. Other groups return 404, not 403, so a guessed id reveals nothing.
-- A settlement can't exceed the current netted debt, and a second one can't start while one is in progress.
+- A settlement can't exceed what is owed right now (simplified or not, as the group chose), and a second one can't start while one is in progress.
 - A ghost with no payout address gets `409 member_cannot_receive`.
 - A repeated `idempotency-key` replays the first response instead of acting twice.
 
@@ -381,6 +382,7 @@ One rule runs through all of it, the same one settling follows: nobody can undo 
 | --- | --- | --- |
 | Change or delete an expense | The person who paid it. What a ghost paid, anyone in the group. | For anyone else: a groupmate could otherwise shrink what they owe. |
 | Rename a group | Anyone in it | |
+| Turn simplifying debts on or off | Anyone in it | While a payment is under way or a UPI payment hasn't been confirmed, since it can move the debt that payment is for. |
 | Remove a member | Anyone in the group, for a ghost that no expense, payment or pay link names | For anyone in the ledger, and for someone who has joined: only they can leave. |
 | Leave a group | Yourself | If you're the only one with an account (delete the group instead), or while a payment to you is under way. |
 | Delete a group | Anyone in it | While anything is owed in it or a payment is under way, so deleting it can't erase a debt. |
@@ -392,6 +394,15 @@ Leaving is the reverse of joining. The member's row stays, as a ghost, with its 
 Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links it made and its requests to join are removed; the names its members had in shared groups stay.
 
 An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
+
+### Simplifying debts
+
+A group simplifies its debts, as Splitwise does, unless whoever makes it turns that off with the **Simplify debts** switch on **New group** (`Group.simplifyDebts`). Anyone in it can change it later under **Manage**. Everyone's balance is the same either way; what changes is who pays whom.
+
+- **On**: debts are combined into as few payments as there can be (`simplifyDebts`). If Aman owes Priya and Priya owes Om the same, Aman pays Om and Priya is done. Someone can end up paying a person they never split with.
+- **Off**: everyone pays back whoever paid for them (`directDebts`). Only what two people owe each other cancels out.
+
+`groupDebts` in `@sattle/core` picks between the two, and everything that asks what is owed goes through it: the group screen, the server's checks on a payment, the group link, deleting a group, and a group read back from its Nostr backup, whose entries carry the setting. `PUT /groups/:id` with `{ simplifyDebts }` changes it, and answers `409 conflict` while a payment is under way or a UPI payment waits to be confirmed, since the debt that payment is for could move.
 
 ### History
 

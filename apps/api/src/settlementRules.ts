@@ -5,9 +5,8 @@
 
 import {
   SattleError,
-  computeBalances,
+  groupDebts,
   isInProgress,
-  simplifyDebts,
   type Group,
   type Settlement,
 } from '@sattle/core';
@@ -20,13 +19,14 @@ export interface Pair {
   amount: number;
 }
 
+/** What is owed in the group right now, simplified or not as the group chose. */
 export function debtsOf(repo: Repo, g: Group) {
-  return simplifyDebts(g.id, computeBalances(g.memberIds, repo.expenses(g.id), repo.settlements(g.id)));
+  return groupDebts(g, repo.expenses(g.id), repo.settlements(g.id));
 }
 
 /**
- * Both members are in the group, and the amount is no more than the netted
- * debt between them right now. Returns the payee.
+ * Both members are in the group, and the amount is no more than what one
+ * owes the other right now (debtsOf). Returns the payee.
  */
 export function checkSettlement(repo: Repo, g: Group, body: Pair) {
   if (!g.memberIds.includes(body.fromMemberId) || !g.memberIds.includes(body.toMemberId)) {

@@ -16,7 +16,7 @@ import {
   buildQuote,
   canChangeExpense,
   canReceive,
-  computeBalances,
+  groupDebts,
   isInProgress,
   fixtures,
   parseLightningAddress,
@@ -24,7 +24,6 @@ import {
   parseUpiReference,
   resolveParts,
   sameExpense,
-  simplifyDebts,
   toGuestSettlement,
   type CreateGroupInput,
   type CreatePayLinkInput,
@@ -262,7 +261,14 @@ export class MockClient implements SattleClient {
       if (!/^[A-Z]{3}$/.test(currency)) {
         throw new SattleError('invalid_input', 'currency: expected a three-letter currency code like INR');
       }
-      const group: Group = { id: this.id('g'), name, currency, memberIds: [], createdAt: this.now() };
+      const group: Group = {
+        id: this.id('g'),
+        name,
+        currency,
+        memberIds: [],
+        createdAt: this.now(),
+        simplifyDebts: input.simplifyDebts ?? true,
+      };
       const me = fixtures.currentUser;
       const add = (m: Omit<Member, 'id' | 'groupId'>) => {
         const member: Member = { id: this.id('m'), groupId: group.id, ...m };
@@ -330,15 +336,7 @@ export class MockClient implements SattleClient {
   }
 
   getDebts(groupId: string) {
-    return this.call(() => {
-      const g = this.findGroup(groupId);
-      const balances = computeBalances(
-        g.memberIds,
-        this.expenses.filter((e) => e.groupId === groupId),
-        this.settlements.filter((s) => s.groupId === groupId)
-      );
-      return simplifyDebts(groupId, balances);
-    });
+    return this.call(() => this.debtsOf(groupId));
   }
 
   /** Built the way the server builds it, from the same three lists. */
@@ -848,7 +846,7 @@ export class MockClient implements SattleClient {
   private debtsOf(groupId: string) {
     const g = this.findGroup(groupId);
     const mine = (x: { groupId: string }) => x.groupId === groupId;
-    return simplifyDebts(groupId, computeBalances(g.memberIds, this.expenses.filter(mine), this.settlements.filter(mine)));
+    return groupDebts(g, this.expenses.filter(mine), this.settlements.filter(mine));
   }
 
   /** Stands in for the server's hash: opaque to the page, and tied to this link and this pair. */
@@ -1071,6 +1069,23 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
+  /** The server's rule (checkDebtsCanChange): not while a payment is under way or a UPI payment isn't confirmed. */
+  setSimplifyDebts(groupId: string, on: boolean, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      if (g.simplifyDebts === on) return g;
+      const mine = (x: { groupId: string }) => x.groupId === groupId;
+      if (this.settlements.some((s) => mine(s) && isInProgress(s))) {
+        throw new SattleError('conflict', 'A payment in this group is still in progress. Wait for it to finish.');
+      }
+      if (this.upiClaims.some((c) => mine(c) && c.status === 'pending')) {
+        throw new SattleError('conflict', 'A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
+      }
+      g.simplifyDebts = on;
+      return g;
+    }, idempotencyKey);
+  }
+
   deleteGroup(groupId: string, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(groupId);
@@ -1078,8 +1093,7 @@ export class MockClient implements SattleClient {
       if (this.settlements.some((s) => mine(s) && isInProgress(s))) {
         throw new SattleError('conflict', 'A payment in this group is still in progress. Wait for it to finish.');
       }
-      const balances = computeBalances(g.memberIds, this.expenses.filter(mine), this.settlements.filter(mine));
-      if (simplifyDebts(groupId, balances).length > 0) {
+      if (this.debtsOf(groupId).length > 0) {
         throw new SattleError('conflict', 'There’s still money owed in this group. Settle up first.');
       }
       this.groups = this.groups.filter((x) => x !== g);

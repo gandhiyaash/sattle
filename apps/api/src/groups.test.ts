@@ -62,6 +62,36 @@ describe('POST /groups', () => {
     expect((await members(g.id))[0].status).toBe('nwc_linked');
   });
 
+  it('simplifies debts unless told not to', async () => {
+    const { call, createGroup } = setup();
+    expect((await createGroup()).simplifyDebts).toBe(true);
+
+    const res = await call<Group>('POST', '/groups', { name: 'Flat', memberNames: ['Riya', 'Kabir'], simplifyDebts: false });
+    expect(res.status).toBe(201);
+    expect(res.body.simplifyDebts).toBe(false);
+    expect((await call<Group>('GET', `/groups/${res.body.id}`)).body.simplifyDebts).toBe(false);
+
+    // Kabir owes Riya, and Riya owes Yash: each pays back whoever paid for them.
+    const [me, riya, kabir] = res.body.memberIds;
+    const spend = (paidByMemberId: string, ids: string[]) =>
+      call('POST', `/groups/${res.body.id}/expenses`, {
+        description: 'Groceries',
+        amount: 2000,
+        paidByMemberId,
+        splitMode: 'equal',
+        parts: ids.map((memberId) => ({ memberId })),
+      });
+    await spend(me, [me, riya]);
+    await spend(riya, [riya, kabir]);
+    const debts = (await call<Debt[]>('GET', `/groups/${res.body.id}/debts`)).body;
+    expect(debts.map((d) => [d.fromMemberId, d.toMemberId, d.amount]).sort()).toEqual(
+      [
+        [riya, me, 1000],
+        [kabir, riya, 1000],
+      ].sort()
+    );
+  });
+
   it('allows a group of just the creator', async () => {
     const { createGroup } = setup();
     expect((await createGroup([])).memberIds).toHaveLength(1);

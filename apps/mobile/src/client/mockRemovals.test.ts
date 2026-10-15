@@ -39,6 +39,33 @@ describe('MockClient: groups and members', () => {
     expect((await c.getGroup('g-goa')).name).toBe('Goa 2026');
   });
 
+  it('pays back whoever paid in a group that doesn’t simplify its debts, until it does', async () => {
+    const c = client();
+    expect((await c.createGroup({ name: 'Trip', currency: 'INR', memberNames: [] })).simplifyDebts).toBe(true);
+    const g = await c.createGroup({ name: 'Flat', currency: 'INR', memberNames: ['Dev', 'Ira'], simplifyDebts: false });
+    expect(g.simplifyDebts).toBe(false);
+    const [me, dev, ira] = g.memberIds;
+    // Dev owes the user 1000, and Ira owes Dev 1000.
+    const spend = (paidByMemberId: string, ids: string[]) =>
+      c.addExpense({ groupId: g.id, description: 'Rent', amount: 2000, paidByMemberId, splitMode: 'equal', parts: ids.map((memberId) => ({ memberId })) });
+    await spend(me, [me, dev]);
+    await spend(dev, [dev, ira]);
+    const name = { [me]: 'Yash', [dev]: 'Dev', [ira]: 'Ira' };
+    const owed = async () =>
+      (await c.getDebts(g.id)).map((d) => `${name[d.fromMemberId]} → ${name[d.toMemberId]} ${d.amount}`).sort();
+    expect(await owed()).toEqual(['Dev → Yash 1000', 'Ira → Dev 1000']);
+
+    expect((await c.setSimplifyDebts(g.id, true)).simplifyDebts).toBe(true);
+    expect(await owed()).toEqual(['Ira → Yash 1000']);
+  });
+
+  it('won’t change how a group’s debts are worked out while a payment in it is under way', async () => {
+    await expect(client().setSimplifyDebts('g-flat', false)).rejects.toMatchObject({
+      code: 'conflict',
+      message: 'A payment in this group is still in progress. Wait for it to finish.',
+    });
+  });
+
   it('won’t delete a group while money is owed in it', async () => {
     await expect(client().deleteGroup('g-goa')).rejects.toMatchObject({ code: 'conflict' });
   });

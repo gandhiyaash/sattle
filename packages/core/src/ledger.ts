@@ -13,6 +13,7 @@ import {
   type Debt,
   type Expense,
   type ExpenseInput,
+  type Group,
   type ResolvedPart,
   type Settlement,
 } from './types';
@@ -122,4 +123,65 @@ export function simplifyDebts(groupId: string, balances: Balance[]): Debt[] {
     if (creditors[j].amt === 0) j++;
   }
   return debts;
+}
+
+/**
+ * Debts without simplifying: everyone in a split owes whoever paid it their
+ * part, and only what two people owe each other cancels out. Nothing is
+ * passed on to a third person, so it can take more payments than
+ * simplifyDebts, but each one goes back to someone who paid. A settlement
+ * counts against the pair it was between, on the same terms as
+ * computeBalances.
+ *
+ * Every member's total comes out the same as computeBalances'. Only how it's
+ * divided into payments differs.
+ */
+export function directDebts(groupId: string, expenses: Expense[], settlements: Settlement[] = []): Debt[] {
+  // owes.get(a).get(b): everything a has ever owed b, before anything b owes a is taken off.
+  const owes = new Map<string, Map<string, number>>();
+  const add = (from: string, to: string, amount: number) => {
+    if (from === to) return;
+    const row = owes.get(from) ?? new Map<string, number>();
+    row.set(to, (row.get(to) ?? 0) + amount);
+    owes.set(from, row);
+  };
+
+  for (const e of expenses) {
+    for (const p of e.parts) add(p.memberId, e.paidByMemberId, p.amount);
+  }
+  // Paying someone back is the same as their owing you that much.
+  for (const s of settlements) {
+    if (LEDGER_STATUSES.includes(s.status)) add(s.toMemberId, s.fromMemberId, s.amount);
+  }
+
+  const debts: Debt[] = [];
+  for (const [from, row] of owes) {
+    for (const [to, amount] of row) {
+      const net = amount - (owes.get(to)?.get(from) ?? 0);
+      if (net > 0) {
+        debts.push({ id: `${groupId}:${from}->${to}`, groupId, fromMemberId: from, toMemberId: to, amount: net });
+      }
+    }
+  }
+  return debts.sort(
+    (a, b) =>
+      b.amount - a.amount ||
+      a.fromMemberId.localeCompare(b.fromMemberId) ||
+      a.toMemberId.localeCompare(b.toMemberId)
+  );
+}
+
+/**
+ * What is owed in a group, the way that group settles up: simplified, or
+ * straight back to whoever paid (Group.simplifyDebts). Whatever asks what is
+ * owed asks this, so the app, the server and a restored backup agree.
+ */
+export function groupDebts(
+  group: Pick<Group, 'id' | 'memberIds' | 'simplifyDebts'>,
+  expenses: Expense[],
+  settlements: Settlement[] = []
+): Debt[] {
+  return group.simplifyDebts
+    ? simplifyDebts(group.id, computeBalances(group.memberIds, expenses, settlements))
+    : directDebts(group.id, expenses, settlements);
 }

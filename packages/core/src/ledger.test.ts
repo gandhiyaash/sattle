@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeBalances, resolveParts, simplifyDebts } from './ledger';
+import { computeBalances, directDebts, groupDebts, resolveParts, simplifyDebts } from './ledger';
 import { resolveSettlementOptions } from './settlementOptions';
 import type { Expense, Member, Settlement } from './types';
 
@@ -92,6 +92,58 @@ describe('simplifyDebts', () => {
     ]);
     expect(debts).toHaveLength(1);
     expect(debts[0]).toMatchObject({ fromMemberId: 'c', toMemberId: 'a', amount: 1000 });
+  });
+});
+
+describe('directDebts', () => {
+  const pairs = (debts: { fromMemberId: string; toMemberId: string; amount: number }[]) =>
+    debts.map((d) => `${d.fromMemberId}->${d.toMemberId} ${d.amount}`);
+
+  it('has everyone pay back whoever paid, instead of passing a debt along', () => {
+    // b owes a 500, c owes b 500.
+    const e = [expense('a', 1000, ['a', 'b']), expense('b', 1000, ['b', 'c'])];
+    expect(pairs(directDebts('g', e))).toEqual(['b->a 500', 'c->b 500']);
+  });
+
+  it('cancels what two people owe each other', () => {
+    // b owes a 500, a owes b 300.
+    const e = [expense('a', 1000, ['a', 'b']), expense('b', 600, ['a', 'b'])];
+    expect(pairs(directDebts('g', e))).toEqual(['b->a 200']);
+  });
+
+  it('counts a settlement against its pair once it is confirmed', () => {
+    const e = [expense('a', 1000, ['a', 'b'])];
+    expect(directDebts('g', e, [settlement('confirmed')])).toEqual([]);
+    expect(pairs(directDebts('g', e, [settlement('created')]))).toEqual(['b->a 500']);
+  });
+
+  it('leaves everyone with the same total as computeBalances', () => {
+    const e = [
+      expense('a', 1000, ['a', 'b', 'c']),
+      expense('b', 2400, ['a', 'b', 'c', 'd']),
+      expense('d', 700, ['b', 'c']),
+    ];
+    const s = [settlement('confirmed')];
+    const total = new Map<string, number>();
+    for (const d of directDebts('g', e, s)) {
+      total.set(d.fromMemberId, (total.get(d.fromMemberId) ?? 0) - d.amount);
+      total.set(d.toMemberId, (total.get(d.toMemberId) ?? 0) + d.amount);
+    }
+    for (const b of computeBalances(['a', 'b', 'c', 'd'], e, s)) expect(total.get(b.memberId) ?? 0).toBe(b.net);
+  });
+});
+
+describe('groupDebts', () => {
+  // a pays for b, b for c, c for a: everyone is square, but each owes the next.
+  const e = [expense('a', 1000, ['a', 'b']), expense('b', 1000, ['b', 'c']), expense('c', 1000, ['c', 'a'])];
+  const group = { id: 'g', memberIds: ['a', 'b', 'c'] };
+
+  it('simplifies for a group that does', () => {
+    expect(groupDebts({ ...group, simplifyDebts: true }, e)).toEqual([]);
+  });
+
+  it('pays back whoever paid for a group that doesn’t', () => {
+    expect(groupDebts({ ...group, simplifyDebts: false }, e)).toHaveLength(3);
   });
 });
 

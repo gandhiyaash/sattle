@@ -22,6 +22,7 @@ export const groups: Group[] = [
     currency: 'INR',
     memberIds: ['m-goa-yash', 'm-goa-om', 'm-goa-aman', 'm-goa-priya'],
     createdAt: at(12),
+    simplifyDebts: true,
   },
   {
     id: 'g-flat',
@@ -29,6 +30,7 @@ export const groups: Group[] = [
     currency: 'INR',
     memberIds: ['m-flat-yash', 'm-flat-om', 'm-flat-priya'],
     createdAt: at(40),
+    simplifyDebts: true,
   },
 ];
 

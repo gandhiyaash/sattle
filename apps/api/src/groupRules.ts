@@ -1,6 +1,8 @@
 /**
  * Rules for taking things out: changing or removing an expense, removing a
- * member, leaving, deleting a group, deleting an account.
+ * member, leaving, deleting a group, deleting an account. And for changing
+ * how a group works out its debts, which can move a debt from one person to
+ * another.
  *
  * They follow the same idea as settlementRules: nobody can undo what someone
  * else is owed. So an expense is the payer's to change, a group with money
@@ -69,6 +71,20 @@ export function checkGroupCanGo(repo: Repo, g: Group) {
   }
   if (debtsOf(repo, g).length > 0) {
     throw conflict('There’s still money owed in this group. Settle up first.');
+  }
+}
+
+/**
+ * Turning simplifying debts on or off changes who owes whom. A payment under
+ * way, or a UPI payment waiting for the person owed to confirm it, is for a
+ * debt that might not be there afterwards, so the change waits for them.
+ */
+export function checkDebtsCanChange(repo: Repo, g: Group) {
+  if (repo.settlements(g.id).some(isInProgress)) {
+    throw conflict('A payment in this group is still in progress. Wait for it to finish.');
+  }
+  if (repo.upiClaims(g.id).some((c) => c.status === 'pending')) {
+    throw conflict('A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
   }
 }
 

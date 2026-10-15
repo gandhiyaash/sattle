@@ -26,7 +26,13 @@ export interface LedgerEntry {
   seq: number;
   /** The previous entry's event id; null for seq 1. */
   prev: string | null;
-  group: { id: string; name: string; currency: string };
+  /**
+   * As it stood when the entry was made. simplifyDebts says how a restore
+   * works out who owes whom (groupDebts). Entries made before a group could
+   * choose leave it out, and are on relays for good: every group simplified
+   * then, so readLedger reads it as on.
+   */
+  group: { id: string; name: string; currency: string; simplifyDebts?: boolean };
   /** Everyone in the group when the entry was made, so names and balances can be read without the server. */
   members: { id: string; displayName: string }[];
   /** A new expense, or an earlier one as it reads after an edit. */
@@ -77,7 +83,7 @@ export const ledgerFilter = ({ pubkey, key }: Pick<LedgerAccess, 'pubkey' | 'key
 // ---------------------------------------------------------------------------
 
 export interface ReadLedger {
-  group?: LedgerEntry['group'];
+  group?: Required<LedgerEntry['group']>;
   members: LedgerEntry['members'];
   expenses: Expense[];
   settlements: Settlement[];
@@ -133,7 +139,7 @@ export function readLedger(events: Event[], { pubkey, key }: Pick<LedgerAccess, 
 
   const last = ordered.at(-1)?.entry;
   return {
-    group: last?.group,
+    group: last && { ...last.group, simplifyDebts: last.group.simplifyDebts ?? true },
     members: last?.members ?? [],
     expenses: [...expenses.values()],
     settlements: ordered.flatMap(({ entry }) => (entry.settlement ? [entry.settlement] : [])),

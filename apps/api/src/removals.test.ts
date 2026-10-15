@@ -187,7 +187,65 @@ describe('PUT /groups/:id', () => {
   it('refuses an empty name, and anyone outside the group', async () => {
     const { call, base, riya, signUp } = await setup();
     expect((await call('PUT', base, { name: ' ' }, riya.token)).status).toBe(400);
+    expect((await call('PUT', base, {}, riya.token)).status).toBe(400);
     expect((await call('PUT', base, { name: 'Mine now' }, (await signUp('Stranger')).token)).status).toBe(404);
+    expect((await call('PUT', base, { simplifyDebts: false }, (await signUp('Stranger')).token)).status).toBe(404);
+  });
+
+  it('lets anyone in the group stop simplifying its debts, and start again, for everyone', async () => {
+    const { call, base, riya, kabir, mRiya, mKabir, mAman, debts } = await setup();
+    const name = { [mRiya]: 'Riya', [mKabir]: 'Kabir', [mAman]: 'Aman' };
+    const owed = async (as = riya.token) =>
+      (await debts(as)).map((d) => `${name[d.fromMemberId]} → ${name[d.toMemberId]} ${d.amount}`).sort();
+    // Kabir owes Riya 1000, and Aman owes Kabir 1000.
+    const spend = (paidByMemberId: string, ids: string[]) =>
+      call('POST', `${base}/expenses`, { description: 'Cab', amount: 2000, paidByMemberId, ...equally(ids) }, riya.token);
+    await spend(mRiya, [mRiya, mKabir]);
+    await spend(mKabir, [mKabir, mAman]);
+    expect(await owed()).toEqual(['Aman → Riya 1000']);
+
+    const off = await call<Group>('PUT', base, { simplifyDebts: false }, kabir.token);
+    expect(off.status).toBe(200);
+    expect(off.body).toMatchObject({ name: 'Manali', simplifyDebts: false });
+    expect(await owed(kabir.token)).toEqual(['Aman → Kabir 1000', 'Kabir → Riya 1000']);
+
+    // A payment is held to the debts the group now has.
+    const pay = (fromMemberId: string, toMemberId: string) =>
+      call('POST', `${base}/settlements/manual`, { fromMemberId, toMemberId, amount: 1000 }, riya.token);
+    expect((await pay(mAman, mRiya)).status).toBe(409);
+    expect((await pay(mKabir, mRiya)).status).toBe(201);
+    expect(await owed()).toEqual(['Aman → Kabir 1000']);
+
+    const on = await call<Group>('PUT', base, { simplifyDebts: true }, riya.token);
+    expect(on.body.simplifyDebts).toBe(true);
+    expect(await owed()).toEqual(['Aman → Kabir 1000']);
+  });
+
+  it('won’t change how debts are worked out while a payment is under way, or a UPI payment isn’t confirmed', async () => {
+    const { db, call, base, group, riya, mRiya, mKabir, addExpense, openPayment } = await setup();
+    await addExpense(mRiya, 3000);
+    const off = () => call<{ message: string }>('PUT', base, { simplifyDebts: false }, riya.token);
+
+    openPayment(mKabir, mRiya);
+    expect(await off()).toMatchObject({
+      status: 409,
+      body: { message: 'A payment in this group is still in progress. Wait for it to finish.' },
+    });
+    // What doesn't change it still goes through: a new name, or the setting it already has.
+    expect((await call('PUT', base, { name: 'Manali 2026', simplifyDebts: true }, riya.token)).status).toBe(200);
+
+    db.prepare(`UPDATE settlements SET status = 'failed' WHERE id = 's-open'`).run();
+    db.prepare(
+      `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, status, created_at)
+       VALUES ('uc-1', ?, ?, ?, 1000, 'pending', ?)`
+    ).run(group.id, mKabir, mRiya, new Date().toISOString());
+    expect(await off()).toMatchObject({
+      status: 409,
+      body: { message: 'A UPI payment in this group hasn’t been confirmed yet. Wait until it has.' },
+    });
+
+    db.prepare(`DELETE FROM upi_claims`).run();
+    expect((await off()).status).toBe(200);
   });
 });
 

@@ -196,7 +196,7 @@ export class NostrLedger {
           v: 1,
           seq: (last?.seq ?? 0) + 1,
           prev: last?.event_id ?? null,
-          group: { id: group.id, name: group.name, currency: group.currency },
+          group: { id: group.id, name: group.name, currency: group.currency, simplifyDebts: group.simplifyDebts },
           members: this.repo.members(group.id).map((m) => ({ id: m.id, displayName: m.displayName })),
           ...subject(d),
         };
