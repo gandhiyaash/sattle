@@ -8,6 +8,7 @@ import { NostrLedger } from './nostrLedger';
 import { LnurlClient } from './lnurl';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
+import { Metrics, serveMetrics } from './metrics';
 import { LightningPayments } from './payments/lightning';
 import { createRateService } from './rates';
 
@@ -59,8 +60,12 @@ const rates = createRateService(
 const ledgerRelays = (env.LEDGER_RELAYS ?? '').split(',').map((r) => r.trim()).filter(Boolean);
 const ledger = new NostrLedger({ db, relays: ledgerRelays });
 
+// Prometheus metrics on their own loopback listener, never on the public API port.
+const metrics = env.METRICS_ADDR ? new Metrics(db) : undefined;
+
 const app = createApp({
   db,
+  metrics,
   ledger,
   demoUserId: env.DEMO_USER_ID || undefined,
   lnurl,
@@ -82,6 +87,8 @@ const app = createApp({
           alwaysFail: env.SIM_ALWAYS_FAIL === 'true',
         }),
 });
+
+if (metrics) serveMetrics(env.METRICS_ADDR!, metrics);
 
 const resumed = lightning?.resume() ?? 0;
 ledger.start();
