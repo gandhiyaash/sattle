@@ -28,6 +28,7 @@ import { auth } from './middleware';
 import { NostrLedger } from './nostrLedger';
 import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
+import { metricsMiddleware, type Metrics } from './metrics';
 import { createRepo, type Repo } from './repo';
 import { accountRoutes } from './routes/accounts';
 import type { LnurlClient } from './lnurl';
@@ -57,6 +58,8 @@ export interface AppDeps {
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
   demoUserId?: string;
   corsOrigin?: string | string[];
+  /** Counts requests by route pattern for Prometheus. Absent, nothing is counted. */
+  metrics?: Metrics;
 }
 
 export function createApp(deps: AppDeps) {
@@ -79,6 +82,9 @@ export function createApp(deps: AppDeps) {
   });
 
   app.notFound((c) => c.json({ code: 'not_found', message: 'No such route.' }, 404));
+
+  // First, so the time counted includes auth and CORS.
+  if (deps.metrics) app.use('*', metricsMiddleware(deps.metrics));
 
   app.use(
     '*',
