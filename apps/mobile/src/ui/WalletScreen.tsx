@@ -1,5 +1,6 @@
 /**
- * Wallet, plus the trust disclosure.
+ * Wallet, plus the trust disclosure. FAQ, at the top right, opens FaqScreen,
+ * where the how and the why live; here each row says only what is trusted.
  *
  * The TrustModel block is the Freedom Stack argument made visible in the
  * product rather than buried in a README. The track asks you to make the
@@ -48,9 +49,11 @@ import { type Appearance, makeStyles, radius, setAppearance, space, type, useApp
 
 export interface WalletScreenProps {
   onBack: () => void;
+  /** Opens the FAQ for the ways to pay this screen shows: what they use, and what they have set up. */
+  onOpenFaq: (ways: PayWays) => void;
 }
 
-export function WalletScreen({ onBack }: WalletScreenProps) {
+export function WalletScreen({ onBack, onOpenFaq }: WalletScreenProps) {
   const s = useStyles();
   const client = useClient();
   const wallet = useWallet();
@@ -70,6 +73,8 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
     address: ways.lightning || Boolean(receiveAt.data?.address),
     upi: ways.upi || Boolean(upiId.data?.upiId),
   };
+  // What the trust block and the FAQ speak to: the ways on show here.
+  const shown: PayWays = { lightning: show.wallet || show.address, upi: show.upi };
   // The demo's in-app wallet holds sats, so it goes with Lightning.
   const inApp = wallet.isAvailable && ways.lightning;
 
@@ -84,7 +89,11 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
   }, [wallet, inApp]);
 
   return (
-    <Screen title="Wallet" onBack={onBack}>
+    <Screen
+      title="Wallet"
+      onBack={onBack}
+      right={<Button label="FAQ" variant="quiet" onPress={() => onOpenFaq(shown)} />}
+    >
       {inApp ? (
         <>
           <Card>
@@ -133,7 +142,7 @@ export function WalletScreen({ onBack }: WalletScreenProps) {
       {show.upi && <UpiIdCard current={upiId} />}
       <AppearancePicker />
 
-      <TrustModel ways={{ lightning: show.wallet || show.address, upi: show.upi }} />
+      <TrustModel ways={shown} />
     </Screen>
   );
 }
@@ -547,8 +556,10 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  * Deliberately not hidden behind a "learn more". A user deciding whether to
  * connect a wallet should read this without hunting for it.
  *
- * Every sentence states what the code does today, including the parts that
- * aren't flattering. Change the code and this has to change with it:
+ * Each row says what is trusted, and no more: how any of it works is in
+ * FaqScreen, under the FAQ button at the top. Every sentence in both states
+ * what the code does today, including the parts that aren't flattering.
+ * Change the code and they have to change with it:
  *
  *   Your money          payments/lightning.ts gets the invoice from the payee's wallet
  *                       or their own address (lnurl.ts); nothing spends
@@ -557,7 +568,8 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  *                       removes the row
  *   The relay           nwc.ts encrypts each request to the wallet (NIP-44 or NIP-04)
  *   Your account        routes/accounts.ts: a name in, a random token out, nothing
- *                       else; account/tokenStore keeps it on the device
+ *                       else; account/tokenStore keeps it on the device; the key is
+ *                       what account/signInKey copies, and routes/accounts.ts replaces
  *   Your currencies     prefs/currencyStore keeps the choice on the device and no
  *                       route takes it; payWays only decides what is drawn, here and
  *                       on the group screen, so nothing set up is removed by it
@@ -566,19 +578,20 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  *   Is it paid          payments/lightning.ts confirms on the wallet's `settled`, and
  *                       keeps the preimage only if preimageMatches; an address
  *                       payment needs a matching preimage (lnurl.ts verify,
- *                       proof.ts); the manual route lets
- *                       the payee settle a debt by hand (the payer, if the payee is
- *                       a ghost): settlementRules.ts checkManualRecorder
- *   Group data          migrations/001_init.sql: plain columns, no encryption
- *   Pay links           routes/payLinks.ts guestView, and its randomBytes(16) token
- *   Group links         routes/groupLinks.ts: no row in group_links until POST
- *                       /groups/:id/link, guestView, and nothing under /g/ that writes
- *   UPI                 routes/upi.ts: a claim is a row in upi_claims, not a settlement,
- *                       and the payee's confirm makes one; so does /upi-payments, where
- *                       the payer's phone passes on a UPI app's success (Android only:
+ *                       proof.ts); the manual route lets the payee settle a debt by
+ *                       hand (the payer, if the payee is a ghost):
+ *                       settlementRules.ts checkManualRecorder; routes/upi.ts: a
+ *                       claim is a row in upi_claims, not a settlement, and the
+ *                       payee's confirm makes one; so does /upi-payments, where the
+ *                       payer's phone passes on a UPI app's success (Android only:
  *                       upi/launchUpi.android.ts) or the payer's own yes, with the
- *                       reference if they typed one (useSettleFlow confirmPaid, checked
- *                       by parseUpiReference); walletStore.ts upi_id, and
+ *                       reference if they typed one (useSettleFlow confirmPaid,
+ *                       checked by parseUpiReference)
+ *   Group data          migrations/001_init.sql: plain columns, no encryption
+ *   Who can see what    routes/groupLinks.ts: no row in group_links until POST
+ *                       /groups/:id/link, guestView, and nothing under /g/ that
+ *                       writes; routes/payLinks.ts guestView, and its randomBytes(16)
+ *                       token; walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
  *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
  *                       while upi_on_links is on, as it is from the start, or
@@ -601,6 +614,14 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
 export function TrustModel({ ways }: { ways: PayWays }) {
   const s = useStyles();
   const { lightning, upi } = ways;
+  const paid = [
+    lightning
+      ? 'A Lightning payment counts as paid when the payee’s own wallet says the invoice was settled, or with the payment proof: a code the payer’s wallet gets when it pays, which matches the invoice and can’t be made up.'
+      : 'Sattle can’t see money move, so a debt is settled on someone’s word, not proof.',
+    'Mark as settled is the word of the person who is owed, or of the payer when the one owed hasn’t joined.',
+    upi &&
+      'A UPI payment is someone’s word too: what the payer’s UPI app said, on Android, or what the payer said, with the reference kept in the group’s history to check against a statement.',
+  ];
   return (
     <View>
       <SectionLabel>What you're trusting</SectionLabel>
@@ -609,8 +630,8 @@ export function TrustModel({ ways }: { ways: PayWays }) {
           title="Your money"
           body={
             lightning
-              ? 'Sattle never holds it. To collect a debt, the server asks the wallet or Lightning address of the person who is owed to create a Lightning invoice, and the payer pays it from their own wallet. Nothing sits with us in between, so there is nothing for us to freeze, lose or refund.'
-              : 'Sattle never holds it. A UPI payment goes from the payer’s UPI app straight to the person who is owed. Nothing passes through us, so there is nothing for us to freeze, lose or refund.'
+              ? 'Sattle never holds it. The server asks the wallet or Lightning address of the person who is owed for an invoice, and the payer pays it from their own wallet. There is nothing for us to freeze, lose or refund.'
+              : 'Sattle never holds it. A UPI payment goes from the payer’s UPI app straight to the person who is owed. There is nothing for us to freeze, lose or refund.'
           }
         />
         {lightning && (
@@ -618,12 +639,12 @@ export function TrustModel({ ways }: { ways: PayWays }) {
             <Divider />
             <Row
               title="Your wallet connection"
-              body="If you connect a wallet, Sattle's server keeps the connection string, unencrypted, because it needs it to ask your wallet for invoices. It asks only three things: what the connection allows, to create an invoice, and whether an invoice was paid. It has no code that spends. But anyone who gets the string can do whatever it allows, so make it receive-only. Disconnect makes the server forget the string. To be sure nobody can use it again, also delete the connection in your wallet."
+              body="Sattle’s server keeps the connection string, unencrypted, to ask your wallet for invoices. It uses it only to create and check invoices, but anyone who took the string from the server could do whatever it allows, so make it receive-only. Disconnect makes the server forget it; also delete the connection in your wallet."
             />
             <Divider />
             <Row
               title="Your Lightning address"
-              body="If you add one, Sattle's server keeps it and asks it for invoices, the way any wallet paying you would. An address can only receive, so there is nothing to steal, but whoever runs it (your wallet's company) sees what you're paid. Only you can set yours."
+              body="Sattle’s server keeps it and asks it for invoices, the way any wallet paying you would. Whoever runs the address, your wallet’s company, sees what you’re paid. Only you can set yours."
             />
             <Divider />
             <Row
@@ -635,69 +656,44 @@ export function TrustModel({ ways }: { ways: PayWays }) {
         <Divider />
         <Row
           title="Your account"
-          body={`It's a name and a random key that only this device has. No email, phone or password, so there's nothing to recover it with: clear this device's data or lose it, and you lose access to your groups${lightning ? ' and wallet connection' : ''}.`}
+          body={`A name and a random key that only this device has. No email, phone or password: only the sign-in key under Account, or a Nostr key linked there, gets you back in, so keep a copy, or losing this device loses your groups${lightning ? ' and wallet connection' : ''}.`}
         />
         <Divider />
         <Row
           title="Your currencies"
-          body="Which currencies you use is kept on this device and never sent to Sattle's server. It only changes what the app shows you. Turning one off removes nothing: whatever you set up to get paid stays, and stays on this screen, until you remove it here."
+          body="Which currencies you use is kept on this device and never sent to Sattle’s server. It only changes what the app shows you; nothing you set up to get paid is removed by it."
         />
         <Divider />
-        <Row
-          title="Is it really paid?"
-          body={
-            lightning
-              ? "A payment counts as paid when the payee's own wallet says the invoice was settled, and Sattle keeps the payment proof only when it matches the invoice. For a Lightning address, it counts only with that proof: a code the payer's wallet gets when it pays, which no one can make up. Settled by hand is different: the person who is owed marks it, or the person paying if the one owed hasn't joined, and it is their word, not proof. A UPI payment is someone's word too: the person owed confirms it arrived, or the payer's side says it went through, which settles it without asking anyone. That is their UPI app on Android, or the payer themselves, who is asked when no app says."
-              : "Sattle can't see money move, so a debt is settled on someone's word, not proof. The person who is owed confirms that a UPI payment arrived or marks the debt settled, or the person paying marks it if the one owed hasn't joined. A UPI payment can also be settled without asking the person owed: when the payer's UPI app says it went through (Android), or when the payer says so themselves. The payment's reference, when there is one, is kept in the group's history to check it by."
-          }
-        />
-        {upi && (
-          <>
-            <Divider />
-            <Row
-              title="UPI"
-              body="A UPI payment happens in your UPI app, outside Sattle, and nothing tells us about it. The person paying says they paid, and the balance moves when the person who is owed confirms it arrived. There is one exception: when the payer's UPI app says the payment went through (Android), or the payer says so themselves, the balance moves straight away, on their word. The payment's reference, when they give one, is kept in the group's history to check it by. If you add a UPI ID, Sattle's server keeps it, and someone in the group who owes you is shown it. So is anyone holding one of your groups' shared links, when they choose to pay you, unless you turn that off, for all your groups or for one."
-            />
-          </>
-        )}
+        <Row title="Is it really paid?" body={paid.filter(Boolean).join(' ')} />
         <Divider />
         <Row
           title="Your group data"
-          body="Group names, people's names, expenses and payments are stored on Sattle's server. They are not end-to-end encrypted, so the people who run Sattle can read them. Everyone in a group sees everything in that group."
+          body="Group names, people’s names, expenses and payments are stored on Sattle’s server. They are not end-to-end encrypted, so the people who run Sattle can read them. Everyone in a group sees everything in that group."
         />
-        {lightning && (
-          <>
-            <Divider />
-            <Row
-              title="Pay links"
-              body="Anyone who has a pay link sees who owes whom, the group's name, the amount and whether it is paid, and nothing else about the group. A link can't be guessed, but it can be forwarded."
-            />
-          </>
-        )}
         <Divider />
         <Row
-          title="Group links"
-          body={`A group has no link until someone in it makes one. Anyone who has that link sees every expense, each person's share, everyone's name and who owes whom, and can pay a debt. They can't change anything${
-            upi ? ': a UPI payment they say they made counts only once the person owed confirms it' : ''
-          }. They can ask to join, which is covered below. It can't be guessed, but it can be forwarded, and anyone in the group can replace it or turn it off.`}
+          title="Who can see what"
+          body={`Anyone holding a group’s link sees every expense, every name and who owes whom, and can pay a debt, but can’t change anything. A pay link shows one debt: who owes whom, the group’s name, the amount and whether it’s paid.${
+            upi ? ' Your UPI ID is shown to people who owe you, and to anyone holding one of your groups’ links unless you turn that off.' : ''
+          } Neither link can be guessed, but both can be forwarded.`}
         />
         <Divider />
         <Row
           title="Joining"
-          body="The group link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it's really them. Until then they can do no more than anyone else holding the link. Once in, they see and can add to everything, like everyone else."
+          body="A link lets someone ask to join, not join. Someone already in the group has to let them in, and both see the same four-digit code to check it’s really them."
         />
         {lightning && (
           <>
             <Divider />
             <Row
               title="The exchange rate"
-              body="A debt in a group kept in rupees is paid in sats. The server takes the rate from CoinGecko, or from Blockchain.com or Coinbase when it is down, and fixes it for 90 seconds when it makes the invoice, and you see the amount in sats before you pay. If none of them answers, it uses the last rate it had. With no rate at all the payment doesn't go through, unless the server has been given a fixed one to use. A group kept in bitcoin is owed in sats already, so it is paid as it stands and no rate is used."
+              body="A debt in rupees is paid in sats at CoinGecko’s rate, or Blockchain.com’s or Coinbase’s when it is down, fixed for 90 seconds when the invoice is made and shown to you in sats before you pay. A group kept in bitcoin is owed in sats already, so no rate is used."
             />
           </>
         )}
       </Card>
       <Text style={s.trustFooter}>
-        If any of this changes, this screen changes with it.
+        If any of this changes, this screen changes with it. How it all works is under FAQ, at the top.
       </Text>
       {/* Play requires the policy to be reachable from inside the app, not only the listing. */}
       <Text

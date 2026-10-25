@@ -14,11 +14,12 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { Debt, Expense, HistoryEntry, Member } from '@sattle/core';
+import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
+import { FaqScreen } from './FaqScreen';
 import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
 import { GroupGuestScreen } from './GroupGuestScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
@@ -43,6 +44,7 @@ type Route =
   | { name: 'groupSettings'; groupId: string }
   | { name: 'history'; groupId: string }
   | { name: 'wallet' }
+  | { name: 'faq'; ways: PayWays }
   | { name: 'account' }
   | { name: 'join'; token?: string }
   | { name: 'shared'; token: string }
@@ -294,7 +296,15 @@ function Navigator({
         );
 
       case 'wallet':
-        return <WalletScreen onBack={() => setRoute({ name: 'groups' })} />;
+        return (
+          <WalletScreen
+            onBack={() => setRoute({ name: 'groups' })}
+            onOpenFaq={(ways) => setRoute({ name: 'faq', ways })}
+          />
+        );
+
+      case 'faq':
+        return <FaqScreen ways={route.ways} onBack={() => setRoute({ name: 'wallet' })} />;
 
       case 'account':
         return (
