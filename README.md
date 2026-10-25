@@ -151,7 +151,8 @@ apps/mobile/                 @sattle/mobile: Expo
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
-      WalletScreen.tsx       Balance, address, and the trust disclosure.
+      WalletScreen.tsx       Balance, address, UPI ID, and the trust disclosure: what is trusted, and no more. FAQ at the top right.
+      FaqScreen.tsx          Behind that FAQ: how getting paid, confirming, UPI, the links and the account work, for the ways to pay the reader uses.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup. Lightning, UPI, or a choice of the two.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning and UPI on each debt, and Join.
