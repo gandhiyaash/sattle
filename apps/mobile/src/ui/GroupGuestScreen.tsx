@@ -17,9 +17,9 @@
  * buttons: paying someone else's is allowed and harmless.
  *
  * It is also the way in. Join opens /join/<token>, with the same token,
- * where someone says which of the people in the group they are and asks to
- * join; someone already in it lets them in (JoinScreen). For someone who has
- * joined, that opens the group.
+ * where someone says which of the people in the group they are and is in,
+ * or asks to be, if the group approves joins (JoinScreen). For someone who
+ * has joined, that opens the group.
  *
  * Mostly this is a page in a browser. On an Android phone with the app, the
  * link opens the app instead, and someone who isn't in the group gets this
@@ -226,8 +226,9 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
       <Card style={s.joinCard}>
         <Text style={s.joinTitle}>In this group?</Text>
         <Text style={s.body}>
-          Join it to add what you’ve spent and settle up in the app. You pick your name, and someone in the group
-          lets you in. Already joined? This opens the group.
+          {`Join it to add what you’ve spent and settle up in the app. ${
+            data.approveJoins ? 'You pick your name, and someone in the group lets you in.' : 'You pick your name and you’re in.'
+          } Already joined? This opens the group.`}
         </Text>
         {onJoin ? (
           // Inside the app, which has a join screen of its own to go to.

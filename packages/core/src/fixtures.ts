@@ -21,6 +21,8 @@ export const groups: Group[] = [
     name: 'Goa trip',
     currency: 'INR',
     memberIds: ['m-goa-yash', 'm-goa-om', 'm-goa-aman', 'm-goa-priya'],
+    // On, so the demo has someone waiting to be let in (MockClient.joinRequests).
+    approveJoins: true,
     createdAt: at(12),
     simplifyDebts: true,
   },
@@ -29,6 +31,7 @@ export const groups: Group[] = [
     name: 'Flat 4B',
     currency: 'INR',
     memberIds: ['m-flat-yash', 'm-flat-om', 'm-flat-priya'],
+    approveJoins: false,
     createdAt: at(40),
     simplifyDebts: true,
   },

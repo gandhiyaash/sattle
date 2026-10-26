@@ -272,7 +272,7 @@ describe('Group links', () => {
   it('"sees every expense, each person’s share, everyone’s name and who owes whom"', async () => {
     const { call } = setup();
     const view = (await call<GroupGuestView>('GET', '/g/demo-group')).body;
-    expect(Object.keys(view).sort()).toEqual(['currency', 'debts', 'expenses', 'groupName']);
+    expect(Object.keys(view).sort()).toEqual(['approveJoins', 'currency', 'debts', 'expenses', 'groupName']);
     expect(Object.keys(view.expenses[0]).sort()).toEqual(['amount', 'createdAt', 'description', 'paidBy', 'shares']);
     expect(Object.keys(view.debts[0]).sort()).toEqual(['amount', 'from', 'payable', 'ref', 'to']);
     const names = new Set(view.expenses.flatMap((e) => e.shares.map((sh) => sh.name)));

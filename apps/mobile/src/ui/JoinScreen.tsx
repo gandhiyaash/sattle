@@ -1,8 +1,9 @@
 /**
  * Joining a group with its link: arrive on /join/<token>, which is where Join
  * on the group page leads, or paste the link. See which group it is, say
- * which of the people in it you are, and ask to join. Someone already in the
- * group lets you in; until then you're on the groups list, waiting, with a
+ * which of the people in it you are, and you're in. A group that approves
+ * joins (Group.approveJoins) makes that an ask: someone already in the group
+ * lets you in, and until then you're on the groups list, waiting, with a
  * code they may ask you for (WaitingToJoin).
  *
  * Once in, you are that member, with the balance already on that name, and
@@ -16,9 +17,9 @@
  * taps + and gives their name, and joins as a new member.
  *
  * A joined name can be picked as well, by someone who joined and then lost
- * the phone or browser they joined with. Being let in hands them that name,
- * and the account that had it leaves the group. The screen says so when one
- * is picked.
+ * the phone or browser they joined with. That is always an ask, whatever the
+ * group chose: being let in hands them that name, and the account that had
+ * it leaves the group. The screen says so when one is picked.
  *
  * Someone already in the group has nobody left to be. For them the link just
  * opens the group.
@@ -40,12 +41,14 @@ export interface JoinScreenProps {
   onBack: () => void;
   /** They've asked. Someone in the group still has to let them in. */
   onAsked: () => void;
+  /** They're in: the group opens. */
+  onJoined: (groupId: string) => void;
   /** The link is for a group they're already in: there is nothing to ask, so the group opens. */
   onAlreadyIn: (groupId: string) => void;
 }
 
 /** For someone who already has an account on this device. */
-export function JoinScreen({ token, onBack, onAsked, onAlreadyIn }: JoinScreenProps) {
+export function JoinScreen({ token, onBack, onAsked, onJoined, onAlreadyIn }: JoinScreenProps) {
   const client = useClient();
   // A retry after a lost response replays the join instead of finding the name taken.
   const keys = useActionKeys();
@@ -81,12 +84,16 @@ export function JoinScreen({ token, onBack, onAsked, onAlreadyIn }: JoinScreenPr
       ) : active ? (
         <WhoAreYou
           token={active}
-          note="Someone in the group lets you in. Then you can see everything in it and add to it."
           suggestedName={me.data?.displayName}
-          join={async (as) => {
+          join={async (as, _name, atOnce) => {
             const input = { token: active, as };
-            await keys.run('join', input, (k) => client.askToJoin(input.token, input.as, k));
-            onAsked();
+            if (atOnce) {
+              const member = await keys.run('join', input, (k) => client.join(input.token, input.as, k));
+              onJoined(member.groupId);
+            } else {
+              await keys.run('ask-to-join', input, (k) => client.askToJoin(input.token, input.as, k));
+              onAsked();
+            }
           }}
           otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
         />
@@ -108,7 +115,7 @@ export function JoinAsNewScreen({
   onSkip,
 }: {
   token: string;
-  /** `accountToken` is the new account's, already saved on this device. Their request, if it went through, is waiting. */
+  /** `accountToken` is the new account's, already saved on this device. They're in the group, or their request is waiting. */
   onJoined: (accountToken: string) => void;
   /** The link is no use to them, and they have no account yet. They start the app without it. */
   onSkip: () => void;
@@ -136,8 +143,8 @@ export function JoinAsNewScreen({
         // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
         key={token}
         token={token}
-        note="Someone in the group lets you in. Then you can see everything in it and add to it. No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
-        join={async (as, name) => {
+        aboutAccount="No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
+        join={async (as, name, atOnce) => {
           if (made.current && made.current.name !== name) await forget();
           if (!made.current) {
             const account = await createAccount(API_URL, name);
@@ -146,8 +153,11 @@ export function JoinAsNewScreen({
           }
           const accountToken = made.current.token;
           const input = { token, as };
+          const client = buildClient(accountToken);
           await keys
-            .run('join', input, (k) => buildClient(accountToken).askToJoin(input.token, input.as, k))
+            .run<unknown>(atOnce ? 'join' : 'ask-to-join', input, (k) =>
+              atOnce ? client.join(input.token, input.as, k) : client.askToJoin(input.token, input.as, k)
+            )
             .catch(async (e) => {
               // A lost connection is worth keeping the account for: the retry replays this join.
               // Anything else means they can't be this person, so the account goes.
@@ -212,22 +222,28 @@ const NEW = '+';
  * picked to take a place back. Someone who isn't any of them taps + and gives
  * their own name. `join` does the joining and
  * leaves the screen; if it throws, the message is shown and the list is read
- * again, since the name may just have been taken.
+ * again, since the name may just have been taken, or the group may have
+ * started approving joins.
  */
 function WhoAreYou({
   token,
-  note,
+  aboutAccount,
   suggestedName,
   join,
   otherwise,
 }: {
   token: string;
-  /** What joining means, above the button. */
-  note: string;
+  /** Said after what joining means, above the button: for someone whose account this tap makes. */
+  aboutAccount?: string;
   /** What someone adding themselves is already called, if they have an account. */
   suggestedName?: string;
-  /** `name` is what they will be called in the group: the member's, or the one they typed. */
-  join: (as: JoinAs, name: string) => Promise<void>;
+  /**
+   * `name` is what they will be called in the group: the member's, or the one
+   * they typed. `atOnce`: the tap makes them a member, with nobody to say yes;
+   * otherwise it asks. Off for a group that approves joins, and for a name
+   * someone has joined as, which is only ever asked for.
+   */
+  join: (as: JoinAs, name: string, atOnce: boolean) => Promise<void>;
   /** The way on when this link can't be used. */
   otherwise: { label: string; onPress: () => void };
 }) {
@@ -262,6 +278,7 @@ function WhoAreYou({
   const ghost = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
   const returning = adding ? null : (data.rejoin?.find((m) => m.ref === picked) ?? null);
   const member = ghost ?? returning;
+  const atOnce = !data.approveJoins && !returning;
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
 
@@ -270,20 +287,23 @@ function WhoAreYou({
     setBusy(true);
     setFailed(null);
     try {
-      await join(member ? { ref: member.ref } : { displayName: name }, name);
+      await join(member ? { ref: member.ref } : { displayName: name }, name, atOnce);
     } catch (e) {
       // The choice stays. After a dropped connection the retry is one tap, with the name still
-      // in the field; a name that was just taken leaves the list when it is read again.
+      // in the field, and it sends the same request again, so one that went through is answered
+      // as it was. Reading the list again would be wrong then: a join that went through moves the
+      // name to the joined ones, and the retry would ask to take it over instead. Anything else
+      // reads it again: the name may just have been taken, or the group may now approve joins.
       setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
       setBusy(false);
-      refresh();
+      if (!(e instanceof SattleError && e.code === 'network')) refresh();
     }
   };
 
   return (
     <>
       <Card style={{ gap: space.xs }}>
-        <Text style={s.label}>You’re asking to join</Text>
+        <Text style={s.label}>{atOnce ? 'You’re joining' : 'You’re asking to join'}</Text>
         <Text style={s.group}>{data.groupName}</Text>
       </Card>
 
@@ -394,10 +414,25 @@ function WhoAreYou({
         </Text>
       </View>
 
-      <Text style={s.note}>{note}</Text>
+      <Text style={s.note}>
+        {atOnce
+          ? 'You’re in as soon as you tap Join, and can see everything in the group and add to it.'
+          : 'Someone in the group lets you in. Then you can see everything in it and add to it.'}
+        {aboutAccount ? ` ${aboutAccount}` : ''}
+      </Text>
       {failed && <ErrorState message={failed} />}
       <Button
-        label={returning ? `Ask to be ${name} again` : name ? `Ask to join as ${name}` : 'Ask to join'}
+        label={
+          returning
+            ? `Ask to be ${name} again`
+            : atOnce
+              ? name
+                ? `Join as ${name}`
+                : 'Join'
+              : name
+                ? `Ask to join as ${name}`
+                : 'Ask to join'
+        }
         variant="primary"
         busy={busy}
         disabled={!name}

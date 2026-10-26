@@ -7,8 +7,8 @@
  * group's own choice: there is no link until someone in the group makes one,
  * there is only ever one, and anyone in the group can replace it or turn it
  * off. Holding it changes nothing in the group. It can start a payment,
- * which goes to the person owed like any other, and it can be used to ask to
- * join (joining.ts), which someone in the group has to say yes to.
+ * which goes to the person owed like any other, and it can be used to join
+ * (joining.ts), which a group can choose to have someone in it say yes to.
  *
  * In a rupee group, a debt can also be paid by UPI from here, to someone who
  * has a UPI ID and hasn't turned that off for shared links. The
@@ -84,6 +84,7 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
     return {
       groupName: g.name,
       currency: g.currency,
+      approveJoins: g.approveJoins,
       expenses: repo.expenses(g.id).map((e) => ({
         description: e.description,
         amount: e.amount,

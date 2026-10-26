@@ -166,24 +166,26 @@ export function createRepo(db: Db) {
     groupById: db.prepare('SELECT * FROM expense_groups WHERE id = ?'),
     renameGroup: db.prepare('UPDATE expense_groups SET name = ? WHERE id = ?'),
     setSimplifyDebts: db.prepare('UPDATE expense_groups SET simplify_debts = ? WHERE id = ?'),
+    setApproveJoins: db.prepare('UPDATE expense_groups SET approve_joins = ? WHERE id = ?'),
     insertGroup: db.prepare(
       'INSERT INTO expense_groups (id, name, currency, created_at, simplify_debts) VALUES (?, ?, ?, ?, ?)'
     ),
     isMember: db.prepare('SELECT 1 FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     memberForUser: db.prepare('SELECT * FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
+    vouches: db.prepare('SELECT vouched FROM members WHERE group_id = ? AND claimed_by_user_id = ?'),
     membersOfGroup: db.prepare('SELECT * FROM members WHERE group_id = ? ORDER BY position'),
     memberById: db.prepare('SELECT * FROM members WHERE id = ?'),
     // group_id is bound twice: once for the row, once for the position subquery.
     appendMember: db.prepare(
-      `INSERT INTO members (id, group_id, position, display_name, status, claimed_by_user_id)
-       VALUES (?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM members WHERE group_id = ?), ?, ?, ?)`
+      `INSERT INTO members (id, group_id, position, display_name, status, claimed_by_user_id, vouched)
+       VALUES (?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM members WHERE group_id = ?), ?, ?, ?, ?)`
     ),
     setAddress: db.prepare('UPDATE members SET lightning_address = ? WHERE id = ?'),
     // Only ever claims a ghost: the WHERE is what keeps two people off one member.
     // The address a groupmate typed for the ghost goes: a joined member only
     // ever has an address they set themselves (see payout-address).
     claimMember: db.prepare(
-      `UPDATE members SET claimed_by_user_id = ?, status = ?, lightning_address = NULL
+      `UPDATE members SET claimed_by_user_id = ?, status = ?, lightning_address = NULL, vouched = ?
        WHERE id = ? AND claimed_by_user_id IS NULL`
     ),
     // What they chose about this group's shared link (upi_on_link) was theirs, so it goes with them.
@@ -387,6 +389,7 @@ export function createRepo(db: Db) {
         name: r.name as string,
         currency: r.currency as string,
         memberIds: repo.members(r.id as string).map((m) => m.id),
+        approveJoins: r.approve_joins === 1,
         createdAt: r.created_at as string,
         simplifyDebts: r.simplify_debts === 1,
       };
@@ -410,7 +413,8 @@ export function createRepo(db: Db) {
       return r && repo.hydrateGroup(r);
     },
 
-    insertGroup(g: Omit<Group, 'memberIds'>) {
+    /** A new group lets people in by its link without a yes, until someone in it says otherwise. */
+    insertGroup(g: Omit<Group, 'memberIds' | 'approveJoins'>) {
       q.insertGroup.run(g.id, g.name, g.currency, g.createdAt, g.simplifyDebts ? 1 : 0);
     },
     renameGroup(id: string, name: string) {
@@ -419,15 +423,18 @@ export function createRepo(db: Db) {
     setSimplifyDebts(id: string, on: boolean) {
       q.setSimplifyDebts.run(on ? 1 : 0, id);
     },
+    setApproveJoins(id: string, on: boolean) {
+      q.setApproveJoins.run(on ? 1 : 0, id);
+    },
     /** The group and everything in it. Its ledger key goes too, so what was mirrored can't be read back from here. */
     deleteGroup(id: string) {
       for (const stmt of dropGroup) stmt.run(id);
     },
 
     members: (groupId: string) => (q.membersOfGroup.all(groupId) as Row[]).map(toMember),
-    /** Adds the member after everyone already in the group. */
-    appendMember(m: Omit<Member, 'lightningAddress'>) {
-      q.appendMember.run(m.id, m.groupId, m.groupId, m.displayName, m.status, m.claimedByUserId ?? null);
+    /** Adds the member after everyone already in the group. `vouched`: as for claimMember. */
+    appendMember(m: Omit<Member, 'lightningAddress'>, vouched = true) {
+      q.appendMember.run(m.id, m.groupId, m.groupId, m.displayName, m.status, m.claimedByUserId ?? null, vouched ? 1 : 0);
       return repo.member(m.id)!;
     },
     member: (id: string) => {
@@ -443,19 +450,36 @@ export function createRepo(db: Db) {
       const r = q.memberForUser.get(groupId, userId) as Row | undefined;
       return r && toMember(r);
     },
-    /** Hands a ghost to a user. False if someone already has it. */
-    claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
-      return q.claimMember.run(userId, status, id).changes === 1;
+    /**
+     * Whether the user can vouch for someone in this group: they made it, or
+     * whoever let them in could. False for someone who got in by the link
+     * alone, and for someone not in the group.
+     */
+    vouches: (groupId: string, userId: string) =>
+      (q.vouches.get(groupId, userId) as { vouched: number } | undefined)?.vouched === 1,
+    /**
+     * Hands a ghost to a user. False if someone already has it. `vouched` is
+     * whether they can vouch for others in their turn (vouches): false for
+     * someone who joined by the link alone.
+     */
+    claimMember(id: string, userId: string, status: Exclude<Member['status'], 'ghost'>, vouched: boolean): boolean {
+      return q.claimMember.run(userId, status, vouched ? 1 : 0, id).changes === 1;
     },
     /**
      * Hands a member from the account that has it to another, as if the first
      * left and the second was let in as the ghost. False, and nothing changes,
      * if `fromUserId` no longer has it.
      */
-    handOverMember(id: string, fromUserId: string, toUserId: string, status: Exclude<Member['status'], 'ghost'>): boolean {
+    handOverMember(
+      id: string,
+      fromUserId: string,
+      toUserId: string,
+      status: Exclude<Member['status'], 'ghost'>,
+      vouched: boolean
+    ): boolean {
       if (repo.member(id)?.claimedByUserId !== fromUserId) return false;
       repo.unclaimMember(id);
-      return repo.claimMember(id, toUserId, status);
+      return repo.claimMember(id, toUserId, status, vouched);
     },
     /** The reverse: the member is a ghost again, with its name, history and balance. The group's link can hand it back. */
     unclaimMember(id: string) {

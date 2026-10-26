@@ -224,3 +224,11 @@ describe('POST /groups/:id/members', () => {
     expect((await members('g-goa')).filter((m) => m.displayName === 'Riya')).toHaveLength(1);
   });
 });
+
+describe('the demo seed', () => {
+  it('has Goa trip approving joins and Flat 4B letting people straight in, as the mock does', async () => {
+    const { call } = setup();
+    expect((await call<Group>('GET', '/groups/g-goa')).body.approveJoins).toBe(true);
+    expect((await call<Group>('GET', '/groups/g-flat')).body.approveJoins).toBe(false);
+  });
+});

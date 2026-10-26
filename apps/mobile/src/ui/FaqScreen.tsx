@@ -147,7 +147,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
       answer: [
         `A group has no link until someone in it makes one, under Manage. Whoever opens it sees every expense, each person’s share, everyone’s name and who owes whom, and can pay a debt ${pay}. They can’t add or change anything${
           upi ? ', and a UPI payment they say they made counts only once the person owed confirms it' : ''
-        }. They can ask to join.`,
+        }. They can join, or ask to, as the group chooses under Manage.`,
         'Anyone in the group can replace the link or turn it off. It can’t be guessed, but it can be forwarded.',
         'A pay link, sent for one debt, shows less: who owes whom, the group’s name, the amount and whether it’s paid.',
       ],
@@ -155,7 +155,8 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
     {
       question: 'How does joining a group work?',
       answer: [
-        'From the group’s link, tap Join and give your name. That is a request, not a place in the group: someone already in it has to let you in, and you both see the same four-digit code to check it’s really you. Until then you can do no more than anyone else holding the link.',
+        'From the group’s link, tap Join and pick your name, or give one if you’re not on the list. You’re in at once, as that name and with the balance on it.',
+        'A group can ask to look first, under Manage. Then picking a name is a request, not a place in the group: someone already in it has to let you in, and you both see the same four-digit code to check it’s really you. Until then you can do no more than anyone else holding the link. Taking over a name someone has already joined as needs that yes in every group.',
         'Once in, you see and can add to everything, like everyone else.',
       ],
     },

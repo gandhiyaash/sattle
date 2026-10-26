@@ -46,9 +46,9 @@ A group keeps its expenses in its own currency, rupees by default, because that'
 
 Not everyone settles in sats. In a rupee group, someone who adds a UPI ID can be paid by UPI. On Android the app opens a UPI app and hears back. On an iPhone or the web the payer gets the UPI ID or a QR code, then taps **I've paid**. Sattle can't see a bank transfer, so that's a claim, not a payment, and it moves no balance until the person owed confirms it. Cash works the same way: the person owed marks the debt settled. The person paying can't mark their own debt paid, and nobody else in the group can either. The one exception is a friend who never joined: they have no account to confirm with, so the person paying them can record it. The app always shows claims separately from Lightning payments that come with proof.
 
-### Joining needs a yes
+### Joining, and when it needs a yes
 
-The same link has a **Join** button for anyone who wants to add spends themselves. They pick their name from the list. A link can be forwarded, so picking a name only makes a request. Someone already in the group sees "Someone wants to join as Om · Code 7051" and lets them in or turns them down.
+The same link has a **Join** button for anyone who wants to add spends themselves. They pick their name from the list and they're in. A link can be forwarded, so a group can turn on approving joins under Manage: picking a name then only makes a request, and someone already in the group sees "Someone wants to join as Om · Code 7051" and lets them in or turns them down. Taking over a name someone has already joined as needs that yes in every group.
 
 It runs on Android and the web, against a live server taking real Lightning payments. Open source (MIT). No token.
 
@@ -63,7 +63,7 @@ The Freedom Stack track asks where trust-minimisation still falls short. In Satt
 - **Some Lightning addresses can't tell us they were paid.** When an address has no verify link, Sattle can only confirm the payment with the payer's proof of payment. Without that, the invoice closes as "we couldn't tell" rather than paid.
 - **UPI and cash are claims, not proofs.** A UPI payment counts when the person owed confirms it (or the payer records it, when the person owed never joined). The app shows these differently from Lightning settlements for that reason.
 - **The group link is a key to read the group.** Anyone it's forwarded to can see the spends and who owes what, and is shown a UPI ID when they choose to pay that person. It doesn't expire, so the group can replace it or turn it off. A UPI ID with a phone number in it gets a warning before it's shown, and each person can keep theirs off any group's link.
-- **Letting someone in is a person vouching.** Since the link can be forwarded, a groupmate approves each request to join. A wrong yes is undone only by that person leaving.
+- **Letting someone in is a person vouching.** By default whoever holds the link is in. Since the link can be forwarded, a group can have a groupmate approve each request to join instead. A wrong yes, or a name taken by the wrong person, is undone only by that person leaving.
 
 ### What's next
 

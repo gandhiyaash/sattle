@@ -222,6 +222,9 @@ export class ApiClient implements SattleClient {
   getJoinedGroup(token: string) {
     return this.request<Group | null>('GET', `/links/${encodeURIComponent(token)}/group`);
   }
+  join(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Member>('POST', '/join', { token, ...as }, idempotencyKey);
+  }
   askToJoin(token: string, as: JoinAs, idempotencyKey = newIdempotencyKey()) {
     return this.request<JoinRequest>('POST', '/join-requests', { token, ...as }, idempotencyKey);
   }
@@ -284,6 +287,9 @@ export class ApiClient implements SattleClient {
   }
   setSimplifyDebts(groupId: string, on: boolean, idempotencyKey = newIdempotencyKey()) {
     return this.request<Group>('PUT', `/groups/${groupId}`, { simplifyDebts: on }, idempotencyKey);
+  }
+  setApproveJoins(groupId: string, on: boolean, idempotencyKey = newIdempotencyKey()) {
+    return this.request<Group>('PUT', `/groups/${groupId}`, { approveJoins: on }, idempotencyKey);
   }
   async deleteGroup(groupId: string, idempotencyKey = newIdempotencyKey()) {
     await this.request('DELETE', `/groups/${groupId}`, undefined, idempotencyKey);
