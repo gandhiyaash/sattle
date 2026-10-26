@@ -143,7 +143,7 @@ export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081
 /**
  * The group's link, made now if it has none, and the line to show once it has
  * been sent. It is the group's one link: whoever opens it sees the group, can
- * pay what they owe, and can ask to join.
+ * pay what they owe, and can join, or ask to.
  *
  * Looking first is what makes a retry safe: a link made by an attempt whose
  * reply was lost is found here. So making one takes a fresh request key every

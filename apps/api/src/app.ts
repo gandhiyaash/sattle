@@ -7,7 +7,7 @@
  *   routes/groups.ts       groups, members, expenses, debts
  *   routes/settlements.ts  direct and manual settlement
  *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
- *   routes/joining.ts      joining with the group link: the public /join/:token, /links/:token/group, join requests
+ *   routes/joining.ts      joining with the group link: the public /join/:token, /links/:token/group, POST /join, join requests
  *   routes/groupLinks.ts   /groups/:id/link and the public /g/:token
  *   routes/wallet.ts       the payee's NWC connection
  *   routes/events.ts       server-sent events for payment status

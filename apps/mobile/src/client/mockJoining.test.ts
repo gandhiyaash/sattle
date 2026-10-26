@@ -101,4 +101,68 @@ describe('MockClient joining, with the group’s link', () => {
     await c.withdrawJoinRequest(asked.id);
     expect(await c.getMyJoinRequests()).toEqual([]);
   });
+
+  // Flat 4B has a payment to Yash under way, so its one user can't leave it; Goa trip is the group to leave and rejoin.
+  it('lets its user straight back into a group they left, once the group stops approving joins', async () => {
+    const c = client();
+    await c.setApproveJoins('g-goa', false);
+    const link = await c.createGroupLink('g-goa');
+    await c.leaveGroup('g-goa');
+    const view = await c.getJoinView(link.token);
+    expect(view.approveJoins).toBe(false);
+    const yash = view.members.find((m) => m.name === 'Yash')!;
+
+    const member = await c.join(link.token, { ref: yash.ref });
+    expect(member).toMatchObject({ id: 'm-goa-yash', displayName: 'Yash', status: 'joined', claimedByUserId: 'u-yash' });
+    expect((await c.getGroups()).map((g) => g.id)).toContain('g-goa');
+    expect(await c.getMyJoinRequests()).toEqual([]);
+    await expect(c.join(link.token, { displayName: 'Yash again' })).rejects.toMatchObject({ code: 'conflict' });
+  });
+
+  it('adds someone not on the list as a new member, at once', async () => {
+    const c = client();
+    await c.setApproveJoins('g-goa', false);
+    const link = await c.createGroupLink('g-goa');
+    await c.leaveGroup('g-goa');
+    // A ghost still waiting to be picked can't be started beside.
+    await expect(c.join(link.token, { displayName: 'aman' })).rejects.toMatchObject({ code: 'conflict' });
+    const member = await c.join(link.token, { displayName: 'Yash K' });
+    expect(member).toMatchObject({ groupId: 'g-goa', displayName: 'Yash K', status: 'joined', claimedByUserId: 'u-yash' });
+    expect((await c.getGroup('g-goa')).memberIds).toContain(member.id);
+  });
+
+  it('won’t let anyone straight into a group that approves joins: Goa trip asks', async () => {
+    const c = client();
+    const link = await c.createGroupLink('g-goa');
+    await c.leaveGroup('g-goa');
+    const view = await c.getJoinView(link.token);
+    expect(view.approveJoins).toBe(true);
+    const yash = view.members.find((m) => m.name === 'Yash')!;
+    await expect(c.join(link.token, { ref: yash.ref })).rejects.toMatchObject({
+      code: 'conflict',
+      message: 'Someone in Goa trip has to let you in. Ask to join instead.',
+    });
+    expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-yash')?.status).toBe('ghost');
+  });
+
+  it('never hands over a joined name at once: that is asked for', async () => {
+    const c = client();
+    await c.setApproveJoins('g-goa', false);
+    const link = await c.createGroupLink('g-goa');
+    await c.leaveGroup('g-goa');
+    const om = (await c.getJoinView(link.token)).rejoin!.find((m) => m.name === 'Om')!;
+    await expect(c.join(link.token, { ref: om.ref })).rejects.toMatchObject({ code: 'conflict' });
+    expect(await c.askToJoin(link.token, { ref: om.ref })).toMatchObject({ name: 'Om', takesOver: true });
+  });
+
+  it('lets anyone in the group choose whether its link lets people in or lets them ask', async () => {
+    const c = client();
+    expect((await c.getGroup('g-flat')).approveJoins).toBe(false);
+    expect((await c.setApproveJoins('g-flat', true)).approveJoins).toBe(true);
+    const link = await c.createGroupLink('g-flat');
+    expect((await c.getJoinView(link.token)).approveJoins).toBe(true);
+    expect((await c.getGroupGuestView(link.token)).approveJoins).toBe(true);
+    expect((await c.setApproveJoins('g-flat', false)).approveJoins).toBe(false);
+    expect((await c.getJoinView(link.token)).approveJoins).toBe(false);
+  });
 });

@@ -124,6 +124,7 @@ describe('GET /g/:token', () => {
     expect(res.body).toEqual({
       groupName: 'Manali',
       currency: 'INR',
+      approveJoins: false,
       expenses: [
         {
           description: 'Cab',

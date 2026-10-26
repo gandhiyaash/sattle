@@ -47,11 +47,14 @@ export const CreateGroupBody = z.object({
 
 export const AddMemberBody = z.object({ displayName: z.string().trim().min(1).max(40) });
 
-/** Its name, whether it simplifies its debts, or both. */
+/** Its name, whether it simplifies its debts, whether joining by its link needs a yes: any of them. */
 export const ChangeGroupBody = z
-  .object({ name: CreateGroupBody.shape.name, simplifyDebts: z.boolean() })
+  .object({ name: CreateGroupBody.shape.name, simplifyDebts: z.boolean(), approveJoins: z.boolean() })
   .partial()
-  .refine((b) => b.name !== undefined || b.simplifyDebts !== undefined, 'expected name or simplifyDebts');
+  .refine(
+    (b) => b.name !== undefined || b.simplifyDebts !== undefined || b.approveJoins !== undefined,
+    'expected name, simplifyDebts or approveJoins'
+  );
 
 const AddressBody = z.object({ address: z.string() });
 
@@ -93,19 +96,22 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
   r.get('/groups/:id', (c) => c.json(repo.groupForUser(c.req.param('id'), c.get('user').id)));
 
   /**
-   * Anyone in the group can rename it, and turn simplifying its debts on or
-   * off. That changes who owes whom, so not while a payment is under way
-   * (409 conflict, checkDebtsCanChange). Returns the Group.
+   * Anyone in the group can rename it, turn simplifying its debts on or off,
+   * and choose whether people join by its link at once or have to be let in
+   * (Group.approveJoins; see joining.ts). Simplifying changes who owes whom,
+   * so not while a payment is under way (409 conflict, checkDebtsCanChange).
+   * Returns the Group.
    */
   r.put('/groups/:id', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    const { name, simplifyDebts } = parse(ChangeGroupBody, await c.req.json());
+    const { name, simplifyDebts, approveJoins } = parse(ChangeGroupBody, await c.req.json());
     transaction(db, () => {
       if (simplifyDebts !== undefined && simplifyDebts !== g.simplifyDebts) {
         checkDebtsCanChange(repo, g);
         repo.setSimplifyDebts(g.id, simplifyDebts);
       }
+      if (approveJoins !== undefined) repo.setApproveJoins(g.id, approveJoins);
       if (name !== undefined) repo.renameGroup(g.id, name);
     });
     return c.json(repo.groupForUser(g.id, user.id));

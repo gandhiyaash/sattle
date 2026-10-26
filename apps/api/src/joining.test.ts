@@ -49,6 +49,10 @@ async function setup() {
     call<JoinRequest>('POST', '/join-requests', { token, displayName }, as);
   const approve = (id: string, by = riya.token, headers?: Record<string, string>) =>
     call<Member>('POST', `/join-requests/${id}/approve`, undefined, by, headers);
+  /** Joins at once, with nobody to say yes: what the link does unless the group has turned approving on. */
+  const joinNow = (token: string, as: { ref: string } | { displayName: string }, by: string, headers?: Record<string, string>) =>
+    call<Member>('POST', '/join', { token, ...as }, by, headers);
+  const approveJoins = (on: boolean, by = riya.token) => call<Group>('PUT', base, { approveJoins: on }, by);
   const decline = (id: string, by = riya.token) => call('POST', `/join-requests/${id}/decline`, undefined, by);
   const waiting = async (as = riya.token) => (await call<PendingJoin[]>('GET', `${base}/join-requests`, undefined, as)).body;
   const mine = async (as: string) => (await call<JoinRequest[]>('GET', '/me/join-requests', undefined, as)).body;
@@ -66,7 +70,7 @@ async function setup() {
 
   return {
     db, call, signUp, riya, group, base, kabir, aman, link, page, refOf,
-    ask, askAsNew, approve, decline, waiting, mine, join, joinAs, joinAsNew, members,
+    ask, askAsNew, approve, decline, waiting, mine, join, joinAs, joinAsNew, members, joinNow, approveJoins,
   };
 }
 
@@ -113,6 +117,7 @@ describe('GET /join/:token', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       groupName: 'Manali',
+      approveJoins: false,
       members: [
         { ref: expect.any(String), name: 'Kabir' },
         { ref: expect.any(String), name: 'Aman' },
@@ -183,6 +188,181 @@ describe('GET /links/:token/group', () => {
 
     await call('DELETE', `${base}/link`, undefined, riya.token);
     expect((await call('GET', `/links/${token}/group`, undefined, riya.token)).status).toBe(404);
+  });
+});
+
+describe('POST /join', () => {
+  it('makes whoever holds the link the person they picked, at once, with nobody to say yes', async () => {
+    const { call, signUp, link, refOf, joinNow, members, mine, waiting, group, base, kabir, aman } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+
+    const joined = await joinNow(token, { ref: await refOf(token, 'Kabir') }, k.token);
+    expect(joined.status).toBe(201);
+    expect(joined.body).toMatchObject({ id: kabir, displayName: 'Kabir', status: 'joined', claimedByUserId: k.user.id });
+
+    // Same row, same name: only who holds it changed. Nobody else's did, and nobody is waiting.
+    const ms = await members();
+    expect(ms.find((m) => m.id === kabir)).toMatchObject({ status: 'joined', claimedByUserId: k.user.id });
+    expect(ms.find((m) => m.id === aman)?.status).toBe('ghost');
+    expect((await call<Group[]>('GET', '/groups', undefined, k.token)).body.map((g) => g.id)).toEqual([group.id]);
+    expect(await waiting()).toEqual([]);
+    expect(await mine(k.token)).toEqual([]);
+    expect((await call('GET', base, undefined, k.token)).status).toBe(200);
+  });
+
+  it('adds someone who gave their own name as a new member, after everyone else', async () => {
+    const { signUp, link, joinNow, members, group } = await setup();
+    const { token } = (await link()).body;
+    const n = await signUp('Nisha');
+
+    const joined = await joinNow(token, { displayName: 'Nisha' }, n.token);
+    expect(joined.status).toBe(201);
+    expect(joined.body).toMatchObject({ displayName: 'Nisha', status: 'joined', claimedByUserId: n.user.id });
+    expect((await members()).map((m) => m.id)).toEqual([...group.memberIds, joined.body.id]);
+  });
+
+  it('is refused once the group has turned approving on, and then asking is the way in', async () => {
+    const { signUp, link, page, refOf, joinNow, ask, approve, approveJoins, members, kabir } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    expect((await approveJoins(true)).body.approveJoins).toBe(true);
+    expect((await page(token)).body.approveJoins).toBe(true);
+
+    const refused = await joinNow(token, { ref: await refOf(token, 'Kabir') }, k.token);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ message: 'Someone in Manali has to let you in. Ask to join instead.' });
+    expect((await members()).find((m) => m.id === kabir)?.status).toBe('ghost');
+
+    const asked = await ask(token, await refOf(token, 'Kabir'), k.token);
+    expect(asked.status).toBe(201);
+    expect((await approve(asked.body.id)).status).toBe(200);
+
+    // And off again: the next person is in at once.
+    expect((await approveJoins(false, k.token)).body.approveJoins).toBe(false);
+    const a = await signUp('Aman');
+    expect((await joinNow(token, { ref: await refOf(token, 'Aman') }, a.token)).status).toBe(201);
+  });
+
+  it('never hands over a name someone has joined as: taking it back is asked for, and needs the yes', async () => {
+    const { signUp, link, page, joinAs, joinNow, ask, approve, members, kabir } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    await joinAs('Kabir', token, k.token);
+    const again = await signUp('Kabir again');
+    const ref = (await page(token)).body.rejoin!.find((m) => m.name === 'Kabir')!.ref;
+
+    const refused = await joinNow(token, { ref }, again.token);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      message: 'Kabir has already joined. To take the name back, ask, and someone in the group lets you in.',
+    });
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(k.user.id);
+
+    const asked = await ask(token, ref, again.token);
+    expect(asked.status).toBe(201);
+    expect(asked.body.takesOver).toBe(true);
+    expect((await approve(asked.body.id)).status).toBe(200);
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(again.user.id);
+  });
+
+  it('drops the request the person had waiting, and turns down everyone else asking to be that ghost', async () => {
+    const { signUp, link, refOf, ask, joinNow, waiting, mine } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    const other = await signUp('Someone');
+    const kAsked = await ask(token, await refOf(token, 'Kabir'), k.token);
+    const otherAsked = await ask(token, await refOf(token, 'Kabir'), other.token);
+    expect(await waiting()).toHaveLength(2);
+
+    expect((await joinNow(token, { ref: await refOf(token, 'Kabir') }, k.token)).status).toBe(201);
+    expect(await waiting()).toEqual([]);
+    expect(await mine(k.token)).toEqual([]);
+    expect(await mine(other.token)).toEqual([{ ...otherAsked.body, status: 'declined' }]);
+    expect(kAsked.body.id).not.toBe(otherAsked.body.id);
+  });
+
+  it('won’t give one person two members of the same group, or a ghost to two people', async () => {
+    const { signUp, link, refOf, joinNow, members, aman } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    expect((await joinNow(token, { ref: await refOf(token, 'Kabir') }, k.token)).status).toBe(201);
+    expect((await joinNow(token, { displayName: 'Kabir S' }, k.token)).status).toBe(409);
+
+    const amanRef = await refOf(token, 'Aman');
+    expect((await joinNow(token, { ref: amanRef }, (await signUp('Aman')).token)).status).toBe(201);
+    const late = await joinNow(token, { ref: amanRef }, (await signUp('Also Aman')).token);
+    expect(late.status).toBe(409);
+    expect((await members()).filter((m) => m.id === aman)).toHaveLength(1);
+  });
+
+  it('won’t start a second person under the name of someone who has joined, since nobody is there to see it', async () => {
+    const { signUp, link, joinNow, askAsNew, members } = await setup();
+    const { token } = (await link()).body;
+
+    const refused = await joinNow(token, { displayName: ' riya ' }, (await signUp('Not Riya')).token);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      message: 'Riya has already joined. If that’s you, pick Riya on the list. Otherwise give a name that tells you apart.',
+    });
+    expect((await members()).filter((m) => m.displayName === 'Riya')).toHaveLength(1);
+    // Asking still can: whoever lets them in sees who it is.
+    expect((await askAsNew(token, 'Riya', (await signUp('Riya K')).token)).status).toBe(201);
+  });
+
+  it('tells someone already in an approving group that they’re in, not to ask', async () => {
+    const { link, joinNow, approveJoins, riya } = await setup();
+    const { token } = (await link()).body;
+    await approveJoins(true);
+    const again = await joinNow(token, { displayName: 'Riya again' }, riya.token);
+    expect(again.status).toBe(409);
+    expect(again.body).toMatchObject({ message: 'You’re already in this group.' });
+  });
+
+  it('is 404 for a ref nobody in the group has, and for a dead link; 409 for a name still waiting to be picked', async () => {
+    const { signUp, link, joinNow } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    expect((await joinNow(token, { ref: 'nope' }, k.token)).status).toBe(404);
+    expect((await joinNow('nope', { displayName: 'Kabir S' }, k.token)).status).toBe(404);
+    expect((await joinNow(token, { displayName: 'kabir' }, k.token)).status).toBe(409);
+  });
+
+  it('answers a retry of the same join with the same member', async () => {
+    const { signUp, link, refOf, joinNow, members, kabir } = await setup();
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    const as = { ref: await refOf(token, 'Kabir') };
+    const headers = { 'idempotency-key': 'join-once' };
+    const first = await joinNow(token, as, k.token, headers);
+    const again = await joinNow(token, as, k.token, headers);
+    expect(first.status).toBe(201);
+    expect(again.status).toBe(201);
+    expect(again.body).toEqual(first.body);
+    expect((await members()).filter((m) => m.id === kabir)).toHaveLength(1);
+  });
+});
+
+describe('PUT /groups/:id with approveJoins', () => {
+  it('is off for a new group, and anyone in the group can turn it on or off, nobody outside it', async () => {
+    const { call, signUp, link, joinAs, approveJoins, group, base, riya } = await setup();
+    expect(group.approveJoins).toBe(false);
+    expect((await call<Group>('GET', base, undefined, riya.token)).body.approveJoins).toBe(false);
+
+    const { token } = (await link()).body;
+    const k = await signUp('Kabir S');
+    await joinAs('Kabir', token, k.token);
+    expect((await approveJoins(true, k.token)).body.approveJoins).toBe(true);
+    expect((await call<Group>('GET', base, undefined, riya.token)).body.approveJoins).toBe(true);
+    expect((await approveJoins(false, (await signUp('Outsider')).token)).status).toBe(404);
+    expect((await call<Group>('GET', base, undefined, riya.token)).body.approveJoins).toBe(true);
+    expect((await approveJoins(false)).body.approveJoins).toBe(false);
+  });
+
+  it('needs a yes or no, and leaves the name and debts as they were', async () => {
+    const { call, base, riya, approveJoins } = await setup();
+    expect((await call('PUT', base, { approveJoins: 'yes' }, riya.token)).status).toBe(400);
+    expect((await approveJoins(true)).body).toMatchObject({ name: 'Manali', simplifyDebts: true, approveJoins: true });
   });
 });
 
@@ -563,6 +743,76 @@ describe('DELETE /join-requests/:id', () => {
     await decline(again.id);
     expect((await call('DELETE', `/join-requests/${again.id}`, undefined, k.token)).status).toBe(200);
     expect(await mine(k.token)).toEqual([]);
+  });
+});
+
+describe('vouching, for taking over a name', () => {
+  /** Kabir has joined, with Riya's yes. A stranger with the link joins as Aman by it alone. */
+  async function vouchSetup() {
+    const s = await setup();
+    const { token } = (await s.link()).body;
+    const k = await s.signUp('Kabir');
+    await s.joinAs('Kabir', token, k.token);
+    const stranger = await s.signUp('Stranger');
+    expect((await s.joinNow(token, { ref: await s.refOf(token, 'Aman') }, stranger.token)).status).toBe(201);
+    const kabirRef = (await s.page(token)).body.rejoin!.find((m) => m.name === 'Kabir')!.ref;
+    return { ...s, token, k, stranger, kabirRef };
+  }
+
+  it('won’t let someone who joined by the link alone hand anyone’s name to another account', async () => {
+    const { signUp, ask, approve, waiting, members, kabir, k, stranger, token, kabirRef } = await vouchSetup();
+    const thief = await signUp('Kabir new phone');
+    const asked = await ask(token, kabirRef, thief.token);
+    expect(asked.status).toBe(201);
+
+    // The stranger isn't shown it, and can't let it through by id.
+    expect(await waiting(stranger.token)).toEqual([]);
+    const refused = await approve(asked.body.id, stranger.token);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({
+      message: 'You joined by the link alone, so you can’t hand over Kabir’s place. Someone who made the group or was let in with a yes can.',
+    });
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(k.user.id);
+    expect((await waiting()).map((w) => w.id)).toEqual([asked.body.id]);
+  });
+
+  it('lets whoever made the group, someone they let in, or the old device itself hand it over', async () => {
+    const { signUp, ask, approve, waiting, members, kabir, k, token, kabirRef } = await vouchSetup();
+    // Kabir was let in by Riya, so Kabir sees it and can say yes, as the old device.
+    const newPhone = await signUp('Kabir new phone');
+    const asked = await ask(token, kabirRef, newPhone.token);
+    expect((await waiting(k.token)).map((w) => w.replacing)).toEqual(['you']);
+    expect((await approve(asked.body.id, k.token)).status).toBe(200);
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(newPhone.user.id);
+
+    // And the new phone vouches as the old one did: Riya let Kabir in.
+    const another = await signUp('Kabir third phone');
+    const again = await ask(token, kabirRef, another.token);
+    expect((await approve(again.body.id)).status).toBe(200);
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(another.user.id);
+  });
+
+  it('passes on only what the one who let them in had: a stranger’s yes vouches for nobody', async () => {
+    const { signUp, askAsNew, approve, ask, approveJoins, members, kabir, k, stranger, token, kabirRef } = await vouchSetup();
+    await approveJoins(true);
+    // The stranger lets a second throwaway account in, the way a group that approves joins does.
+    const second = await signUp('Second');
+    const added = await askAsNew(token, 'Second', second.token);
+    expect((await approve(added.body.id, stranger.token)).status).toBe(200);
+
+    const thief = await signUp('Kabir new phone');
+    const asked = await ask(token, kabirRef, thief.token);
+    expect((await approve(asked.body.id, second.token)).status).toBe(400);
+    expect((await members()).find((m) => m.id === kabir)?.claimedByUserId).toBe(k.user.id);
+  });
+
+  it('lets someone who joined by the link alone hand their own place to their new phone', async () => {
+    const { signUp, ask, approve, members, aman, stranger, token, page } = await vouchSetup();
+    const amanRef = (await page(token)).body.rejoin!.find((m) => m.name === 'Aman')!.ref;
+    const newPhone = await signUp('Stranger new phone');
+    const asked = await ask(token, amanRef, newPhone.token);
+    expect((await approve(asked.body.id, stranger.token)).status).toBe(200);
+    expect((await members()).find((m) => m.id === aman)?.claimedByUserId).toBe(newPhone.user.id);
   });
 });
 

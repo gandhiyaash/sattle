@@ -1,6 +1,6 @@
 /**
- * Managing a group: its name, whether it simplifies its debts, its link, its
- * backup, leaving it, deleting it.
+ * Managing a group: its name, whether it simplifies its debts, its link, who
+ * gets in by it, its backup, leaving it, deleting it.
  * Who is in it is on the group screen, under Members.
  *
  * Everything here follows one rule, the server's (groupRules.ts): nobody can
@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import {
   groupDebts,
@@ -58,6 +58,8 @@ interface Settings {
   paying: boolean;
   /** The group's link, if someone has made one. */
   link: GroupLink | null;
+  /** Group.approveJoins: whether the link lets people in, or lets them ask. */
+  approveJoins: boolean;
   /**
    * Whether that link may show the user's UPI ID. Null where there's nothing
    * to choose: the group isn't in rupees, or they have no UPI ID.
@@ -87,6 +89,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
       settled: groupDebts(group, expenses, settlements).length === 0,
       paying: settlements.some(isInProgress),
       link,
+      approveJoins: group.approveJoins,
       linkUpi: group.currency === UPI_CURRENCY && upi.upiId ? linkUpi : null,
     };
   }, [groupId]);
@@ -115,6 +118,8 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
       <SettlingUp groupId={groupId} simplifyDebts={data.simplifyDebts} paying={data.paying} onChanged={refresh} />
 
       <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
+
+      <Joining groupId={groupId} approveJoins={data.approveJoins} />
 
       <LedgerBackupSection groupId={groupId} onReadBack={onReadBack} />
 
@@ -231,9 +236,9 @@ function SettlingUp({
 /**
  * The group's one link, which Invite on the group screen hands out.
  * Whoever holds it sees the spends and who owes whom and can pay a debt, with
- * no app and no account, and can ask to join. This is where it is replaced
- * or turned off: that is how a link that went to the wrong place is taken
- * back.
+ * no app and no account, and can join, or ask to (Joining, below). This is
+ * where it is replaced or turned off: that is how a link that went to the
+ * wrong place is taken back.
  *
  * In a rupee group, someone with a UPI ID also chooses here whether this
  * group's link may show it. Wallet holds that choice for all their groups,
@@ -281,7 +286,7 @@ function GroupLinkSection({
             </Text>
             <LearnMore>
               Anyone holding this link can see the group’s spends and who owes what, and pay a debt, with no app.
-              They can’t change anything. They can ask to join, and someone here has to let them in.
+              They can’t change anything. They can join the group, or ask to, as Joining below says.
             </LearnMore>
             <ConfirmButton
               label="Make a new link"
@@ -294,7 +299,7 @@ function GroupLinkSection({
             <ConfirmButton
               label="Turn off the link"
               confirmLabel="Yes, turn it off"
-              confirmHint="Nobody can open the group with it or ask to join, until someone shares the group again."
+              confirmHint="Nobody can open the group with it or join, until someone shares the group again."
               onConfirm={async () => {
                 await keys.run('remove-link', { groupId, old: link.token }, (k) => client.removeGroupLink(groupId, k));
                 setLink(null);
@@ -329,6 +334,71 @@ function GroupLinkSection({
             )}
           </>
         )}
+        {error && <Text style={s.error}>{error}</Text>}
+      </Card>
+    </View>
+  );
+}
+
+/**
+ * Whether someone here lets each person in (Group.approveJoins). Off from the
+ * start: whoever opens the group's link picks a name nobody has joined as and
+ * is in. On, picking a name asks, and the request waits at the top of the
+ * group with a four-digit code. Anyone in the group can change it. Taking over
+ * a name someone has joined as asks either way.
+ */
+function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJoins: boolean }) {
+  const color = useColors();
+  const s = useStyles();
+  const client = useClient();
+  const keys = useActionKeys();
+  // As SettlingUp: kept where it was put, and moved to whatever is read next.
+  const [on, setOn] = useState(loaded);
+  useEffect(() => setOn(loaded), [loaded]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const change = async (next: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const group = await keys.run('approve-joins', { groupId, on: next }, (k) => client.setApproveJoins(groupId, next, k));
+      setOn(group.approveJoins);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <SectionLabel>Joining</SectionLabel>
+      <Card style={{ gap: space.sm }}>
+        <View style={s.switchRow}>
+          <View style={s.switchWords}>
+            <Text style={s.switchTitle}>Approve who joins</Text>
+            <Text style={s.caption}>
+              {on
+                ? 'Someone here lets each person in, after checking a four-digit code.'
+                : 'Whoever opens the group’s link picks their name and is in.'}
+            </Text>
+          </View>
+          <Switch
+            value={on}
+            onValueChange={change}
+            disabled={busy}
+            accessibilityLabel="Approve who joins"
+            trackColor={{ false: color.lineStrong, true: color.accent }}
+            thumbColor={color.surface}
+            ios_backgroundColor={color.lineStrong}
+          />
+        </View>
+        <LearnMore>
+          The link can be forwarded, and whoever holds it can take any name nobody has joined as, with the balance on
+          it. Turn this on if the link has gone further than people you know: picking a name then asks to join, and
+          the request waits at the top of the group. Taking over a name someone has joined as always needs a yes.
+        </LearnMore>
         {error && <Text style={s.error}>{error}</Text>}
       </Card>
     </View>
@@ -473,6 +543,10 @@ const useStyles = makeStyles((color) => ({
   backupTitle: { ...type.body, fontWeight: '600', color: color.ink },
   backupActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   renameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  // The same row as SimplifyDebtsSwitch's.
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  switchWords: { flex: 1, gap: space.xs },
+  switchTitle: { ...type.body, fontWeight: '600', color: color.ink },
   input: {
     flex: 1,
     height: 46,

@@ -213,12 +213,12 @@ function AccountGate({
       return <Starting />;
     case 'none':
       if (joining) {
-        // Seeing who the link offers needs no account. Picking who they are makes one, under that name, and asks to join.
+        // Seeing who the link offers needs no account. Picking who they are makes one, under that name, and joins, or asks to.
         return (
           <SattleProvider>
             <JoinAsNewScreen
               token={joining}
-              // They've asked to join. The app opens on their groups, where the request waits.
+              // They're in, or they've asked. The app opens on their groups, where the group, or the request, is.
               onJoined={(token) => {
                 onJoinDone();
                 setAccount({ kind: 'ready', client: buildClient(token) });

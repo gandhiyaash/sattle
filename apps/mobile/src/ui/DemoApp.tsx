@@ -188,6 +188,11 @@ function Navigator({
               refresh();
               setRoute({ name: 'groups' });
             }}
+            onJoined={(groupId) => {
+              onJoinDone?.();
+              refresh();
+              openGroup(groupId);
+            }}
             onAlreadyIn={(groupId) => {
               onJoinDone?.();
               openGroup(groupId);

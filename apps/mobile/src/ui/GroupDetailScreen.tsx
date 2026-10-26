@@ -17,9 +17,10 @@
  * 2. Debts come from groupDebts, so the settle buttons act on what the
  *    group says is owed: simplified into as few payments as there can be,
  *    unless the group turned that off and pays back whoever paid.
- * 3. Nobody joins by holding the link: whoever asks to join shows up here,
- *    with a code, and someone in the group lets them in or turns them down.
- *    They show above the tabs, since someone is waiting on the answer.
+ * 3. Whoever opens the link picks their name and is in, unless the group has
+ *    turned on approving joins under Manage: then they show up here, with a
+ *    code, and someone in the group lets them in or turns them down. They
+ *    show above the tabs, since someone is waiting on the answer.
  * 4. It only talks about the ways to pay the person looking uses (payWays).
  *    Someone who chose rupees alone sees no Lightning here, and someone who
  *    chose bitcoin alone sees no UPI, except in a group kept in bitcoin,
@@ -111,6 +112,8 @@ interface GroupView {
   claims: UpiClaim[];
   /** People asking to join, waiting on someone here to let them in. */
   waiting: PendingJoin[];
+  /** Group.approveJoins: whether the link lets people in, or lets them ask. */
+  approveJoins: boolean;
   /** Ghosts that no expense or payment names. */
   removable: Set<string>;
   /** The user's own UPI ID, if they've given one. */
@@ -174,6 +177,7 @@ export function GroupDetailScreen({
       debts,
       claims,
       waiting,
+      approveJoins: group.approveJoins,
       removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
       upi,
       userId: user.id,
@@ -231,7 +235,7 @@ export function GroupDetailScreen({
 
   // The group's one link, for the chat everyone is in. Whoever opens it sees what's been split
   // and can pay what they owe with no app. The same page has Join on it: they say who they
-  // are, and someone here lets them in.
+  // are, and are in, or wait for someone here to let them in if the group approves joins.
   const invite = async () => {
     setShared({ kind: 'busy' });
     try {
@@ -239,7 +243,9 @@ export function GroupDetailScreen({
       setShared({
         kind: 'open',
         url: link.url,
-        message: `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and I’ll let you in: ${link.url}`,
+        message: `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and ${
+          data.approveJoins ? 'I’ll let you in' : 'pick your name'
+        }: ${link.url}`,
         sentNote: link.sentNote,
         note: null,
       });
@@ -281,7 +287,9 @@ export function GroupDetailScreen({
             <QrCode value={shared.url} size={200} />
           </View>
           <Text style={s.inviteHint}>
-            Scan this with a phone’s camera. It opens the group: what’s been split, what they owe, and Join.
+            {`Scan this with a phone’s camera. It opens the group: what’s been split, what they owe, and Join. ${
+              data.approveJoins ? 'Whoever joins waits for you to let them in.' : 'Whoever joins picks their name and is in.'
+            }`}
           </Text>
           <Text style={s.inviteUrl} selectable>
             {shared.url}

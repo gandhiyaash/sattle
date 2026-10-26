@@ -57,6 +57,14 @@ export interface Group {
   name: string;
   currency: Currency;
   memberIds: string[];
+  /**
+   * Whether someone in the group has to let each person in. Off from the
+   * start: whoever holds the link picks a name nobody has joined as and is in.
+   * On, picking a name asks, and someone already in the group says yes, with a
+   * code to check it's them. Anyone in the group can change it under Manage.
+   * Taking over a name someone has joined as asks either way.
+   */
+  approveJoins: boolean;
   createdAt: string;
   /**
    * How the group settles up (groupDebts). On: debts are combined into as
@@ -376,9 +384,11 @@ export interface GuestView {
 
 // -- joining ---------------------------------------------------------------
 //
-// The group's link (GroupLink) is also how someone asks to join: they open
+// The group's link (GroupLink) is also how someone joins: they open
 // /join/<token> with the same token, pick which of the group's ghosts they
-// are, or add themselves, and someone already in the group lets them in.
+// are, or add themselves, and are in. A group that has turned on approving
+// joins (Group.approveJoins) makes that a request instead, which someone
+// already in the group has to say yes to.
 
 /** Someone the join page offers to join as. */
 export interface JoinMember {
@@ -393,6 +403,8 @@ export type JoinAs = { ref: string } | { displayName: string };
 /** Only what the join page may show before someone joins. Names, no ids. */
 export interface JoinView {
   groupName: string;
+  /** Group.approveJoins: whether picking a name joins (`join`) or asks (`askToJoin`). */
+  approveJoins: boolean;
   /** Everyone in the group who hasn't joined: who the person opening this could be. */
   members: JoinMember[];
   /**
@@ -498,6 +510,8 @@ export interface GroupGuestDebt {
 export interface GroupGuestView {
   groupName: string;
   currency: Currency;
+  /** Group.approveJoins, so the page can say what Join leads to. */
+  approveJoins: boolean;
   expenses: GroupGuestExpense[];
   debts: GroupGuestDebt[];
 }

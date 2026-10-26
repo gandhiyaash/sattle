@@ -99,6 +99,11 @@ export class MockClient implements SattleClient {
   /** member id → what that person chose for that one group, which wins. Absent while the group follows the other. */
   private upiOnLinkChoices: Record<string, boolean> = {};
   /**
+   * Members whoever holds them got in by the link alone, as the server's
+   * members.vouched = 0: they can't hand over a name someone has joined as.
+   */
+  private unvouched = new Set<string>();
+  /**
    * Requests to join, as the server keeps them. One is waiting in Goa trip,
    * from someone asking to be Aman, so the demo shows letting someone in.
    */
@@ -266,6 +271,7 @@ export class MockClient implements SattleClient {
         name,
         currency,
         memberIds: [],
+        approveJoins: false,
         createdAt: this.now(),
         simplifyDebts: input.simplifyDebts ?? true,
       };
@@ -675,9 +681,11 @@ export class MockClient implements SattleClient {
   getJoinView(token: string) {
     return this.call((): JoinView => {
       const link = this.findGroupLink(token);
+      const g = this.findGroup(link.groupId);
       const members = this.members.filter((m) => m.groupId === link.groupId);
       return {
-        groupName: this.findGroup(link.groupId).name,
+        groupName: g.name,
+        approveJoins: g.approveJoins,
         members: members
           .filter((m) => !m.claimedByUserId)
           .map((m) => ({ ref: this.memberRef(token, m.id), name: m.displayName })),
@@ -698,8 +706,65 @@ export class MockClient implements SattleClient {
 
   /**
    * The mock has one user, who is already in every group unless they left
-   * one, so this mostly ends in "already in this group".
+   * one, so this mostly ends in "already in this group". Same checks as the
+   * server, in the same order.
    */
+  join(token: string, as: JoinAs, idempotencyKey?: string) {
+    return this.call((): Member => {
+      if ('displayName' in as && (!as.displayName.trim() || as.displayName.trim().length > 40)) {
+        throw new SattleError('invalid_input', 'Give a name of up to 40 characters.');
+      }
+      const link = this.findGroupLink(token);
+      const me = fixtures.currentUser;
+      const g = this.findGroup(link.groupId);
+      const members = this.members.filter((m) => m.groupId === g.id);
+      if (members.some((m) => m.claimedByUserId === me.id)) {
+        throw new SattleError('conflict', 'You’re already in this group.');
+      }
+      if (g.approveJoins) throw new SattleError('conflict', `Someone in ${g.name} has to let you in. Ask to join instead.`);
+      let member: Member;
+      if ('displayName' in as) {
+        const displayName = as.displayName.trim();
+        const same = (m: Member) => m.displayName.trim().toLowerCase() === displayName.toLowerCase();
+        const waiting = members.find((m) => !m.claimedByUserId && same(m));
+        if (waiting) {
+          throw new SattleError('conflict', `${waiting.displayName} is already in this group. Pick that name to join as them.`);
+        }
+        const taken = members.find((m) => m.claimedByUserId && same(m));
+        if (taken) {
+          throw new SattleError(
+            'conflict',
+            `${taken.displayName} has already joined. If that’s you, pick ${taken.displayName} on the list. Otherwise give a name that tells you apart.`
+          );
+        }
+        member = { id: this.id('m'), groupId: g.id, displayName, status: 'joined', claimedByUserId: me.id };
+        this.members.push(member);
+        g.memberIds.push(member.id);
+      } else {
+        const picked = members.find((m) => this.memberRef(token, m.id) === as.ref);
+        if (!picked) throw new SattleError('not_found', 'That person is no longer in this group.');
+        if (picked.claimedByUserId) {
+          throw new SattleError(
+            'conflict',
+            `${picked.displayName} has already joined. To take the name back, ask, and someone in the group lets you in.`
+          );
+        }
+        picked.claimedByUserId = me.id;
+        picked.status = 'joined';
+        delete picked.lightningAddress; // as the API: a groupmate typed it, not them
+        member = picked;
+      }
+      this.unvouched.add(member.id);
+      // Their own request for this group is done with, and anyone else asking to be them can't be now.
+      this.joinRequests = this.joinRequests.filter((x) => !(x.groupId === g.id && x.userId === me.id));
+      for (const x of this.joinRequests) {
+        if (x.memberId === member.id) Object.assign(x, { status: 'declined', memberId: undefined });
+      }
+      return member;
+    }, idempotencyKey);
+  }
+
+  /** Asking works whatever the group chose: it is how a name is taken back. */
   askToJoin(token: string, as: JoinAs, idempotencyKey?: string) {
     return this.call((): JoinRequest => {
       // The server checks the body before it looks at the link: a name is 1 to 40 characters.
@@ -778,14 +843,23 @@ export class MockClient implements SattleClient {
     }, idempotencyKey);
   }
 
+  /** As the server: whether the user's member here can vouch for someone taking over a name. */
+  private iVouch(groupId: string) {
+    const mine = this.myMember(groupId);
+    return Boolean(mine) && !this.unvouched.has(mine!.id);
+  }
+
   getPendingJoins(groupId: string) {
     return this.call((): PendingJoin[] => {
       this.findGroup(groupId);
+      const me = fixtures.currentUser.id;
       return this.joinRequests
         .filter((x) => x.groupId === groupId && x.status === 'pending')
-        .map((x) => {
+        .flatMap((x) => {
           const holder = x.memberId ? this.members.find((m) => m.id === x.memberId)?.claimedByUserId : undefined;
           const replacing = x.replacesUserId && holder === x.replacesUserId ? holder : undefined;
+          // Left out for someone who can't let it through.
+          if (replacing && replacing !== me && !this.iVouch(groupId)) return [];
           return {
             id: x.id,
             name: x.displayName,
@@ -806,18 +880,33 @@ export class MockClient implements SattleClient {
       if (this.members.some((m) => m.groupId === g.id && m.claimedByUserId === req.userId)) {
         throw new SattleError('conflict', `${req.displayName} is already in this group.`);
       }
-      this.joinRequests = this.joinRequests.filter((x) => x !== req);
+      const vouched = this.iVouch(g.id);
+      // They vouch for others as far as whoever let them in could.
+      const admitted = (m: Member) => {
+        if (vouched) this.unvouched.delete(m.id);
+        else this.unvouched.add(m.id);
+        return m;
+      };
       if (!req.memberId) {
+        this.joinRequests = this.joinRequests.filter((x) => x !== req);
         const added: Member = { id: this.id('m'), groupId: g.id, displayName: req.displayName, status: 'joined', claimedByUserId: req.userId };
         this.members.push(added);
         g.memberIds.push(added.id);
-        return added;
+        return admitted(added);
       }
       const member = this.members.find((m) => m.id === req.memberId)!;
       // A takeover hands the name over only while the account it named still has it.
       if (member.claimedByUserId && member.claimedByUserId !== req.replacesUserId) {
         throw new SattleError('conflict', `Someone has already joined as ${member.displayName}.`);
       }
+      if (member.claimedByUserId && member.claimedByUserId !== fixtures.currentUser.id && !vouched) {
+        throw new SattleError(
+          'invalid_input',
+          `You joined by the link alone, so you can’t hand over ${member.displayName}’s place. Someone who made the group or was let in with a yes can.`
+        );
+      }
+      this.joinRequests = this.joinRequests.filter((x) => x !== req);
+      admitted(member);
       member.claimedByUserId = req.userId;
       member.status = 'joined';
       delete member.lightningAddress; // as the API: a groupmate typed it, not them
@@ -888,6 +977,7 @@ export class MockClient implements SattleClient {
       return {
         groupName: g.name,
         currency: g.currency,
+        approveJoins: g.approveJoins,
         expenses: this.expenses
           .filter((e) => e.groupId === g.id)
           .map((e) => ({
@@ -1082,6 +1172,14 @@ export class MockClient implements SattleClient {
         throw new SattleError('conflict', 'A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
       }
       g.simplifyDebts = on;
+      return g;
+    }, idempotencyKey);
+  }
+
+  setApproveJoins(groupId: string, on: boolean, idempotencyKey?: string) {
+    return this.call(() => {
+      const g = this.findGroup(groupId);
+      g.approveJoins = on;
       return g;
     }, idempotencyKey);
   }
