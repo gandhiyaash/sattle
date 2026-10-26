@@ -4,8 +4,10 @@
  *
  * BOLT11 is case-insensitive, and an all-caps `LIGHTNING:LNBC…` fits QR's
  * alphanumeric mode, which needs noticeably fewer modules than byte mode for
- * the same invoice — easier to scan off a laptop screen. Anything with
- * characters outside that set (a Lightning address, say) falls back to bytes.
+ * the same invoice — easier to scan off a laptop screen. So a caller whose
+ * value reads the same in any case says `caseInsensitive`, and it goes in
+ * upper-cased. Anything else goes in as bytes, as typed: a link's token is
+ * case-sensitive, and upper-casing it would make a link to nothing.
  */
 
 import qrcode from 'qrcode-generator';
@@ -16,8 +18,8 @@ import Svg, { Path, Rect } from 'react-native-svg';
 const MARGIN = 4;
 const ALPHANUMERIC = /^[0-9A-Z $%*+\-./:]*$/;
 
-export function QrCode({ value, size = 220 }: { value: string; size?: number }) {
-  const { path, count } = useMemo(() => encode(value), [value]);
+export function QrCode({ value, size = 220, caseInsensitive }: { value: string; size?: number; caseInsensitive?: boolean }) {
+  const { path, count } = useMemo(() => encode(value, Boolean(caseInsensitive)), [value, caseInsensitive]);
   const box = count + MARGIN * 2;
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${box} ${box}`}>
@@ -27,10 +29,10 @@ export function QrCode({ value, size = 220 }: { value: string; size?: number }) 
   );
 }
 
-function encode(value: string) {
+function encode(value: string, caseInsensitive: boolean) {
   const upper = value.toUpperCase();
   const qr = qrcode(0, 'M');
-  if (ALPHANUMERIC.test(upper)) qr.addData(upper, 'Alphanumeric');
+  if (caseInsensitive && ALPHANUMERIC.test(upper)) qr.addData(upper, 'Alphanumeric');
   else qr.addData(value, 'Byte');
   qr.make();
 

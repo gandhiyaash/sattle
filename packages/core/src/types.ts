@@ -199,6 +199,12 @@ export interface UpiReceipt {
   /** The reference the link itself asked for, echoed back. Sattle's links ask for none, so this is rarely there. */
   txnRef?: string;
   /**
+   * The UPI app it was paid in, by the name the phone shows for it: "CRED", "Google Pay".
+   * Android knows which app it opened, on the link or plain for a payment by hand; an iPhone
+   * and a browser don't, and leave it out.
+   */
+  paidWith?: string;
+  /**
    * Set when it was the payer who said the payment went through, because no
    * app said it for them. The three ids above are then absent: only an app
    * hands those back.

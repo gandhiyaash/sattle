@@ -1355,6 +1355,8 @@ export class MockClient implements SattleClient {
       // Only what was given: an id the app left out isn't kept as an empty one.
       const given = (id?: string) => id?.trim() || undefined;
       const [txnId, approvalRef, txnRef] = [given(input.txnId), given(input.approvalRef), given(input.txnRef)];
+      // Metadata, as on the server: cut to length, never a reason to refuse.
+      const paidWith = given(input.paidWith)?.slice(0, 64);
       const s: Settlement = {
         id: this.id('s'),
         groupId: g.id,
@@ -1372,6 +1374,7 @@ export class MockClient implements SattleClient {
           ...(txnRef && { txnRef }),
           ...((input.byPayer || reference) && { byPayer: true as const }),
           ...(reference && { reference }),
+          ...(paidWith && { paidWith }),
         },
         createdAt: this.now(),
         updatedAt: this.now(),

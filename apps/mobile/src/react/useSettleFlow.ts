@@ -255,6 +255,9 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
         `${app ? `${app.name} couldn’t be opened` : 'No UPI app on this phone could open this'}. Pay the UPI ID below from your UPI app, then mark it as paid.`
       );
     }
+    // The app's name travels with what it said, so Try again reports the same thing under the same
+    // key. Without a pick the phone chose, and nobody here knows which app it was.
+    if (app) outcome = { ...outcome, paidWith: app.name };
     setUpi({ ...session, outcome });
     if (outcome.status === 'success') await settleByUpi(outcome);
   };
@@ -264,8 +267,14 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
    * app handed back goes with it, so the payment can be found in a statement. Asking again with
    * the same answer, after the server couldn't be reached, is one request and not a second payment.
    */
-  const settleByUpi = async ({ txnId, approvalRef, txnRef }: UpiOutcome) => {
-    const input = { ...pick(debt), ...(txnId && { txnId }), ...(approvalRef && { approvalRef }), ...(txnRef && { txnRef }) };
+  const settleByUpi = async ({ txnId, approvalRef, txnRef, paidWith }: UpiOutcome) => {
+    const input = {
+      ...pick(debt),
+      ...(txnId && { txnId }),
+      ...(approvalRef && { approvalRef }),
+      ...(txnRef && { txnRef }),
+      ...(paidWith && { paidWith }),
+    };
     onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
   };
 
@@ -361,7 +370,13 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
           if (!parsed.ok) throw new Error(parsed.reason);
           reference = parsed.reference;
         }
-        const input = { ...pick(debt), byPayer: true as const, ...(reference && { reference }) };
+        // The app's name only when they were sent to one: "I've paid" out of nowhere names none.
+        const input = {
+          ...pick(debt),
+          byPayer: true as const,
+          ...(reference && { reference }),
+          ...(paidByHand && copiedFor && { paidWith: copiedFor.name }),
+        };
         onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
       }),
     notPaid: () => {

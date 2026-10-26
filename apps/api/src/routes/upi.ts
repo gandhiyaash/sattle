@@ -83,6 +83,14 @@ const PaymentBody = z.object({
    * with spaces still reads; parseUpiReference is the real check. Sending one is saying `byPayer`.
    */
   reference: z.string().max(200).optional(),
+  /**
+   * The app it was paid in, as the phone names it. Only an Android phone knows. It is metadata,
+   * so a long name is cut to length and a blank one is none: neither refuses a payment report.
+   */
+  paidWith: z
+    .string()
+    .optional()
+    .transform((s) => s?.trim().slice(0, 64) || undefined),
 });
 
 /** Whether this member has given a UPI ID to be paid at. A ghost has no account to have put one on. */
@@ -253,7 +261,8 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
    * The payer's side says a UPI payment went through. Either their UPI app
    * said so, and their phone reports it with the ids the app handed back, or
    * no app said anything and the payer says so themselves (`byPayer`), with
-   * the `reference` their UPI app showed them if they have it. The debt is
+   * the `reference` their UPI app showed them if they have it. Either way
+   * the phone may name the app it was paid in (`paidWith`). The debt is
    * settled straight away: 201 Settlement, `manually_confirmed`, rail `upi`,
    * with what was given as `upi` and the payer as the one whose word it was.
    * Nothing is asked of the person owed, and nothing undoes it. A claim
@@ -267,7 +276,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
   r.post('/groups/:id/upi-payments', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    const { txnId, approvalRef, txnRef, byPayer, reference: typed, ...body } = parse(PaymentBody, await c.req.json());
+    const { txnId, approvalRef, txnRef, byPayer, reference: typed, paidWith, ...body } = parse(PaymentBody, await c.req.json());
     let reference: string | undefined;
     // An empty box is no reference. Something in it has to be able to be one.
     if (typed?.trim()) {
@@ -296,6 +305,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
           ...(txnRef && { txnRef }),
           ...((byPayer || reference) && { byPayer: true as const }),
           ...(reference && { reference }),
+          ...(paidWith && { paidWith }),
         },
       });
     });

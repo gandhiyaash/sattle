@@ -24,6 +24,8 @@ const REFUSE_LINKS: ReadonlySet<string> = new Set([
   'com.google.android.apps.nbu.paisa.user', // Google Pay
   'com.phonepe.app', // PhonePe
 ]);
+// Known to take the link on a real phone, and so not above: CRED (com.dreamplug.androidapp),
+// seen in October 2026; Paytm, by developer reports. An app found refusing goes in the set.
 
 /** Whether `app` refuses a pay link from another app, so it is paid in by hand instead. */
 export function refusesLinks(app: Pick<UpiApp, 'packageName'>): boolean {

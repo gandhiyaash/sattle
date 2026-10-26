@@ -364,7 +364,7 @@ function Invoice({
 
           <View style={s.qrBlock}>
             <View style={s.qrFrame}>
-              <QrCode value={`lightning:${destination}`} size={220} />
+              <QrCode value={`lightning:${destination}`} size={220} caseInsensitive />
             </View>
             {left !== null && (
               <Text style={s.countdown}>

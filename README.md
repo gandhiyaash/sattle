@@ -113,6 +113,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
 apps/mobile/                 @sattle/mobile: Expo
   App.tsx                    Routes /s/<token> to the guest page, /g/<token> to the group page, /join/<token> to joining and /restore to restoring; otherwise the app.
   modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
+  modules/upi-apps/          Local Expo module (Kotlin): the phone's UPI apps, and opening one on a link or plain.
   src/
     account/
       tokenStore.ts          Where the device keeps its account token. SecureStore on native, localStorage on web.
@@ -129,7 +130,8 @@ apps/mobile/                 @sattle/mobile: Expo
       updater.ts             When to ask about an update, and what the banner shows.
       nativeUpdates.ts       Native seam. Android talks to Play; iOS and web get null.
     upi/
-      launchUpi.ts           Native seam. Android opens a UPI app and hears back; iOS and web get null.
+      launchUpi.ts           Native seam. Android lists the phone's UPI apps, opens one and hears back; iOS and web get null.
+      upiApps.ts             Which apps refuse a link from another app (GPay, PhonePe), and so are paid in by hand.
     prefs/
       currencyPrefs.ts       Which currencies someone uses, and what a new group starts in. The rules, under vitest.
       currencyStore.ts       Where the device keeps that. SecureStore on native, localStorage on web.
@@ -318,13 +320,13 @@ The payer is only asked when there is something to choose. **Pay by UPI** is off
 
 What happens with UPI depends on the device, because only Android lets an app hear back from a UPI app:
 
-- **Android.** The app opens the `upi://pay` link as an activity that returns a result (`src/upi/launchUpi.android.ts`, over `expo-intent-launcher`). Android shows its chooser of UPI apps, the payer pays, and the UPI app hands back a status and a reference. On `SUCCESS` the debt is settled there and then (below). Anything else is left to the payer: try again, or say they paid.
+- **Android.** The sheet lists the UPI apps on the phone, with their own icons, through a small native module (`modules/upi-apps`, behind `src/upi/launchUpi.android.ts`). The one tapped is opened on the `upi://pay` link as an activity that returns a result, the payer pays, and the app hands back a status and a reference when it closes. On `SUCCESS` the debt is settled there and then (below). Anything else is left to the payer: try again, or say they paid. Google Pay and PhonePe refuse such a link (NPCI's rule for person-to-person intents since April 2024; `src/upi/upiApps.ts`), so they are never sent one: the UPI ID is copied, the app opens plain, the payer pastes it in, and when they come back the sheet asks whether it went through, as on an iPhone, without a reference box.
 - **iPhone.** A UPI app says nothing back. The sheet opens one, shows the UPI ID, and asks the payer to come back and tap **I’ve paid**.
 - **Web.** The same link as a QR code to scan from a phone, then **I’ve paid**.
 
 Sattle never learns that the money moved. No bank or UPI app tells a third party that one person paid another. The payer's word is therefore a **claim** (`upi_claims`), not a settlement, and it moves no balance. The person owed sees "Kabir says they paid you ₹500 by UPI", with the reference when there is one, and either confirms it, which makes it a settlement (`rail: upi`, `manually_confirmed`), or says it didn't arrive, which the payer is then shown. It is the same rule as marking a debt settled by hand: the person it costs if it's false is the one who says so.
 
-**The exception: a UPI app that says it went through.** On Android the UPI app hands back one line when it closes (`parseUpiResponse` reads it): a status, its transaction ID, the bank's approval reference, and the link's own reference when the link asked for one. When the status is `SUCCESS`, the payer's phone passes that on (`POST /groups/:id/upi-payments`) and the debt is settled on the spot: a settlement with `rail: upi`, already `manually_confirmed`, with those ids kept on it (`settlements.upi_receipt`, migration 021). The person owed is asked nothing, and nothing undoes it. The payer's sheet says **Settled** and shows the ids, and so does the entry in the group's history. A claim that was waiting on the same debt goes.
+**The exception: a UPI app that says it went through.** On Android the UPI app hands back one line when it closes (`parseUpiResponse` reads it): a status, its transaction ID, the bank's approval reference, and the link's own reference when the link asked for one. When the status is `SUCCESS`, the payer's phone passes that on (`POST /groups/:id/upi-payments`) and the debt is settled on the spot: a settlement with `rail: upi`, already `manually_confirmed`, with those ids and the name of the app it was paid in (`paidWith`) kept on it (`settlements.upi_receipt`, migration 021). The person owed is asked nothing, and nothing undoes it. The payer's sheet says **Settled** and shows the ids, and so does the entry in the group's history. A claim that was waiting on the same debt goes.
 
 This is a choice to trust each other's apps, and it has a cost worth knowing. The line carries no amount, no payee and no signature, and the server never talks to the UPI app: it is told "success" by the payer's phone and takes it as true, the same phone that could have been told to say it. The ids are what make it checkable afterwards, by anyone, against a bank or UPI statement. A browser hears nothing back from a UPI app, and neither does an iPhone.
 

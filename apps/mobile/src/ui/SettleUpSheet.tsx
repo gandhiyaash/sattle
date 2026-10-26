@@ -152,9 +152,11 @@ export function SettleUpSheet({
             ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
             : said === 'unknown'
               ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
-              : flow.upi.apps
+              : flow.upi.apps?.length
                 ? pickAppLine(flow.upi.apps.filter(refusesLinks).map((app) => app.name))
-                : flow.payWith
+                : // No list at all: the one button that opens whatever takes the link. An empty list is a
+                  // phone with no UPI app, which the panel says, so it reads as an iPhone does.
+                  flow.payWith && !flow.upi.apps
                   ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
                   : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
     return (
@@ -301,9 +303,9 @@ export function SettleUpSheet({
           </View>
         )}
 
-        {/* What the UPI app handed back, or the reference the payer gave: kept with the payment and
-            shown in the group's history. A payer who gave none has nothing to show here. */}
-        {upiReceipt && !(upiReceipt.byPayer && !upiReceipt.reference) && (
+        {/* What the UPI app handed back, or the reference the payer gave, and the app it was paid in:
+            kept with the payment and shown in the group's history. A payer who gave none has nothing to show here. */}
+        {upiReceipt && !(upiReceipt.byPayer && !upiReceipt.reference && !upiReceipt.paidWith) && (
           <View style={s.receiptRows}>
             <UpiReceiptRows receipt={upiReceipt} />
           </View>

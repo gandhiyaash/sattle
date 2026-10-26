@@ -10,7 +10,8 @@
  * 1. Every member row shows their state — In app / Not joined / Payable.
  *    That is what makes the "only one person installs" claim legible instead
  *    of a line in a README. One link, from Invite in the header, is
- *    for all of them. A member nothing has been built on yet can be removed
+ *    for all of them: a QR code to scan across the table, and the same
+ *    link to send. A member nothing has been built on yet can be removed
  *    from their row; that is the server's rule (groupRules.ts), not a choice
  *    made here.
  * 2. Debts come from simplifyDebts, so the settle buttons act on netted
@@ -61,6 +62,7 @@ import {
   Button,
   Card,
   ConfirmButton,
+  Dialog,
   Divider,
   ErrorState,
   Loading,
@@ -68,7 +70,8 @@ import {
   SectionLabel,
   Segmented,
 } from './primitives';
-import { sendOrCopy, share } from './share';
+import { QrCode } from './QrCode';
+import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 /** The three parts of a group, one showing at a time. */
@@ -189,13 +192,6 @@ export function GroupDetailScreen({
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Where there is no share sheet the link is copied, and nothing shows that but this. Said for a moment, then gone.
-  useEffect(() => {
-    if (shared.kind !== 'copied') return;
-    const t = setTimeout(() => setShared({ kind: 'idle' }), COPIED_MS);
-    return () => clearTimeout(t);
-  }, [shared]);
-
   if (loading) {
     return (
       <Screen title="Loading…" onBack={onBack}>
@@ -235,38 +231,37 @@ export function GroupDetailScreen({
   // The group's one link, for the chat everyone is in. Whoever opens it sees what's been split
   // and can pay what they owe with no app. The same page has Join on it: they say who they
   // are, and someone here lets them in.
-  const shareGroup = async () => {
+  const invite = async () => {
     setShared({ kind: 'busy' });
-    let link: Awaited<ReturnType<typeof groupLinkToShare>>;
     try {
-      link = await groupLinkToShare(client, groupId);
+      const link = await groupLinkToShare(client, groupId);
+      setShared({
+        kind: 'open',
+        url: link.url,
+        message: `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and I’ll let you in: ${link.url}`,
+        sentNote: link.sentNote,
+        note: null,
+      });
     } catch (e) {
       setShared({ kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' });
-      return;
     }
-    const message = `Here’s what we’ve split in "${data.name}". See what you owe and pay it, no app needed. To join the group, tap Join there and I’ll let you in: ${link.url}`;
-    const outcome = await sendOrCopy(message);
-    setShared(
-      outcome === 'copied'
-        ? { kind: 'copied' }
-        : outcome === 'blocked'
-          ? // Manage shows the link itself, where it can be selected.
-            { kind: 'failed', message: 'Couldn’t share or copy the link here. It’s under Manage, to copy by hand.' }
-          : { kind: 'idle' }
-    );
+  };
+
+  // The link, sent. What became of it goes under the button; the link itself stays on screen above it.
+  const sendInvite = async () => {
+    if (shared.kind !== 'open') return;
+    setShared({ ...shared, note: await share(shared.message, shared.sentNote) });
   };
 
   return (
     <Screen
       title={data.name}
-      subtitle={
-        shared.kind === 'copied' ? 'Link copied' : `${data.members.length} members · ${data.expenses.length} expenses`
-      }
+      subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
       onBack={onBack}
       right={
         <View style={s.headerActions}>
           <Button label="Manage" variant="quiet" onPress={onManage} />
-          <Button label="Invite" busy={shared.kind === 'busy'} onPress={shareGroup} />
+          <Button label="Invite" busy={shared.kind === 'busy'} onPress={invite} />
         </View>
       }
       footer={
@@ -279,6 +274,22 @@ export function GroupDetailScreen({
       }
     >
       {shared.kind === 'failed' && <ErrorState message={shared.message} />}
+      {shared.kind === 'open' && (
+        <Dialog visible title={`Invite to ${data.name}`} onClose={() => setShared({ kind: 'idle' })}>
+          <View style={s.inviteQr}>
+            <QrCode value={shared.url} size={200} />
+          </View>
+          <Text style={s.inviteHint}>
+            Scan this with a phone’s camera. It opens the group: what’s been split, what they owe, and Join.
+          </Text>
+          <Text style={s.inviteUrl} selectable>
+            {shared.url}
+          </Text>
+          <Button label="Share link" variant="primary" onPress={sendInvite} />
+          {shared.note && <Text style={s.inviteNote}>{shared.note}</Text>}
+          <Button label="Done" variant="quiet" onPress={() => setShared({ kind: 'idle' })} />
+        </Dialog>
+      )}
 
       {/* Above the tabs, whichever is showing: someone is waiting on an answer. */}
       {data.waiting.length > 0 && (
@@ -631,11 +642,14 @@ function cannotReceiveNote(member: Member, mode: PaymentMode, ways: PayWays): st
 }
 
 const REFRESH_MS = 4000;
-/** How long "Link copied" stays under the group's name. */
-const COPIED_MS = 3000;
 
-/** Invite, between taps. Sharing shows nothing here unless there was no share sheet to show it. */
-type GroupShare = { kind: 'idle' } | { kind: 'busy' } | { kind: 'copied' } | { kind: 'failed'; message: string };
+/** Invite: nothing, the link being made, the link up as a QR code with a button to send it, or why there is none. */
+type GroupShare =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  /** `note` is what the last send did, said under the button; null until one. */
+  | { kind: 'open'; url: string; message: string; sentNote: string; note: string | null }
+  | { kind: 'failed'; message: string };
 
 type LinkState =
   | { kind: 'idle' }
@@ -965,6 +979,10 @@ function UpiClaimNote({
 }
 
 const useStyles = makeStyles((color) => ({
+  inviteQr: { alignSelf: 'center', padding: space.md, borderRadius: radius.md, backgroundColor: '#FFFFFF' },
+  inviteHint: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
+  inviteUrl: { ...type.amountSm, color: color.inkFaint, textAlign: 'center', marginBottom: space.sm },
+  inviteNote: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   debtText: { ...type.body, color: color.ink },
