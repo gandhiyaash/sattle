@@ -188,6 +188,17 @@ describe('MockClient: a UPI payment the payer’s UPI app reported', () => {
     expect(await yashOwesOm(c)).toBeUndefined();
   });
 
+  it('keeps which app it was paid in, when the phone names one', async () => {
+    const c = client();
+    const { groupId, fromMemberId, toMemberId, amount } = await yashOwesOm(c);
+    const byApp = await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount: 100, txnId: 'AXI1', paidWith: 'CRED' });
+    expect(byApp.upi).toEqual({ txnId: 'AXI1', paidWith: 'CRED' });
+    // By hand, in an app opened plain: no ids and no reference, but still the app.
+    const byHand = await c.reportUpiPayment({ groupId, fromMemberId, toMemberId, amount: amount - 100, byPayer: true, paidWith: ' Google Pay ' });
+    expect(byHand.upi).toEqual({ byPayer: true, paidWith: 'Google Pay' });
+    expect(await yashOwesOm(c)).toBeUndefined();
+  });
+
   it('takes the place of a claim that was waiting, and follows the same rules as one', async () => {
     const c = client();
     const { groupId, fromMemberId, toMemberId, amount } = await yashOwesOm(c);

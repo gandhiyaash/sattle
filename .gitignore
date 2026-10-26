@@ -55,3 +55,6 @@ apps/api/data/
 # gradle output and caches of local native modules
 /apps/mobile/modules/*/android/build/
 /apps/mobile/modules/*/android/.gradle/
+
+# Screenshots from local emulator runs, shown in PR descriptions and never committed
+/dev_ss/

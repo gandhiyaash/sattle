@@ -620,7 +620,7 @@ export function TrustModel({ ways }: { ways: PayWays }) {
       : 'Sattle can’t see money move, so a debt is settled on someone’s word, not proof.',
     'Mark as settled is the word of the person who is owed, or of the payer when the one owed hasn’t joined.',
     upi &&
-      'A UPI payment is someone’s word too: what the payer’s UPI app said, on Android, or what the payer said, with the reference kept in the group’s history to check against a statement.',
+      'A UPI payment is someone’s word too: what the payer’s UPI app said, on Android, or what the payer said, with the app’s name and the reference kept in the group’s history to check against a statement.',
   ];
   return (
     <View>

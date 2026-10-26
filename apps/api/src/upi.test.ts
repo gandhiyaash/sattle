@@ -367,6 +367,20 @@ describe('POST /groups/:id/upi-payments', () => {
     expect(await t.kabirOwes()).toBe(200);
   });
 
+  it('keeps which app it was paid in, when the phone names one', async () => {
+    const t = await setup();
+    const byApp = (await report(t, { amount: 300, txnId: 'AXI8f2c9d', approvalRef: '412345678901', paidWith: 'CRED' })).body;
+    expect(byApp.upi).toEqual({ txnId: 'AXI8f2c9d', approvalRef: '412345678901', paidWith: 'CRED' });
+    // Paid by hand in an app that was opened plain: no ids, no reference, still the app.
+    const byHand = (await report(t, { amount: 300, byPayer: true, paidWith: ' Google Pay ' })).body;
+    expect(byHand.upi).toEqual({ byPayer: true, paidWith: 'Google Pay' });
+
+    // It is metadata: a blank name is none and a long one is cut, and neither refuses the report.
+    expect((await report(t, { amount: 200, paidWith: '  ' })).body.upi).toEqual({});
+    expect((await report(t, { amount: 200, paidWith: 'x'.repeat(65) })).body.upi).toEqual({ paidWith: 'x'.repeat(64) });
+    expect(await t.kabirOwes()).toBe(0);
+  });
+
   it('settles the same way on the payer’s own word, with the reference they typed in', async () => {
     const t = await setup();
     // An iPhone or a browser: no app reported, so there are no ids, only what Kabir copied out of his UPI app.

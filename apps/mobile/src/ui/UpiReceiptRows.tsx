@@ -10,6 +10,8 @@
  *
  * Said by the payer, where no app reports: the reference they typed in, if
  * they gave one, and nothing if they didn't.
+ *
+ * Either way, the app it was paid in when the phone knows (Android), first.
  */
 
 import React from 'react';
@@ -20,11 +22,18 @@ import { BreakdownRow } from './primitives';
 const NOT_GIVEN = 'Not given by the UPI app';
 
 export function UpiReceiptRows({ receipt }: { receipt: UpiReceipt }) {
+  const app = receipt.paidWith && <BreakdownRow label="Paid with" value={receipt.paidWith} />;
   if (receipt.byPayer) {
-    return receipt.reference ? <BreakdownRow label="UPI reference" value={receipt.reference} numeric /> : null;
+    return (
+      <>
+        {app}
+        {receipt.reference && <BreakdownRow label="UPI reference" value={receipt.reference} numeric />}
+      </>
+    );
   }
   return (
     <>
+      {app}
       <BreakdownRow label="UPI transaction ID" value={receipt.txnId ?? NOT_GIVEN} numeric={Boolean(receipt.txnId)} />
       <BreakdownRow label="Approval ref" value={receipt.approvalRef ?? NOT_GIVEN} numeric={Boolean(receipt.approvalRef)} />
       {receipt.txnRef && <BreakdownRow label="Transaction ref" value={receipt.txnRef} numeric />}
