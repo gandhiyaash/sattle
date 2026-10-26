@@ -33,7 +33,7 @@ import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
-import { makeStyles, radius, space, type } from './theme';
+import { layout, makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
@@ -552,6 +552,9 @@ const useSheet = makeStyles((color) => ({
     left: 0,
     right: 0,
     bottom: 0,
+    // A Modal covers the whole window, past the app's column; the sheet stays as wide as the column.
+    maxWidth: layout.maxWidth,
+    marginHorizontal: 'auto',
     backgroundColor: color.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
