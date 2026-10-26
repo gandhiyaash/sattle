@@ -186,7 +186,8 @@ describe('who may settle', () => {
   });
 
   it('lets the payee mark it, and the payer when the payee is a ghost', async () => {
-    const owedToYash = await debt('g-flat', 'm-flat-om', 'm-flat-yash');
+    // Not Om's debt: the seeded demo link has an invoice out for it, and that has to finish first.
+    const owedToYash = await debt('g-flat', 'm-flat-priya', 'm-flat-yash');
     expect((await call('POST', '/groups/g-flat/settlements/manual', owedToYash)).status).toBe(201);
 
     const owedToGhost = await debt('g-goa', 'm-goa-yash', 'm-goa-aman');

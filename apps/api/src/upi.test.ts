@@ -5,6 +5,7 @@ import type {
   Group,
   GroupGuestView,
   GroupLink,
+  GuestView,
   HistoryEntry,
   JoinView,
   Member,
@@ -599,10 +600,11 @@ describe('claims and people going', () => {
   });
 
   it('goes with the group when the group is deleted', async () => {
-    const { call, claim, base, riya, mRiya, mKabir, mAman, count } = await setup();
+    const { call, claim, base, riya, count } = await setup();
     await claim(400);
-    await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);
-    await call('POST', `${base}/settlements/manual`, { fromMemberId: mAman, toMemberId: mRiya, amount: 1000 }, riya.token);
+    // The cab goes, so nobody owes anything, and the claim is left behind about a debt that isn't there.
+    const [cab] = (await call<{ id: string }[]>('GET', `${base}/expenses`, undefined, riya.token)).body;
+    expect((await call('DELETE', `${base}/expenses/${cab.id}`, undefined, riya.token)).status).toBe(200);
     expect(count('upi_claims')).toBe(1);
     expect((await call('DELETE', base, undefined, riya.token)).status).toBe(200);
     expect(count('upi_claims')).toBe(0);
@@ -745,5 +747,35 @@ describe('UPI on a group link', () => {
     // With no choice for this one it follows the rest again.
     await here(null);
     expect((await debtOf('Kabir')).upi).toBeUndefined();
+  });
+});
+
+describe('a debt that could be paid by UPI or Lightning, settled some other way', () => {
+  it('drops a UPI payment someone said they made once the person owed marks it settled', async () => {
+    const { call, riya, base, mRiya, mKabir, claim, claims, kabirOwes } = await setup();
+    expect((await claim()).status).toBe(201);
+    expect(await claims(riya.token)).toHaveLength(1);
+
+    const res = await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);
+    expect(res.status).toBe(201);
+    expect(await kabirOwes()).toBe(0);
+    // Nothing is left asking Riya whether it arrived.
+    expect(await claims(riya.token)).toEqual([]);
+  });
+
+  it('shows a pay link settled, with nothing left to pay or claim, once it is marked settled', async () => {
+    const { call, riya, base, mRiya, mKabir } = await setup();
+    const link = (
+      await call<{ token: string }>('POST', `${base}/pay-links`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token)
+    ).body;
+    // Kabir says on the link he paid by UPI; then Riya marks it settled from the app instead of confirming.
+    expect((await call('POST', `/s/${link.token}/upi-claims`)).status).toBe(201);
+    await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);
+
+    const view = (await call<GuestView>('GET', `/s/${link.token}`)).body;
+    expect(view.settlement).toMatchObject({ amount: 1000, status: 'manually_confirmed' });
+    expect(view.upiClaim).toBeUndefined();
+    expect((await call<Err>('GET', `/s/${link.token}/upi`)).body.code).toBe('link_expired');
+    expect((await call<Err>('POST', `/s/${link.token}/upi-claims`)).body.code).toBe('link_expired');
   });
 });

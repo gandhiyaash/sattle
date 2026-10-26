@@ -15,6 +15,10 @@
  * nothing; when the person owed confirms it, that settlement is tagged with
  * the token too, so the link shows it paid.
  *
+ * A debt can be settled without the link: marked settled by the person owed,
+ * or paid by UPI from the app. The link shows that settlement then, so a page
+ * left open says it's settled instead of still offering to be paid.
+ *
  * With both on offer, nothing is minted until the payer says which: an
  * invoice nobody asked for would stand in the way of the UPI payment. A link
  * that could be paid neither way isn't made, and the person asking for it is
@@ -30,6 +34,7 @@ import {
   LEDGER_STATUSES,
   SattleError,
   UPI_CURRENCY,
+  settledOutsideLink,
   toGuestSettlement,
   type Group,
   type GuestView,
@@ -77,16 +82,26 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
     return debt && debt.amount >= link.amount ? debt : undefined;
   };
 
+  /**
+   * What settled the link's debt some other way, if something did (see
+   * settledOutsideLink). The page shows it settled rather than still asking
+   * to be paid.
+   */
+  const settledElsewhere = (link: PayLink) => settledOutsideLink(repo.settlements(link.groupId), link);
+
   /** A UPI payment someone has said they made for the link's debt, from here or anywhere else. */
   const claimFor = (link: PayLink) =>
     repo.upiClaims(link.groupId).find((x) => x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId);
 
   /** With `shown`, that settlement instead of the latest. */
   const guestView = (link: PayLink, shown?: Settlement): GuestView => {
-    const latest = shown ?? repo.latestForPayLink(link.token);
+    const own = shown ?? repo.latestForPayLink(link.token);
     const g = repo.group(link.groupId)!;
+    const elsewhere = !shown && !(own && LEDGER_STATUSES.includes(own.status)) ? settledElsewhere(link) : undefined;
+    const latest = elsewhere ?? own;
     const payee = repo.member(link.toMemberId)!;
-    const claim = claimFor(link);
+    // Once it's settled, a claim still about it has nothing left to wait for.
+    const claim = elsewhere ? undefined : claimFor(link);
     return {
       payerName: repo.member(link.fromMemberId)!.displayName,
       payeeName: payee.displayName,
@@ -122,7 +137,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
     const g = repo.group(link.groupId)!;
     const latest = repo.latestForPayLink(link.token);
     // A link pays once. The same two people may still owe as much again, and that takes a new link.
-    if ((latest && LEDGER_STATUSES.includes(latest.status)) || !owed(link, g)) {
+    if ((latest && LEDGER_STATUSES.includes(latest.status)) || settledElsewhere(link) || !owed(link, g)) {
       throw new SattleError('link_expired', 'This has already been settled.');
     }
     const payee = repo.member(link.toMemberId)!;
@@ -175,6 +190,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    *   unknown token                         → 404 not_found
    *   a settlement for it is in progress    → return it (no second invoice)
    *   last settlement settled it            → return it (page shows Paid)
+   *   settled some other way since the link → return that (page shows it settled)
    *   debt gone or smaller than the link    → 410 link_expired
    *   payee can be paid neither way         → 409 member_cannot_receive
    *   someone said it was paid by UPI       → nothing minted: paying again
@@ -195,6 +211,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
       if (latest && (isInProgress(latest) || LEDGER_STATUSES.includes(latest.status))) return undefined;
 
       const g = repo.group(link.groupId)!;
+      if (settledElsewhere(link)) return undefined;
       if (!owed(link, g)) throw new SattleError('link_expired', 'This has already been settled.');
       const payee = repo.member(link.toMemberId)!;
       const lightning = receivable(payments, payee);

@@ -24,6 +24,7 @@ import {
   parseUpiReference,
   resolveParts,
   sameExpense,
+  settledOutsideLink,
   toGuestSettlement,
   type CreateGroupInput,
   type CreatePayLinkInput,
@@ -394,6 +395,20 @@ export class MockClient implements SattleClient {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
       this.checkCaller(input, 'manual');
+      // As the server: an invoice out for it could still be paid, and then it's paid twice.
+      if (this.settlements.some((x) => isInProgress(x) && x.fromMemberId === input.fromMemberId && x.toMemberId === input.toMemberId && x.groupId === g.id)) {
+        throw new SattleError(
+          'conflict',
+          'A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.'
+        );
+      }
+      // Settling all that's owed answers a UPI payment someone said they made for it.
+      const owed = this.debtsOf(g.id).find((d) => d.fromMemberId === input.fromMemberId && d.toMemberId === input.toMemberId);
+      if (owed && input.amount >= owed.amount) {
+        this.upiClaims = this.upiClaims.filter(
+          (x) => !(x.groupId === g.id && x.fromMemberId === input.fromMemberId && x.toMemberId === input.toMemberId)
+        );
+      }
       const s: Settlement = {
         id: this.id('s'),
         groupId: input.groupId,
@@ -509,8 +524,11 @@ export class MockClient implements SattleClient {
     const member = (id: string) => this.members.find((m) => m.id === id)!;
     const g = this.findGroup(link.groupId);
     const payee = member(link.toMemberId);
-    const sid = this.payLinkSettlements[link.token];
-    const claim = this.claimForLink(link);
+    const own = this.payLinkSettlements[link.token] ? this.findSettlement(this.payLinkSettlements[link.token]) : undefined;
+    // As the server: settled some other way since the link, the page shows that.
+    const elsewhere = this.linkPaid(link) ? undefined : this.settledElsewhere(link);
+    const shown = elsewhere ?? own;
+    const claim = elsewhere ? undefined : this.claimForLink(link);
     return {
       payerName: member(link.fromMemberId).displayName,
       payeeName: payee.displayName,
@@ -520,8 +538,16 @@ export class MockClient implements SattleClient {
       payable: canReceive(payee),
       ...(this.upiOnLink(g.id, payee) ? { upi: true } : {}),
       ...(claim ? { upiClaim: claim.status } : {}),
-      settlement: sid ? toGuestSettlement(this.findSettlement(sid)) : undefined,
+      settlement: shown ? toGuestSettlement(shown) : undefined,
     };
+  }
+
+  /** What settled the link's debt without the link (settledOutsideLink). */
+  private settledElsewhere(link: PayLink) {
+    return settledOutsideLink(
+      this.settlements.filter((x) => x.groupId === link.groupId),
+      link
+    );
   }
 
   /** A UPI payment someone has said they made for the link's debt, from the link or anywhere else. */
@@ -583,6 +609,7 @@ export class MockClient implements SattleClient {
       if (current && (isInProgress(current) || this.linkPaid(link))) return this.guestView(link);
 
       const g = this.findGroup(link.groupId);
+      if (this.settledElsewhere(link)) return this.guestView(link);
       if (!this.linkOwed(link)) throw new SattleError('link_expired', 'This has already been settled.');
       const payee = this.members.find((m) => m.id === link.toMemberId)!;
       const lightning = canReceive(payee);
@@ -628,7 +655,9 @@ export class MockClient implements SattleClient {
   /** The link, for paying it by UPI. Same rules as the server's /s/:token/upi. */
   private payLinkForUpi(token: string) {
     const link = this.findLink(token);
-    if (this.linkPaid(link) || !this.linkOwed(link)) throw new SattleError('link_expired', 'This has already been settled.');
+    if (this.linkPaid(link) || this.settledElsewhere(link) || !this.linkOwed(link)) {
+      throw new SattleError('link_expired', 'This has already been settled.');
+    }
     const payee = this.members.find((m) => m.id === link.toMemberId)!;
     if (!this.upiOnLink(link.groupId, payee)) {
       throw new SattleError('member_cannot_receive', `${payee.displayName} can’t be paid by UPI from here.`);
