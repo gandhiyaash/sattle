@@ -1,0 +1,17 @@
+// A local Expo module: autolinking finds it under apps/mobile/modules/, so it survives
+// `expo prebuild` regenerating android/. The JS side is src/upi/launchUpi.android.ts.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.chanakya.sattle'
+version = '0.1.0'
+
+android {
+  namespace "com.chanakya.sattle.upi"
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}

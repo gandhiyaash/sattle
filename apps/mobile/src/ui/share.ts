@@ -6,21 +6,21 @@
  * which it was, for a caller with no room for a line.
  */
 
+import * as Clipboard from 'expo-clipboard';
 import { Platform, Share } from 'react-native';
 
 /**
  * Copies text, for pasting into another app. Returns a line saying what
  * happened, for under the button.
  *
- * Native has no clipboard without another module, so there it opens the
- * share sheet, which has Copy in it. On the web the clipboard API is tried
- * first; the browsers inside chat apps often lack it, so a selected,
- * off-screen field and the old copy command are the fallback.
+ * In the installed app it goes straight to the clipboard. On the web the
+ * clipboard API is tried first; the browsers inside chat apps often lack it,
+ * so a selected, off-screen field and the old copy command are the fallback.
  */
 export async function copyText(text: string): Promise<string> {
   if (Platform.OS !== 'web') {
-    const r = await Share.share({ message: text }).catch(() => null);
-    return r?.action === Share.sharedAction ? 'Done.' : 'Not copied.';
+    await Clipboard.setStringAsync(text);
+    return 'Copied.';
   }
   try {
     await navigator.clipboard.writeText(text);

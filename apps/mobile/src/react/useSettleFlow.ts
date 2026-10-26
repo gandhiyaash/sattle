@@ -8,24 +8,29 @@
  *      │   ▲                     │
  *      │   └──────failed─────────┘   (error shown, nothing moved)
  *      ├──startAddressEntry──▶ entering_address ──save──▶ choosing (re-resolved)
- *      ├──choose('upi')──▶ upi ──the UPI app says it went through (Android)──▶ done
- *      │                    │
+ *      ├──choose('upi')──▶ upi ──payWith(app): it takes the link and says it went through──▶ done
+ *      │                    │  └──payWith(app that refuses links)──▶ upi_copied ──openCopiedApp──▶ upi
  *      │                    ▼  back from a UPI app that says nothing, or "I've paid"
  *      │                 upi_ask ──yes──▶ done
  *      │                    └──no──▶ upi
  *      └──markManual──────────────────────────────────▶ done
  *
  * UPI is paid outside Sattle, in the payer's UPI app, and nothing here can
- * see the money move. On Android the UPI app is opened for them and hands
- * back what happened. When it says the payment went through, that settles
- * the debt then and there, on that app's word, with the ids it gave kept for
- * checking.
+ * see the money move. On Android the phone's UPI apps are listed, and the
+ * one picked is opened on the link and hands back what happened. When it
+ * says the payment went through, that settles the debt then and there, on
+ * that app's word, with the ids it gave kept for checking.
  *
- * An iPhone and a browser are told nothing by a UPI app, and some Android
- * apps stay quiet too. So when the payer comes back from one, or taps "I've
- * paid", they are asked whether it went through (upi_ask). Their yes settles
- * it the same way, on their word, and the reference their UPI app showed is
- * kept with it when they type one in. Nobody is asked to confirm either.
+ * Google Pay and PhonePe refuse a link from another app (upi/upiApps.ts).
+ * They are never sent one: the UPI ID is copied, the sheet says so
+ * (upi_copied), and the app is opened plain for the payer to paste it in.
+ *
+ * An iPhone and a browser are told nothing by a UPI app, nor is Android by
+ * an app opened plain, and some apps stay quiet on the link too. So when
+ * the payer comes back from one, or taps "I've paid", they are asked whether
+ * it went through (upi_ask). Their yes settles it the same way, on their
+ * word, and the reference their UPI app showed is kept with it when they
+ * type one in. Nobody is asked to confirm either.
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything. Only the ways
@@ -37,6 +42,7 @@
  * to try again.
  */
 
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -59,16 +65,19 @@ import {
 } from '@sattle/core';
 import type { SattleClient } from '../client/SattleClient';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
-import { launchUpi } from '../upi/launchUpi';
+import { upiLauncher } from '../upi/launchUpi';
+import { refusesLinks, type UpiApp } from '../upi/upiApps';
 import { useActionKeys, useClient, usePaymentModeAnswer, useWallet } from './SattleProvider';
 import { useBackFromUpi } from './useBackFromUpi';
 
-export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_ask';
+export type SettleStep = 'choosing' | 'entering_address' | 'paying' | 'done' | 'upi' | 'upi_copied' | 'upi_ask';
 
-/** Paying by UPI: who to pay, the link that pays them, and what the UPI app last said, if it says anything. */
+/** Paying by UPI: who to pay, the link that pays them, the apps that could, and what the UPI app last said, if it says anything. */
 export interface UpiSession {
   payee: UpiPayee;
   uri: string;
+  /** The UPI apps on this phone, for the payer to pick from. Null where they can't be listed: an iPhone, a browser, an old build. */
+  apps: UpiApp[] | null;
   outcome: UpiOutcome | null;
 }
 
@@ -92,8 +101,25 @@ export interface SettleFlow {
   createInvite: (groupName: string) => Promise<{ url: string; message: string; sentNote: string }>;
   /** Set on the `upi` step. */
   upi: UpiSession | null;
-  /** Opens the UPI app again and acts on what it says: a success settles it. Null where no UPI app reports back (iOS, web). */
-  openUpiApp: (() => Promise<void>) | null;
+  /**
+   * Pays in `app`, or in whichever app the phone picks without one. An app that takes the link
+   * is opened on it and heard from: a success settles the debt. One that refuses links
+   * (refusesLinks) gets the UPI ID on the clipboard instead, and the sheet says so (upi_copied).
+   * Null where no app can be opened this way (iOS, web).
+   */
+  payWith: ((app: UpiApp | null) => Promise<void>) | null;
+  /** On the `upi_copied` step: the app the UPI ID was copied for. */
+  copiedFor: UpiApp | null;
+  /** Opens that app plain. When the payer comes back, the sheet asks whether it went through. */
+  openCopiedApp: () => void;
+  /**
+   * The payer went to pay by hand, from the copied ID. The question on return then has no
+   * reference box: they typed everything in themselves, and copying a number out of the
+   * app on top of that is more than the payment is worth.
+   */
+  paidByHand: boolean;
+  /** Closes that, with nothing recorded. */
+  dismissCopied: () => void;
   /** The payer is being handed to a UPI app that won't say what happened. When they come back, the sheet asks. */
   leftForUpi: () => void;
   /** Asks whether the payment went through. Also where "I've paid" goes. */
@@ -148,6 +174,8 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   const [upi, setUpi] = useState<UpiSession | null>(null);
+  const [copiedFor, setCopiedFor] = useState<UpiApp | null>(null);
+  const [paidByHand, setPaidByHand] = useState(false);
   const unsub = useRef<(() => void) | null>(null);
   const upiApp = useBackFromUpi();
   const [opening, setOpening] = useState(true);
@@ -206,14 +234,26 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     }
   };
 
-  /** Android: hands over to a UPI app, and acts on what it says when it hands back. */
-  const openUpiApp = async (session: UpiSession) => {
-    if (!launchUpi) return;
+  /**
+   * Android: hands over to a UPI app, and acts on what it says when it hands back. An app that
+   * refuses links is never sent one: the UPI ID is copied for it instead, and the sheet says so.
+   */
+  const payWith = async (session: UpiSession, app: UpiApp | null) => {
+    if (!upiLauncher) return;
+    if (app && refusesLinks(app)) {
+      await Clipboard.setStringAsync(session.payee.upiId);
+      setCopiedFor(app);
+      setStep('upi_copied');
+      return;
+    }
+    setPaidByHand(false);
     let outcome: UpiOutcome;
     try {
-      outcome = await launchUpi(session.uri);
+      outcome = await upiLauncher.pay(session.uri, app ?? undefined);
     } catch {
-      throw new Error('No UPI app on this phone could open this. Pay the UPI ID below from your UPI app, then mark it as paid.');
+      throw new Error(
+        `${app ? `${app.name} couldn’t be opened` : 'No UPI app on this phone could open this'}. Pay the UPI ID below from your UPI app, then mark it as paid.`
+      );
     }
     setUpi({ ...session, outcome });
     if (outcome.status === 'success') await settleByUpi(outcome);
@@ -232,15 +272,19 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
   const choose = (rail: Rail) =>
     run(async () => {
       if (rail === 'upi') {
-        const payee = await client.getUpiPayee(debt.groupId, debt.toMemberId);
-        const session: UpiSession = {
+        // The apps are asked for alongside, so the sheet opens with them. Not knowing them is no
+        // reason to stop the payment: the sheet then has the one button an iPhone has.
+        const [payee, apps] = await Promise.all([
+          client.getUpiPayee(debt.groupId, debt.toMemberId),
+          upiLauncher ? upiLauncher.apps().catch(() => null) : null,
+        ]);
+        setUpi({
           payee,
           uri: upiPayUri({ upiId: payee.upiId, name: payee.name, amount: debt.amount, note: `Sattle ${groupName}` }),
+          apps,
           outcome: null,
-        };
-        setUpi(session);
+        });
         setStep('upi');
-        await openUpiApp(session);
         return;
       }
       if (rail === 'manual') {
@@ -283,7 +327,27 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     error,
     busy,
     upi,
-    openUpiApp: launchUpi && upi ? () => run(() => openUpiApp(upi)) : null,
+    payWith: upiLauncher && upi ? (app) => run(() => payWith(upi, app)) : null,
+    copiedFor,
+    paidByHand,
+    openCopiedApp: () => {
+      if (!upiLauncher || !copiedFor) return;
+      setError(null);
+      // Back on the UPI step underneath, which is the one that turns coming back into the question.
+      setStep('upi');
+      setPaidByHand(true);
+      upiApp.leaving();
+      try {
+        upiLauncher.open(copiedFor);
+      } catch {
+        upiApp.answered();
+        setError(new Error(`${copiedFor.name} couldn’t be opened. Pay the UPI ID below from it by hand, then mark it as paid.`));
+      }
+    },
+    dismissCopied: () => {
+      setError(null);
+      setStep('upi');
+    },
     leftForUpi: () => upiApp.leaving(),
     askPaid: () => {
       setError(null);
@@ -308,6 +372,8 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     leaveUpi: () => {
       setError(null);
       setUpi(null);
+      setCopiedFor(null);
+      setPaidByHand(false);
       upiApp.answered();
       setStep('choosing');
     },

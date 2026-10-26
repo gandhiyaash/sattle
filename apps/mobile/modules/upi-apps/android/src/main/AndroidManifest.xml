@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Since Android 11 an app sees only the apps it declares. This is merged into the app's
+    manifest and makes every app that opens a upi://pay link visible: to list, to aim the
+    link at, and to open on its home screen. Nothing else on the phone is.
+  -->
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="upi" />
+    </intent>
+  </queries>
+</manifest>

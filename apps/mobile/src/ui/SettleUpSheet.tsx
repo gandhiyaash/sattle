@@ -7,9 +7,14 @@
  *   choosing          rails, or the blocked screen if the recipient can't receive
  *   entering_address  paste an address for someone who never installed the app
  *   paying / done     lifecycle; on the invoice rail, the invoice to pay
- *   upi               what to pay in a UPI app. On Android, a UPI app that
- *                     says the payment went through settles it there and
- *                     then, and the sheet goes to done
+ *   upi               what to pay in a UPI app. On Android, the phone's UPI
+ *                     apps to pick from; one that says the payment went
+ *                     through settles it there and then, and the sheet goes
+ *                     to done
+ *   upi_copied        the same, under a popup saying the UPI ID was copied
+ *                     for an app that refuses links (GPay, PhonePe), with
+ *                     the button that opens it. Why they refuse is for the
+ *                     FAQ, not the popup
  *   upi_ask           "Did the payment go through?", asked when the payer
  *                     comes back from a UPI app that says nothing (an iPhone,
  *                     a browser) and from "I've paid". Yes settles it, with
@@ -31,7 +36,8 @@ import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from '
 import { formatAmount, isBitcoin, type Debt, type Member, type PayWays } from '@sattle/core';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
-import { Button, Card, ErrorState, QuoteBreakdown, SatLine } from './primitives';
+import { refusesLinks } from '../upi/upiApps';
+import { Button, Card, Dialog, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
 import { UpiPanel } from './UpiPanel';
@@ -100,38 +106,42 @@ export function SettleUpSheet({
           {name} has nothing to confirm.
         </Text>
 
-        <TextInput
-          style={[s.input, flow.error && s.inputError]}
-          value={reference}
-          onChangeText={(text) => {
-            setReference(text);
-            if (flow.error) flow.clearError();
-          }}
-          placeholder="UPI reference, if you have it"
-          placeholderTextColor={color.inkFaint}
-          autoCapitalize="characters"
-          autoCorrect={false}
-        />
-        <Text style={s.fieldNote}>
-          The number your UPI app shows for the payment, usually 12 digits: its UPI transaction ID, UTR or UPI Ref No.
-          It goes in the group’s history, so {name} can find the payment by it. You can leave it out.
-        </Text>
+        {!flow.paidByHand && (
+          <>
+            <TextInput
+              style={[s.input, flow.error && s.inputError]}
+              value={reference}
+              onChangeText={(text) => {
+                setReference(text);
+                if (flow.error) flow.clearError();
+              }}
+              placeholder="UPI reference, if you have it"
+              placeholderTextColor={color.inkFaint}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            <Text style={s.fieldNote}>
+              The number your UPI app shows for the payment, usually 12 digits: its UPI transaction ID, UTR or UPI Ref
+              No. It goes in the group’s history, so {name} can find the payment by it. You can leave it out.
+            </Text>
+          </>
+        )}
         {flow.error && <Text style={s.error}>{flow.error.message}</Text>}
 
         <Button
           label="Yes, it went through"
           variant="primary"
           busy={flow.busy}
-          onPress={() => flow.confirmPaid(reference)}
+          onPress={() => flow.confirmPaid(flow.paidByHand ? '' : reference)}
         />
         <Button label="No, it didn’t go through" variant="quiet" disabled={flow.busy} onPress={flow.notPaid} />
       </View>
     );
   }
 
-  if (flow.step === 'upi' && flow.upi) {
+  if ((flow.step === 'upi' || flow.step === 'upi_copied') && flow.upi) {
     // Only Android hears back from the UPI app. Whatever it said short of success leaves it to the payer.
-    const said = flow.openUpiApp ? flow.upi.outcome?.status : undefined;
+    const said = flow.payWith ? flow.upi.outcome?.status : undefined;
     const instructions =
       said === 'success'
         ? // Only still on this step if telling the server failed: otherwise the sheet has gone to Settled.
@@ -142,9 +152,11 @@ export function SettleUpSheet({
             ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
             : said === 'unknown'
               ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
-              : flow.openUpiApp
-                ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
-                : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
+              : flow.upi.apps
+                ? pickAppLine(flow.upi.apps.filter(refusesLinks).map((app) => app.name))
+                : flow.payWith
+                  ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
+                  : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
     return (
       <View style={s.sheet}>
         <Text style={s.title}>Pay {recipient.displayName} by UPI</Text>
@@ -157,7 +169,8 @@ export function SettleUpSheet({
           payee={flow.upi.payee}
           uri={flow.upi.uri}
           busy={flow.busy}
-          onOpen={flow.openUpiApp ?? undefined}
+          apps={flow.upi.apps}
+          onPay={flow.payWith ?? undefined}
           onOpened={flow.leftForUpi}
         />
         {flow.error && <ErrorState message={flow.error.message} />}
@@ -174,6 +187,20 @@ export function SettleUpSheet({
           />
         )}
         <Button label="Back" variant="quiet" onPress={flow.leaveUpi} />
+
+        {flow.copiedFor && (
+          <Dialog visible={flow.step === 'upi_copied'} title="UPI ID copied" onClose={flow.dismissCopied}>
+            <Text style={s.body}>
+              Paste it into {flow.copiedFor.name}’s search, pick {recipient.displayName}, and pay {amount}. Then come
+              back here and mark it as paid.
+            </Text>
+            <Text style={s.copiedId} selectable>
+              {flow.upi.payee.upiId}
+            </Text>
+            <Button label={`Open ${flow.copiedFor.name}`} variant="primary" onPress={flow.openCopiedApp} />
+            <Button label="Cancel" variant="quiet" onPress={flow.dismissCopied} />
+          </Dialog>
+        )}
       </View>
     );
   }
@@ -460,6 +487,7 @@ const useStyles = makeStyles((color) => ({
   waitingInline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.md },
   amountBlock: { alignItems: 'center', gap: space.xs, marginBottom: space.md },
   amount: { ...type.amountLg, color: color.ink },
+  copiedId: { ...type.amountMd, color: color.ink, marginBottom: space.sm },
   waitingStep: { ...type.body, color: color.ink },
   waitingNote: { ...type.caption, color: color.inkFaint, textAlign: 'center' },
 
@@ -480,3 +508,11 @@ const useStyles = makeStyles((color) => ({
   receiptLabel: { ...type.caption, color: color.inkFaint },
   receiptValue: { ...type.amountSm, color: color.inkMuted },
 }));
+
+/** The line over the apps: what picking one does, naming any that are paid in by hand instead. */
+function pickAppLine(refusing: string[]): string {
+  if (!refusing.length) return 'Pick the app you pay with. It opens with the amount filled in, and you’re brought back here.';
+  const one = refusing.length === 1;
+  const names = one ? refusing[0] : `${refusing.slice(0, -1).join(', ')} and ${refusing[refusing.length - 1]}`;
+  return `Pick the app you pay with. ${names} ${one ? 'opens' : 'open'} with the UPI ID copied for you to paste in. Any other opens with the amount filled in.`;
+}

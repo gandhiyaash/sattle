@@ -13,13 +13,14 @@ import {
   ActivityIndicator,
   Image,
   Keyboard,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
   type ViewStyle,
+  View,
 } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -253,6 +254,36 @@ export function IconButton({
         </Svg>
       )}
     </Pressable>
+  );
+}
+
+/**
+ * A small card in the middle of the screen, over whatever is showing, with one
+ * thing to read and act on. Tapping outside it, or the back button, is
+ * `onClose`. Buttons go in as children, under the text.
+ */
+export function Dialog({
+  visible,
+  title,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const s = useStyles();
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={s.dialogBackdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={s.dialogCenter} pointerEvents="box-none">
+        <View style={s.dialogCard}>
+          <Text style={s.dialogTitle}>{title}</Text>
+          {children}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -569,6 +600,10 @@ const useStyles = makeStyles((color) => ({
   },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: color.line },
 
+  dialogBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
+  dialogCenter: { flex: 1, justifyContent: 'center', padding: space.xl },
+  dialogCard: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.sm, ...shadow },
+  dialogTitle: { ...type.title, color: color.ink, marginBottom: space.xs },
   btn: {
     height: 48,
     borderRadius: radius.md,
