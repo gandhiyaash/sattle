@@ -26,6 +26,7 @@ import {
   sameExpense,
   settledOutsideLink,
   toGuestSettlement,
+  toGuestSettlementFromElsewhere,
   type CreateGroupInput,
   type CreatePayLinkInput,
   type CreateSettlementInput,
@@ -546,7 +547,7 @@ export class MockClient implements SattleClient {
       payable: canReceive(payee),
       ...(this.upiOnLink(g.id, payee) ? { upi: true } : {}),
       ...(claim ? { upiClaim: claim.status } : {}),
-      settlement: shown ? toGuestSettlement(shown) : undefined,
+      settlement: elsewhere ? toGuestSettlementFromElsewhere(elsewhere) : shown ? toGuestSettlement(shown) : undefined,
     };
   }
 

@@ -274,6 +274,10 @@ describe('POST /s/:token/open', () => {
     const after = await call<GuestView>('POST', `/s/${b.token}/open`);
     expect(after.status).toBe(200);
     expect(after.body.settlement?.id).toBe(paid.settlement!.id);
+    // But not its invoice or proof: those are the receipt of whoever paid through the first link.
+    expect(paid.settlement!.destination).toBeDefined();
+    expect(after.body.settlement?.destination).toBeUndefined();
+    expect(after.body.settlement?.preimage).toBeUndefined();
   });
 
   it('keeps a link settled even once the same two people owe again', async () => {

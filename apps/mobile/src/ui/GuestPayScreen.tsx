@@ -627,7 +627,7 @@ function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestS
       <Text style={s.title}>{onTheirWord ? 'Settled' : 'Paid'}</Text>
       <Text style={s.reason}>
         {onTheirWord
-          ? `${payeeName} has marked this settled. Nothing else to do — you can close this.`
+          ? 'This has been settled. Nothing else to do — you can close this.'
           : `${payeeName} has been paid. Nothing else to do — you can close this.`}
       </Text>
       <View style={s.receipt}>

@@ -36,6 +36,7 @@ import {
   UPI_CURRENCY,
   settledOutsideLink,
   toGuestSettlement,
+  toGuestSettlementFromElsewhere,
   type Group,
   type GuestView,
   type Member,
@@ -111,7 +112,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
       payable: receivable(payments, payee),
       ...(upiOnLink(wallets, g, payee) ? { upi: true } : {}),
       ...(claim ? { upiClaim: claim.status } : {}),
-      settlement: latest && toGuestSettlement(latest),
+      settlement: latest && (elsewhere ? toGuestSettlementFromElsewhere(latest) : toGuestSettlement(latest)),
     };
   };
 

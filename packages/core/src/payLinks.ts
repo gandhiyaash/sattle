@@ -12,6 +12,16 @@ export const NWC_SPEND_METHODS = ['pay_invoice', 'pay_keysend', 'multi_pay_invoi
 
 export const payLinkPath = (token: string) => `/s/${token}`;
 
+/**
+ * A settlement made without this link, as this link's page shows it: what
+ * settled the debt, but not its invoice or proof of payment. Those are the
+ * receipt of whoever paid through the other link, and anyone holding the
+ * group's link can be handed this one.
+ */
+export function toGuestSettlementFromElsewhere(s: Settlement): GuestSettlement {
+  return { ...toGuestSettlement(s), destination: undefined, preimage: undefined };
+}
+
 /** Strips everything the guest page must not see. */
 export function toGuestSettlement(s: Settlement): GuestSettlement {
   return {
