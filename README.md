@@ -143,6 +143,7 @@ apps/mobile/                 @sattle/mobile: Expo
     ui/
       theme.ts               Design tokens. Warm paper, ink, one amber accent.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
+      backNavigation.ts      Android's back button and the browser's: the sheet or screen showing gets the press.
       WelcomeScreen.tsx      First launch against the real API: your name, and a device account. Or a sign-in key from another device.
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.

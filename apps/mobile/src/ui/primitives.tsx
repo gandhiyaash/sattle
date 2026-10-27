@@ -26,6 +26,7 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area
 import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
+import { useBack } from './backNavigation';
 import { layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 const LOGO = {
@@ -65,12 +66,14 @@ export function Screen({
   // keyboard, and a bar fixed to its bottom would sit over what little is left to type in.
   const typing = useKeyboardUp();
   const bar = typing ? null : footer;
+  // Android's back button and the browser's do what the arrow does.
+  useBack(onBack);
   return (
     <View style={s.screen}>
       {/* The app draws under the status bar and the notch, so the header starts below them. */}
       <View style={[s.header, { paddingTop: Math.max(insets.top + space.md, space.xl) }]}>
         {onBack && (
-          <Pressable onPress={onBack} hitSlop={12} style={s.back}>
+          <Pressable onPress={onBack} hitSlop={12} style={s.back} accessibilityRole="button" accessibilityLabel="Back">
             <Text style={s.backText}>‹</Text>
           </Pressable>
         )}
@@ -189,9 +192,17 @@ export function Button({
   const isPrimary = variant === 'primary';
   // react-native-web draws anything with an href as <a>. React Native's own types don't have the prop.
   const link = href && Platform.OS === 'web' ? ({ href, accessibilityRole: 'link' } as object) : null;
+  const off = !!(disabled || busy);
   return (
     <View>
       <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: off, busy: !!busy }}
+        // A browser is told separately: react-native-web doesn't read accessibilityState.
+        aria-disabled={off}
+        aria-busy={!!busy}
+        // While it spins there's no label to read, so say it here.
+        accessibilityLabel={label}
         {...link}
         onPress={onPress}
         disabled={disabled || busy}
@@ -274,9 +285,10 @@ export function Dialog({
   children: React.ReactNode;
 }) {
   const s = useStyles();
+  useBack(visible ? onClose : undefined, true);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.dialogBackdrop} onPress={onClose} accessibilityLabel="Close" />
+      <Pressable style={s.dialogBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
       <View style={s.dialogCenter} pointerEvents="box-none">
         <View style={s.dialogCard}>
           <Text style={s.dialogTitle}>{title}</Text>
@@ -405,7 +417,13 @@ export function Avatar({ name, dim }: { name: string; dim?: boolean }) {
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
   return (
-    <View style={[s.avatar, dim && { backgroundColor: color.surfaceSunken }]}>
+    // Initials beside the name they're from: a screen reader would only say the name twice.
+    <View
+      style={[s.avatar, dim && { backgroundColor: color.surfaceSunken }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
+    >
       <Text style={[s.avatarText, dim && { color: color.inkFaint }]}>{initials}</Text>
     </View>
   );

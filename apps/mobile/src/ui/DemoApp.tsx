@@ -18,6 +18,7 @@ import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core'
 import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
+import { useBack, useHistoryDepth } from './backNavigation';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { FaqScreen } from './FaqScreen';
 import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
@@ -131,6 +132,8 @@ function Navigator({
   }, [shared]);
 
   const refresh = () => setNonce((n) => n + 1);
+
+  useHistoryDepth(depthOf(route) + (settling ? 1 : 0) + (viewing ? 1 : 0));
 
   /** Into a group from outside it, which starts on its expenses. Coming back from one of its own screens keeps the tab. */
   const openGroup = (groupId: string) => {
@@ -375,6 +378,28 @@ function Navigator({
 }
 
 /**
+ * How many backs it takes to reach the groups list, for the browser's back button to walk.
+ * The guest page has no way back in the app, so the browser's leaves from there.
+ */
+function depthOf(route: Route): number {
+  switch (route.name) {
+    case 'groups':
+    case 'guest':
+      return 0;
+    case 'addExpense':
+    case 'editExpense':
+    case 'groupSettings':
+    case 'history':
+    case 'faq':
+      return 2;
+    case 'restore':
+      return 3;
+    default:
+      return 1;
+  }
+}
+
+/**
  * The group's shared link, opened in the app by someone who has an account.
  *
  * If they're in the group, the link is just a way to the group: `onIn`. If
@@ -428,9 +453,10 @@ function SharedGroup({
 function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
   const sheet = useSheet();
   const insets = useSafeAreaInsets();
+  useBack(visible ? onClose : undefined, true);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={sheet.backdrop} onPress={onClose} />
+      <Pressable style={sheet.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
       {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
       <View style={sheet.frame} pointerEvents="box-none">
         {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
@@ -463,23 +489,23 @@ function DemoBar({
 
   return (
     // The labels stay above the home indicator; the bar's colour runs under it to the edge.
-    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
-      {tabs.map((tab) => (
-        <Pressable
-          key={tab.label}
-          onPress={() => onNavigate(tab.route)}
-          style={sheet.tab}
-        >
-          <Text
-            style={[
-              sheet.tabText,
-              route.name === tab.route.name && sheet.tabTextActive,
-            ]}
+    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]} accessibilityRole="tablist">
+      {tabs.map((tab) => {
+        const selected = route.name === tab.route.name;
+        return (
+          <Pressable
+            key={tab.label}
+            onPress={() => onNavigate(tab.route)}
+            style={sheet.tab}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            // A browser is told separately: react-native-web doesn't read accessibilityState.
+            aria-selected={selected}
           >
-            {tab.label}
-          </Text>
-        </Pressable>
-      ))}
+            <Text style={[sheet.tabText, selected && sheet.tabTextActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -539,7 +565,13 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   return (
     <View style={sheet.scenarios}>
       {scenarios.map((sc) => (
-        <Pressable key={sc.label} disabled={busy} onPress={run(sc.make)} style={sheet.chip}>
+        <Pressable
+          key={sc.label}
+          disabled={busy}
+          onPress={run(sc.make)}
+          style={sheet.chip}
+          accessibilityRole="button"
+        >
           <Text style={sheet.chipText}>{sc.label}</Text>
         </Pressable>
       ))}

@@ -221,6 +221,7 @@ export function AddExpenseScreen({
               onChangeText={setDescription}
               placeholder="Dinner at Thalassa"
               placeholderTextColor={color.inkFaint}
+              accessibilityLabel="What was it?"
               // Enter goes on to the amount, with the keyboard still up.
               returnKeyType="next"
               submitBehavior="submit"
@@ -240,6 +241,7 @@ export function AddExpenseScreen({
                 placeholder="0"
                 placeholderTextColor={color.inkFaint}
                 keyboardType={keyboard}
+                accessibilityLabel={sats ? 'How much, in sats?' : 'How much, in rupees?'}
               />
               {sats && <Text style={s.currencySymbol}>sats</Text>}
             </View>
@@ -248,12 +250,16 @@ export function AddExpenseScreen({
 
         <View>
           <SectionLabel>Paid by</SectionLabel>
-          <View style={s.chipRow}>
+          <View style={s.chipRow} accessibilityRole="radiogroup" accessibilityLabel="Paid by">
             {members.map((member) => (
               <Pressable
                 key={member.id}
                 onPress={() => setPaidBy(member.id)}
                 style={[s.chip, paidBy === member.id && s.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: paidBy === member.id }}
+                // A browser is told separately: react-native-web doesn't read accessibilityState.
+                aria-checked={paidBy === member.id}
               >
                 <Text style={[s.chipText, paidBy === member.id && s.chipTextActive]}>
                   {member.displayName}
@@ -265,12 +271,15 @@ export function AddExpenseScreen({
 
         <View>
           <SectionLabel>Split</SectionLabel>
-          <View style={s.chipRow}>
+          <View style={s.chipRow} accessibilityRole="radiogroup" accessibilityLabel="Split">
             {MODES.map((m) => (
               <Pressable
                 key={m.mode}
                 onPress={() => setMode(m.mode)}
                 style={[s.chip, mode === m.mode && s.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: mode === m.mode }}
+                aria-checked={mode === m.mode}
               >
                 <Text style={[s.chipText, mode === m.mode && s.chipTextActive]}>
                   {m.label}
@@ -292,7 +301,13 @@ export function AddExpenseScreen({
                   {i > 0 && <Divider />}
                   <View style={s.memberRow}>
                     {/* Only this part toggles, so the controls on the right don't. */}
-                    <Pressable onPress={() => toggle(member.id)} style={s.memberToggle}>
+                    <Pressable
+                      onPress={() => toggle(member.id)}
+                      style={s.memberToggle}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      aria-checked={on}
+                    >
                       <View style={[s.check, on && s.checkOn]}>
                         {on && <Text style={s.checkMark}>✓</Text>}
                       </View>
@@ -318,6 +333,7 @@ export function AddExpenseScreen({
                           disabled={shares <= 1}
                           hitSlop={6}
                           style={[s.stepBtn, shares <= 1 && { opacity: 0.35 }]}
+                          accessibilityRole="button"
                           accessibilityLabel={`One fewer share for ${member.displayName}`}
                         >
                           <Text style={s.stepText}>−</Text>
@@ -328,6 +344,7 @@ export function AddExpenseScreen({
                           disabled={shares >= MAX_SHARES}
                           hitSlop={6}
                           style={s.stepBtn}
+                          accessibilityRole="button"
                           accessibilityLabel={`One more share for ${member.displayName}`}
                         >
                           <Text style={s.stepText}>+</Text>

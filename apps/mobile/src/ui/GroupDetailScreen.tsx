@@ -353,6 +353,7 @@ export function GroupDetailScreen({
                 {i > 0 && <Divider />}
                 <Pressable
                   onPress={() => onEditExpense(expense, data.members, data.currency, data.userId)}
+                  accessibilityRole="button"
                   style={({ pressed }) => [s.expenseRow, pressed && { backgroundColor: color.surfaceSunken }]}
                 >
                   <View style={{ flex: 1 }}>

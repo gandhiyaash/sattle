@@ -33,7 +33,7 @@ export function UpdateBanner() {
     <View style={s.banner}>
       <Text style={s.text}>{text}</Text>
       {action && (
-        <Pressable onPress={action.onPress} hitSlop={12}>
+        <Pressable onPress={action.onPress} hitSlop={12} accessibilityRole="button">
           <Text style={s.action}>{action.label}</Text>
         </Pressable>
       )}

@@ -93,7 +93,7 @@ function Root() {
   // Off the address bar too, so a reload opens the app instead of a used link.
   const joinDone = () => {
     setJoining(null);
-    if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
+    if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(window.history.state, '', '/');
   };
   // Native: the link that opened the app, or one tapped while it was already open. Either the
   // group's shared link, /g/, which is what Invite sends and where people see what they owe and

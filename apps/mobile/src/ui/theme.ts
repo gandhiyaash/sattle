@@ -14,7 +14,11 @@
  * Dark mode follows the system setting unless the person picks light or
  * dark on the Wallet screen. It keeps the same register: a warm
  * near-black ground rather than pure black, and the same amber, lifted a
- * little so it still reads as the thing to press.
+ * little so it still reads as the thing to press. White doesn't hold up on
+ * that lighter amber, so dark mode writes on it in ink.
+ *
+ * Text and the edges of controls meet WCAG AA in both modes: 4.5:1 for text,
+ * inkFaint included, and 3:1 for lineStrong. Check a new colour before it goes in.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -30,23 +34,24 @@ const light = {
 
   // Ink
   ink: '#1A1714',
-  inkMuted: '#6B635A',
-  inkFaint: '#9C948A',
+  inkMuted: '#5C554D',
+  inkFaint: '#726A60',
 
-  // Lines
+  // Lines. `line` divides; `lineStrong` is the edge of something to type in or tap,
+  // so it holds 3:1 against the ground.
   line: '#E6E0D7',
-  lineStrong: '#D4CCC0',
+  lineStrong: '#968D81',
 
   // Accent — actions only, never decoration
-  accent: '#C2621C',
-  accentPressed: '#A85315',
+  accent: '#AD5615',
+  accentPressed: '#934812',
   accentWash: '#FBF0E5',
   onAccent: '#FFFFFF',
 
   // Money
   owed: '#1F7A4D', // they owe you
   owe: '#B4412E', // you owe them
-  settled: '#9C948A',
+  settled: '#726A60',
 
   // States
   danger: '#B4412E',
@@ -65,19 +70,19 @@ const dark: Palette = {
 
   ink: '#F2EDE6',
   inkMuted: '#B0A79C',
-  inkFaint: '#7F776E',
+  inkFaint: '#9A9187',
 
   line: '#332E29',
-  lineStrong: '#48413A',
+  lineStrong: '#746B61',
 
   accent: '#D9772F',
   accentPressed: '#C2621C',
   accentWash: '#3A2616',
-  onAccent: '#FFFFFF',
+  onAccent: '#1A1714',
 
   owed: '#4FB985',
   owe: '#E8786A',
-  settled: '#7F776E',
+  settled: '#9A9187',
 
   danger: '#E8786A',
   dangerWash: '#3A1F1B',

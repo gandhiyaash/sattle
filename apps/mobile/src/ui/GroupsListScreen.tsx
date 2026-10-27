@@ -160,6 +160,7 @@ export function GroupsListScreen({
               <Pressable
                 key={row.group.id}
                 onPress={() => onOpenGroup(row.group.id)}
+                accessibilityRole="button"
                 style={({ pressed }) => [
                   s.row,
                   i > 0 && s.rowBorder,
