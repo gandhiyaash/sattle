@@ -65,13 +65,18 @@ setRequestHeaders(() => ({
   [ANALYTICS_HEADERS.session]: analytics.session,
 }));
 
+// Read as this file loads, before any screen does. A screen's first request (a guest's pay page
+// opening the link, say) goes out in its own effect, which React runs before App's, so waiting
+// for startReporting would send it without the id, and the server keeps no row of a request from
+// neither an account nor the app. On the web the read answers at once; on a phone, in a moment.
+if (!isMock()) void readDevice();
+
 /**
  * The app is up: says so, and follows it to the background and back.
  * Returns the cleanup, so it drops straight into an effect.
  */
 export function startReporting(): () => void {
   if (isMock()) return () => {};
-  void readDevice();
   analytics.start();
   const sub = AppState.addEventListener('change', (state) => {
     if (state === 'active') analytics.foreground();

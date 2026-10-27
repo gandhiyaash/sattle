@@ -87,55 +87,73 @@ export function idempotency(db: Db): MiddlewareHandler<AppEnv> {
 export const REQUEST_LOG_DAYS = 30;
 /** How long an event the app reported without an account is kept. */
 export const GUEST_EVENT_DAYS = 30;
+/** How long anything else the app reported is kept: an account's, and what its install did before signing in. */
+export const ACCOUNT_EVENT_DAYS = 365;
 
 /**
- * Drops request rows older than REQUEST_LOG_DAYS, and what the app reported
- * without an account older than GUEST_EVENT_DAYS; server.ts runs it on start
- * and daily. A screen that keeps itself current (a group, every 4 s while
- * it shows) asks about 900 times an hour, so without this the request log
+ * Drops request rows older than REQUEST_LOG_DAYS, what the app reported
+ * without an account older than GUEST_EVENT_DAYS, and everything else the
+ * app reported older than ACCOUNT_EVENT_DAYS; server.ts runs it on start and
+ * daily. A screen that keeps itself current (a group, every 4 s while it
+ * shows) asks about 900 times an hour, so without this the request log
  * would outgrow everything else on the disk. Guest rows are the ones anyone
- * can post, so they can't be kept for ever either, except from an install
- * that has since been signed in: what someone did before making an account
- * is theirs afterwards. What accounts report of themselves stays: there is
- * far less of it, and it's what a statistics page counts.
+ * can post, so they go soonest, except from an install that has since been
+ * signed in: what someone did before making an account is theirs
+ * afterwards, and is kept like the rest of theirs. That is kept longest,
+ * since it's what a statistics page counts, but not for ever: anyone can
+ * make an account, so the daily cap bounds how fast the table grows, and
+ * this how big.
  *
- * Both go by when the server took them (received_at, which the table's one
+ * All go by when the server took them (received_at, which the table's one
  * index is on), since a device's clock can say anything. A month of request
  * rows for one group left open is hundreds of thousands, so they go
  * PRUNE_CHUNK at a time, each its own short commit, with a turn of the event
- * loop between for requests waiting. Resolves to how many went.
+ * loop between for requests waiting. The installs that have been signed in
+ * are listed once, up front, rather than looked for again in every chunk.
+ * Resolves to how many went.
  */
 export async function pruneAnalytics(db: Db, now = Date.now()): Promise<number> {
   const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
-  const requests = db.prepare(
-    `DELETE FROM analytics_events WHERE rowid IN (
-       SELECT rowid FROM analytics_events WHERE received_at < ? AND kind = 'request' LIMIT ${PRUNE_CHUNK}
-     )`
-  );
-  const guests = db.prepare(
-    `DELETE FROM analytics_events WHERE rowid IN (
-       SELECT rowid FROM analytics_events
-       WHERE received_at < ? AND kind != 'request' AND user_id IS NULL
-         AND (device_id IS NULL OR device_id NOT IN (
-           SELECT device_id FROM analytics_events WHERE user_id IS NOT NULL AND device_id IS NOT NULL
-         ))
-       LIMIT ${PRUNE_CHUNK}
-     )`
-  );
-  let gone = 0;
-  for (const [stmt, before] of [[requests, daysAgo(REQUEST_LOG_DAYS)], [guests, daysAgo(GUEST_EVENT_DAYS)]] as const) {
-    for (;;) {
-      const n = Number(stmt.run(before).changes);
-      gone += n;
-      if (n < PRUNE_CHUNK) break;
-      await new Promise((r) => setImmediate(r));
+  db.exec('CREATE TEMP TABLE IF NOT EXISTS signed_in_devices (device_id TEXT PRIMARY KEY)');
+  try {
+    db.exec(`DELETE FROM temp.signed_in_devices;
+      INSERT OR IGNORE INTO temp.signed_in_devices
+        SELECT device_id FROM analytics_events WHERE user_id IS NOT NULL AND device_id IS NOT NULL`);
+    const chunk = (where: string) =>
+      db.prepare(
+        `DELETE FROM analytics_events WHERE rowid IN (
+           SELECT rowid FROM analytics_events WHERE received_at < ? AND ${where} LIMIT ${PRUNE_CHUNK}
+         )`
+      );
+    const passes = [
+      [chunk(`kind = 'request'`), daysAgo(REQUEST_LOG_DAYS)],
+      [
+        chunk(`kind != 'request' AND user_id IS NULL
+               AND (device_id IS NULL OR device_id NOT IN (SELECT device_id FROM temp.signed_in_devices))`),
+        daysAgo(GUEST_EVENT_DAYS),
+      ],
+      [chunk(`kind != 'request'`), daysAgo(ACCOUNT_EVENT_DAYS)],
+    ] as const;
+    let gone = 0;
+    for (const [stmt, before] of passes) {
+      for (;;) {
+        const n = Number(stmt.run(before).changes);
+        gone += n;
+        if (n < PRUNE_CHUNK) break;
+        await new Promise((r) => setImmediate(r));
+      }
     }
+    return gone;
+  } finally {
+    db.exec('DROP TABLE IF EXISTS temp.signed_in_devices');
   }
-  return gone;
 }
 
 /** Rows pruneAnalytics deletes in one go. */
 const PRUNE_CHUNK = 5000;
+
+/** Where an account is deleted (DELETE, in routes/accounts.ts). */
+const ACCOUNT_PATH = '/me';
 
 /** How long requestLog remembers which account a token on a public route named, and for how many tokens at most. */
 const TOKEN_MEMORY_MS = 60_000;
@@ -224,7 +242,14 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
     named.set(token, { id, until: now + TOKEN_MEMORY_MS });
     return id;
   };
+
   let waiting: (string | null)[][] = [];
+  /** An account just deleted: its rows still waiting go too, and its token names nobody now. */
+  const forget = (id: string | undefined) => {
+    if (!id) return;
+    waiting = waiting.filter((row) => row[1] !== id);
+    for (const [token, known] of named) if (known.id === id) named.delete(token);
+  };
   const write = () => {
     const rows = waiting;
     waiting = [];
@@ -257,7 +282,11 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
           ...(!route && { path: c.req.path.replace(LINK_PATH, '/$1/:token').slice(0, ANALYTICS_LIMITS.text) }),
         };
         const name = `${c.req.method} ${route ?? '(no route)'}`;
-        const user = who(c);
+        // The account was just deleted, its usage record with it (repo.deleteUser): this row
+        // mustn't put it back, and its token mustn't name it here again.
+        const deleted = c.req.method === 'DELETE' && route === ACCOUNT_PATH && c.res.ok;
+        if (deleted) forget(c.get('user')?.id);
+        const user = deleted ? null : who(c);
         const device = header(c, ANALYTICS_HEADERS.device);
         // Neither an account nor the app: a scanner or a script, with nothing to join it to, and
         // free to send as many as it likes. Kept, it would be an uncapped write to the disk the

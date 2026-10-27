@@ -9,7 +9,7 @@ import { ANALYTICS_HEADERS, ANALYTICS_LIMITS, type AnalyticsBatch, type User } f
 
 import { createApp } from './app';
 import { openDb, type Db } from './db';
-import { GUEST_EVENT_DAYS, REQUEST_LOG_DAYS, pruneAnalytics } from './middleware';
+import { ACCOUNT_EVENT_DAYS, GUEST_EVENT_DAYS, REQUEST_LOG_DAYS, pruneAnalytics } from './middleware';
 import { SimulatedPayments } from './payments';
 
 let db: Db;
@@ -341,6 +341,18 @@ describe('the request log', () => {
     expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
   });
 
+  it('drops what an account reported once it is ACCOUNT_EVENT_DAYS old', async () => {
+    const { token } = await signUp('Riya');
+    await call('POST', '/analytics/events', batch(), { authorization: `Bearer ${token}` });
+    const reported = () => rows().filter((r) => r.kind !== 'request').map((r) => r.id);
+    const arrived = Date.parse(rows().find((r) => r.id === 'e1')!.received_at);
+
+    await pruneAnalytics(db, arrived + (ACCOUNT_EVENT_DAYS - 1) * DAY);
+    expect(reported()).toEqual(['e1', 'e2', 'e3']);
+    await pruneAnalytics(db, arrived + (ACCOUNT_EVENT_DAYS + 1) * DAY);
+    expect(reported()).toEqual([]);
+  });
+
   it('drops a big backlog in several goes', async () => {
     const old = new Date(Date.now() - (REQUEST_LOG_DAYS + 1) * DAY).toISOString();
     const add = db.prepare(
@@ -363,5 +375,45 @@ describe('the request log', () => {
 
     await pruneAnalytics(db, arrived + (GUEST_EVENT_DAYS + 1) * DAY);
     expect(rows().filter((r) => r.kind !== 'request').map((r) => r.id)).toEqual(['g-e1', 'g-e2', 'g-e3', 'e1', 'e2', 'e3']);
+  });
+});
+
+describe('deleting an account', () => {
+  const ids = (prefix: string) => batch().events.map((e) => ({ ...e, id: `${prefix}-${e.id}` }));
+  const bearer = (token: string, device = 'dev-1') => ({ authorization: `Bearer ${token}`, [ANALYTICS_HEADERS.device]: device });
+
+  it('deletes its usage record, and what its install did before signing in, and its own deletion names nobody', async () => {
+    // A guest on dev-1, who then signs up as Riya there. Kabir is on dev-9.
+    await call('POST', '/analytics/events', batch({ events: ids('guest') }));
+    const riya = await signUp('Riya');
+    const kabir = await signUp('Kabir');
+    await call('POST', '/analytics/events', batch({ events: ids('riya') }), bearer(riya.token));
+    await call('POST', '/analytics/events', batch({ deviceId: 'dev-9', events: ids('kabir') }), bearer(kabir.token, 'dev-9'));
+    await call('GET', '/me', undefined, bearer(riya.token));
+    await call('GET', '/me', undefined, bearer(kabir.token, 'dev-9'));
+
+    expect((await call('DELETE', '/me', undefined, bearer(riya.token))).status).toBe(200);
+    // Her old token, sent to a public route after: not hers any more.
+    await call('GET', '/join/nope', undefined, bearer(riya.token));
+    await written();
+
+    expect(rows().filter((r) => r.user_id === riya.user.id)).toEqual([]);
+    expect(rows().filter((r) => r.kind !== 'request').map((r) => r.id)).toEqual(['kabir-e1', 'kabir-e2', 'kabir-e3']);
+    expect(rows('request').filter((r) => r.user_id === kabir.user.id).map((r) => r.name)).toEqual(['GET /me']);
+    const deletion = rows('request').find((r) => r.name === 'DELETE /me')!;
+    expect(deletion.user_id).toBeNull();
+  });
+
+  it('keeps what an install did before signing in when another account has used it since', async () => {
+    await call('POST', '/analytics/events', batch({ events: ids('guest') }));
+    const riya = await signUp('Riya');
+    const kabir = await signUp('Kabir');
+    await call('POST', '/analytics/events', batch({ events: ids('riya') }), bearer(riya.token));
+    await call('POST', '/analytics/events', batch({ events: ids('kabir') }), bearer(kabir.token));
+
+    await call('DELETE', '/me', undefined, bearer(riya.token));
+    expect(rows().filter((r) => r.kind !== 'request').map((r) => r.id)).toEqual([
+      'guest-e1', 'guest-e2', 'guest-e3', 'kabir-e1', 'kabir-e2', 'kabir-e3',
+    ]);
   });
 });

@@ -5,8 +5,9 @@
 -- request rows itself. Nothing reads this yet: it is kept for a statistics
 -- page to come.
 --
--- user_id is who was signed in, when someone was. It isn't a foreign key: a
--- deleted account's rows stay, and so does what a guest did on a pay page.
+-- user_id is who was signed in, when someone was. It isn't a foreign key, so
+-- a guest's rows need no account; deleting an account deletes its rows
+-- (repo.deleteUser).
 -- device_id is the app's own id for the install, so a guest who later makes
 -- an account reads as one person. session_id is one launch of the app, and
 -- seq its order within that, since phone clocks drift. Request rows carry

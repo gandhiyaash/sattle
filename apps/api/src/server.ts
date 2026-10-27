@@ -98,7 +98,13 @@ const app = createApp({
 const resumed = lightning?.resume() ?? 0;
 ledger.start();
 
-serve({ fetch: app.fetch, port }, (info) => {
+// In production only nginx talks to the API (deploy/nginx.conf proxies to 127.0.0.1), so it listens
+// there alone: reached directly, it would trust whatever X-Real-IP a client sent, and skip nginx's
+// limits. In development it listens everywhere, as Node does by default, so a phone on the same
+// network can reach it. HOST overrides either.
+const hostname = env.HOST || (env.NODE_ENV === 'production' ? '127.0.0.1' : undefined);
+
+serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real payments' : 'simulated payments'})`);
   if (resumed > 0) console.log(`  watching ${resumed} open invoice(s) from before the restart`);
   console.log(
