@@ -2,7 +2,7 @@
  * Small pure helpers both sides of the pay-link and wallet contracts use.
  */
 
-import type { GuestSettlement, Settlement } from './types';
+import { LEDGER_STATUSES, type GuestSettlement, type PayLink, type Settlement } from './types';
 
 /** What a payee's NWC connection must grant. Nothing that can spend. */
 export const NWC_REQUIRED_METHODS = ['make_invoice', 'lookup_invoice'] as const;
@@ -11,6 +11,16 @@ export const NWC_REQUIRED_METHODS = ['make_invoice', 'lookup_invoice'] as const;
 export const NWC_SPEND_METHODS = ['pay_invoice', 'pay_keysend', 'multi_pay_invoice', 'multi_pay_keysend'] as const;
 
 export const payLinkPath = (token: string) => `/s/${token}`;
+
+/**
+ * A settlement made without this link, as this link's page shows it: what
+ * settled the debt, but not its invoice or proof of payment. Those are the
+ * receipt of whoever paid through the other link, and anyone holding the
+ * group's link can be handed this one.
+ */
+export function toGuestSettlementFromElsewhere(s: Settlement): GuestSettlement {
+  return { ...toGuestSettlement(s), destination: undefined, preimage: undefined };
+}
 
 /** Strips everything the guest page must not see. */
 export function toGuestSettlement(s: Settlement): GuestSettlement {
@@ -25,4 +35,26 @@ export function toGuestSettlement(s: Settlement): GuestSettlement {
     failureReason: s.failureReason,
     updatedAt: s.updatedAt,
   };
+}
+
+/**
+ * What settled a link's debt without going through the link: the person owed
+ * marked it settled, a UPI payment made from the app was confirmed, or
+ * another link for the same debt was paid. The latest settlement between the
+ * link's two people, made since the link was, for at least what it asks; a
+ * part payment leaves the link expired, not settled. A link pays once, so
+ * this holds even if they owe each other again later: that takes a new link.
+ */
+export function settledOutsideLink(settlements: Settlement[], link: PayLink): Settlement | undefined {
+  return settlements
+    .filter(
+      (s) =>
+        LEDGER_STATUSES.includes(s.status) &&
+        s.fromMemberId === link.fromMemberId &&
+        s.toMemberId === link.toMemberId &&
+        s.amount >= link.amount &&
+        s.createdAt >= link.createdAt
+    )
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .at(-1);
 }

@@ -127,6 +127,43 @@ describe('MockClient: a pay link paid by UPI', () => {
     await expect(c.claimUpiFromPayLink(token)).rejects.toMatchObject({ code: 'link_expired' });
   });
 
+  it('shows the link settled once the person owed marks it settled, with the UPI payment they were told of gone', async () => {
+    const c = client();
+    await c.setUpiId('yash@okaxis');
+    const { token, groupId, fromMemberId, toMemberId, amount } = await linkToPriya(c);
+    await c.claimUpiFromPayLink(token);
+
+    await c.markSettledManually({ groupId, fromMemberId, toMemberId, amount, note: 'cash' });
+    expect(await c.getUpiClaims('g-flat')).toEqual([]);
+    const view = await c.getGuestView(token);
+    expect(view.settlement).toMatchObject({ amount, status: 'manually_confirmed' });
+    expect(view.upiClaim).toBeUndefined();
+    expect((await c.openPayLink(token)).settlement?.status).toBe('manually_confirmed');
+    await expect(c.claimUpiFromPayLink(token)).rejects.toMatchObject({ code: 'link_expired' });
+  });
+
+  it('won’t be marked settled while an invoice for it can still be paid', async () => {
+    const c = client();
+    const { token, groupId, fromMemberId, toMemberId, amount } = await linkToPriya(c);
+    expect((await c.openPayLink(token)).settlement).toBeDefined();
+    await expect(c.markSettledManually({ groupId, fromMemberId, toMemberId, amount })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+  });
+
+  it('won’t confirm a UPI payment that was turned down while an invoice for it can still be paid', async () => {
+    const c = client();
+    await c.setUpiId('yash@okaxis');
+    const { token } = await linkToPriya(c);
+    await c.claimUpiFromPayLink(token);
+    const [claim] = await c.getUpiClaims('g-flat');
+    await c.declineUpiClaim(claim.id);
+    // Priya pays the other way: an invoice is out.
+    expect((await c.openPayLink(token, 'lightning')).settlement).toBeDefined();
+    await expect(c.confirmUpiClaim(claim.id)).rejects.toMatchObject({ code: 'conflict' });
+    expect(await c.getUpiClaims('g-flat')).toHaveLength(1);
+  });
+
   it('shows the person owed turning it down, and can be said again', async () => {
     const c = client();
     await c.setUpiId('yash@okaxis');

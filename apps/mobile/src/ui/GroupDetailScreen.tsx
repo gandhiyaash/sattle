@@ -7,7 +7,9 @@
  *
  * A few things here carry weight beyond looking tidy:
  *
- * 1. Every member row shows their state — In app / Not joined / Payable.
+ * 1. Every member row shows their state — In app / Not joined / Payable —
+ *    and where they stand: what they owe the group, what it owes them, or
+ *    settled once they're square, so paying someone shows here too.
  *    That is what makes the "only one person installs" claim legible instead
  *    of a line in a README. One link, from Invite in the header, is
  *    for all of them: a QR code to scan across the table, and the same
@@ -116,6 +118,8 @@ interface GroupView {
   approveJoins: boolean;
   /** Ghosts that no expense or payment names. */
   removable: Set<string>;
+  /** Each member's net in the group: positive is owed to them, negative is what they owe. */
+  nets: Map<string, number>;
   /** The user's own UPI ID, if they've given one. */
   upi: UpiProfile;
   userId: string;
@@ -179,6 +183,7 @@ export function GroupDetailScreen({
       waiting,
       approveJoins: group.approveJoins,
       removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
+      nets: new Map(balances.map((b) => [b.memberId, b.net])),
       upi,
       userId: user.id,
       myMemberId: mine?.id ?? null,
@@ -368,7 +373,15 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} ways={ways} />
+              <MemberRow
+                member={member}
+                isMe={member.id === data.myMemberId}
+                mode={mode}
+                ways={ways}
+                // Before any expense there is nothing to be square about.
+                net={data.expenses.length > 0 ? (data.nets.get(member.id) ?? 0) : undefined}
+                currency={data.currency}
+              />
               {data.removable.has(member.id) && (
                 <View style={s.memberAction}>
                   <ConfirmButton
@@ -668,8 +681,27 @@ type LinkState =
   /** The user has no way to be paid, so there was no link to make. */
   | { kind: 'no_way' };
 
-/** One member, with their state, in terms of the ways to pay the user is shown. */
-function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean; mode: PaymentMode; ways: PayWays }) {
+/**
+ * One member, with their state, in terms of the ways to pay the user is shown,
+ * and where they stand in the group: what they owe, what they get back, or
+ * settled.
+ */
+function MemberRow({
+  member,
+  isMe,
+  mode,
+  ways,
+  net,
+  currency,
+}: {
+  member: Member;
+  isMe: boolean;
+  mode: PaymentMode;
+  ways: PayWays;
+  /** Their net in the group; undefined before there is anything to owe. */
+  net: number | undefined;
+  currency: string;
+}) {
   const s = useStyles();
   const lightning = ways.lightning && canReceive(member, mode);
   // Someone with only a UPI ID can still be paid here, in a rupee group.
@@ -694,7 +726,15 @@ function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean
         </Text>
         <Text style={s.memberMeta}>{state}</Text>
       </View>
-      {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
+      <View style={s.memberSide}>
+        {net !== undefined && (
+          <View style={s.memberBalance}>
+            {net !== 0 && <Text style={s.memberMeta}>{net > 0 ? 'gets back' : 'owes'}</Text>}
+            <Amount minor={net} currency={currency} size="sm" net />
+          </View>
+        )}
+        {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
+      </View>
     </View>
   );
 }
@@ -1018,6 +1058,8 @@ const useStyles = makeStyles((color) => ({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
+  memberSide: { alignItems: 'flex-end', gap: space.xs },
+  memberBalance: { alignItems: 'flex-end' },
   // Lines up under the name: row padding, avatar, gap.
   memberAction: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },

@@ -607,19 +607,29 @@ function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void
   );
 }
 
-/** A receipt: what was owed, what was sent, and the rate that joined them. */
+/**
+ * A receipt: what was owed, what was sent, and the rate that joined them.
+ * Settled on the word of the person owed (marked settled, or a UPI payment
+ * they confirmed, from this link or the app) it says so, since Sattle didn't
+ * see money move.
+ */
 function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestSettlement }) {
   const s = useStyles();
   const { preimage } = settlement;
   // In sats the amount owed is the amount sent, and no rate joined them.
   const quote = isBitcoin(settlement.currency) ? undefined : settlement.quote;
+  const onTheirWord = settlement.status === 'manually_confirmed';
   return (
     <Page>
       <View style={s.tick}>
         <Text style={s.tickMark}>✓</Text>
       </View>
-      <Text style={s.title}>Paid</Text>
-      <Text style={s.reason}>{payeeName} has been paid. Nothing else to do — you can close this.</Text>
+      <Text style={s.title}>{onTheirWord ? 'Settled' : 'Paid'}</Text>
+      <Text style={s.reason}>
+        {onTheirWord
+          ? 'This has been settled. Nothing else to do — you can close this.'
+          : `${payeeName} has been paid. Nothing else to do — you can close this.`}
+      </Text>
       <View style={s.receipt}>
         <BreakdownRow label="Amount" value={formatAmount(settlement.amount, settlement.currency)} numeric />
         {quote && (
