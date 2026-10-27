@@ -216,6 +216,27 @@ describe('POST /g/:token/debts/:ref/pay-link', () => {
     expect(opened.body.settlement?.amount).toBe(1000);
   });
 
+  it('makes a new pay link when the last one was settled some other way', async () => {
+    const { call, base, riya, share, view, addExpense, mRiya, mKabir } = await setup();
+    const token = await share();
+    const path = (v: GroupGuestView) => `/g/${token}/debts/${kabirs(v).ref}/pay-link`;
+
+    // Kabir gets a link from the page, then pays Riya in cash and she marks it settled.
+    const first = (await call<{ token: string }>('POST', path((await view(token)).body))).body.token;
+    await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);
+
+    // Another cab: he owes ₹10 again. The first link would only say "Settled" and charge nothing.
+    await addExpense(mRiya, 3000, 'Cab back');
+    const again = (await view(token)).body;
+    expect(kabirs(again).amount).toBe(1000);
+    const second = (await call<{ token: string }>('POST', path(again))).body.token;
+    expect(second).not.toBe(first);
+
+    const opened = await call<GuestView>('POST', `/s/${second}/open`);
+    expect(opened.body.settlement?.status).not.toBe('manually_confirmed');
+    expect(opened.body.settlement?.amount).toBe(1000);
+  });
+
   it('still reuses a pay link whose payment failed or lapsed, since opening it mints a fresh invoice', async () => {
     const { db, call, share, view } = await setup();
     const token = await share();

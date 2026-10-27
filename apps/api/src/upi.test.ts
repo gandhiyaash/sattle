@@ -569,6 +569,24 @@ describe('declining and taking back', () => {
     expect(await kabirOwes()).toBe(0);
   });
 
+  it('won’t confirm a declined one while a Lightning invoice for the debt could still be paid', async () => {
+    const { db, call, claim, claims, kabirOwes, riya, group, mRiya, mKabir } = await setup();
+    const { id } = (await claim()).body;
+    await call('POST', `/upi-claims/${id}/decline`, undefined, riya.token);
+    // Kabir then opens a link and picks Lightning: an invoice is out.
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, created_at, updated_at)
+       VALUES ('s-open', ?, ?, ?, 1000, 'INR', 'invoice', 'awaiting_payment', ?, ?)`
+    ).run(group.id, mKabir, mRiya, now, now);
+
+    const res = await call<Err>('POST', `/upi-claims/${id}/confirm`, undefined, riya.token);
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/under way/);
+    expect(await kabirOwes()).toBe(1000);
+    expect(await claims(riya.token)).toHaveLength(1);
+  });
+
   it('lets the payer take a claim back, pending or declined, and nobody else', async () => {
     const { call, claim, claims, riya, kabir } = await setup();
     const { id } = (await claim()).body;

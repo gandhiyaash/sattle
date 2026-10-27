@@ -151,6 +151,19 @@ describe('MockClient: a pay link paid by UPI', () => {
     });
   });
 
+  it('won’t confirm a UPI payment that was turned down while an invoice for it can still be paid', async () => {
+    const c = client();
+    await c.setUpiId('yash@okaxis');
+    const { token } = await linkToPriya(c);
+    await c.claimUpiFromPayLink(token);
+    const [claim] = await c.getUpiClaims('g-flat');
+    await c.declineUpiClaim(claim.id);
+    // Priya pays the other way: an invoice is out.
+    expect((await c.openPayLink(token, 'lightning')).settlement).toBeDefined();
+    await expect(c.confirmUpiClaim(claim.id)).rejects.toMatchObject({ code: 'conflict' });
+    expect(await c.getUpiClaims('g-flat')).toHaveLength(1);
+  });
+
   it('shows the person owed turning it down, and can be said again', async () => {
     const c = client();
     await c.setUpiId('yash@okaxis');

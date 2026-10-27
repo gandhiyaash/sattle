@@ -9,7 +9,7 @@ import { minor, parse } from '../http';
 import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, ProofBody, readPreimage } from '../proof';
-import { checkManualRecorder, checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
+import { checkManualRecorder, checkNoPaymentUnderWay, checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
 
 const SettlementBody = z.object({
   fromMemberId: z.string(),
@@ -77,12 +77,7 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
       const owed = debtsOf(repo, g).find((d) => d.fromMemberId === body.fromMemberId && d.toMemberId === body.toMemberId);
       checkSettlement(repo, g, body);
       checkManualRecorder(repo, body, user.id);
-      if (inProgressFor(repo, g, body)) {
-        throw new SattleError(
-          'conflict',
-          'A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.'
-        );
-      }
+      checkNoPaymentUnderWay(repo, g, body);
       if (owed && body.amount >= owed.amount) repo.dropUpiClaimFor({ groupId: g.id, ...body });
       return repo.insertSettlement({
         ...newSettlement(g, body, 'manual', 'manually_confirmed'),

@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import { SattleError, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
+import { SattleError, settledOutsideLink, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -145,7 +145,8 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    *   that debt is no longer owed        → 410 link_expired
    *   the person owed can't receive      → 409 member_cannot_receive
    * Asking again for the same debt and amount returns the same pay link, so
-   * a public route can't be used to pile up rows.
+   * a public route can't be used to pile up rows, unless that link has been
+   * paid or settled some other way since.
    */
   r.post('/g/:token/debts/:ref/pay-link', once, (c) => {
     const link = findLink(c.req.param('token'));
@@ -156,8 +157,9 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
       if (!receivable(payments, payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
+      // A link settled some other way (cash, another link) stays "Settled" for good, so it isn't handed out again.
       const existing = repo.payLinkFor(debt);
-      if (existing) return existing.token;
+      if (existing && !settledOutsideLink(repo.settlements(g.id), existing)) return existing.token;
       // A pay link belongs to an account: the payee's, or for a ghost, the group's first.
       const owner = payee.claimedByUserId ?? repo.firstAccountIn(g.id)!;
       return repo.insertPayLink(

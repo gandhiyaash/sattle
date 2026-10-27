@@ -49,7 +49,7 @@ import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
 import { newId, nowIso } from '../repo';
-import { checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
+import { checkNoPaymentUnderWay, checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
 import type { WalletStore } from '../walletStore';
 
 const UpiBody = z.object({ upiId: z.string().max(320) });
@@ -320,6 +320,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
    * then shows it paid.
    *   not the person owed                       → 400 invalid_input
    *   less than that is owed now, or nothing    → 409 conflict
+   *   a Lightning invoice for it is still out   → 409 conflict
    */
   r.post('/upi-claims/:id/confirm', once, (c) => {
     const user = c.get('user');
@@ -332,6 +333,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can confirm this.`);
       }
       checkSettlement(repo, g, claim);
+      checkNoPaymentUnderWay(repo, g, claim);
       const link = repo.payLinkOfUpiClaim(claim.id);
       repo.deleteUpiClaim(claim.id);
       const settled = repo.insertSettlement({

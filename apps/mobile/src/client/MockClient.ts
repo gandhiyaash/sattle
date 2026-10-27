@@ -181,8 +181,12 @@ export class MockClient implements SattleClient {
     return `${prefix}-${Date.now().toString(36)}-${++this.seq}`;
   }
 
+  private lastNow = 0;
+
+  /** Each call is later than the last, as on the server (repo.ts nowIso). */
   private now() {
-    return new Date().toISOString();
+    this.lastNow = Math.max(Date.now(), this.lastNow + 1);
+    return new Date(this.lastNow).toISOString();
   }
 
   private findGroup(groupId: string) {
@@ -391,17 +395,21 @@ export class MockClient implements SattleClient {
     });
   }
 
+  /** As the server's checkNoPaymentUnderWay: an invoice out for it could still be paid, and then it's paid twice. */
+  private checkNoPaymentUnderWay(groupId: string, pair: { fromMemberId: string; toMemberId: string }) {
+    if (this.settlements.some((x) => isInProgress(x) && x.fromMemberId === pair.fromMemberId && x.toMemberId === pair.toMemberId && x.groupId === groupId)) {
+      throw new SattleError(
+        'conflict',
+        'A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.'
+      );
+    }
+  }
+
   markSettledManually(input: Omit<CreateSettlementInput, 'rail'> & { note?: string }, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(input.groupId);
       this.checkCaller(input, 'manual');
-      // As the server: an invoice out for it could still be paid, and then it's paid twice.
-      if (this.settlements.some((x) => isInProgress(x) && x.fromMemberId === input.fromMemberId && x.toMemberId === input.toMemberId && x.groupId === g.id)) {
-        throw new SattleError(
-          'conflict',
-          'A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.'
-        );
-      }
+      this.checkNoPaymentUnderWay(g.id, input);
       // Settling all that's owed answers a UPI payment someone said they made for it.
       const owed = this.debtsOf(g.id).find((d) => d.fromMemberId === input.fromMemberId && d.toMemberId === input.toMemberId);
       if (owed && input.amount >= owed.amount) {
@@ -1041,11 +1049,8 @@ export class MockClient implements SattleClient {
       if (!canReceive(payee)) {
         throw new SattleError('member_cannot_receive', `${payee.displayName} has nowhere to receive this yet.`);
       }
-      // A link that has been paid is spent: the same two people can owe the same amount again.
-      const spent = (l: PayLink) => {
-        const sid = this.payLinkSettlements[l.token];
-        return Boolean(sid) && LEDGER_STATUSES.includes(this.findSettlement(sid).status);
-      };
+      // A link that has been paid, or settled some other way, is spent: the same two people can owe the same amount again.
+      const spent = (l: PayLink) => this.linkPaid(l) || Boolean(this.settledElsewhere(l));
       const same = (l: PayLink) =>
         l.groupId === debt.groupId && l.fromMemberId === debt.fromMemberId && l.toMemberId === debt.toMemberId && l.amount === debt.amount;
       let payLink = this.payLinks.find((l) => same(l) && !spent(l));
@@ -1538,6 +1543,7 @@ export class MockClient implements SattleClient {
       );
       if (!debt) throw new SattleError('conflict', 'Nothing is owed here any more.');
       if (claim.amount > debt.amount) throw new SattleError('conflict', 'That’s more than is owed. Refresh and try again.');
+      this.checkNoPaymentUnderWay(claim.groupId, claim);
       const s: Settlement = {
         id: this.id('s'),
         groupId: claim.groupId,
