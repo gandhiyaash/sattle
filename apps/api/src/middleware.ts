@@ -85,18 +85,29 @@ export function idempotency(db: Db): MiddlewareHandler<AppEnv> {
 
 /** How long a request row is kept. */
 export const REQUEST_LOG_DAYS = 30;
+/** How long an event the app reported without an account is kept. */
+export const GUEST_EVENT_DAYS = 30;
 
 /**
- * Drops request rows older than REQUEST_LOG_DAYS; server.ts runs it on start
+ * Drops request rows older than REQUEST_LOG_DAYS, and what the app reported
+ * without an account older than GUEST_EVENT_DAYS; server.ts runs it on start
  * and daily. A screen that keeps itself current (a group, every 4 s while
  * it shows) asks about 900 times an hour, so without this the request log
- * would outgrow everything else on the disk. What the app reports of itself
- * stays: there is far less of it, and it's what a statistics page counts.
- * Returns how many went.
+ * would outgrow everything else on the disk. Guest rows are the ones anyone
+ * can post, so they can't be kept for ever either. What accounts report of
+ * themselves stays: there is far less of it, and it's what a statistics page
+ * counts. Rows are dropped by when they arrived, since a device's clock can
+ * say anything. Returns how many went.
  */
-export function pruneRequestLog(db: Db, now = Date.now()): number {
-  const before = new Date(now - REQUEST_LOG_DAYS * 86_400_000).toISOString();
-  return Number(db.prepare(`DELETE FROM analytics_events WHERE kind = 'request' AND occurred_at < ?`).run(before).changes);
+export function pruneAnalytics(db: Db, now = Date.now()): number {
+  const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  const requests = db
+    .prepare(`DELETE FROM analytics_events WHERE kind = 'request' AND occurred_at < ?`)
+    .run(daysAgo(REQUEST_LOG_DAYS)).changes;
+  const guests = db
+    .prepare(`DELETE FROM analytics_events WHERE kind != 'request' AND user_id IS NULL AND received_at < ?`)
+    .run(daysAgo(GUEST_EVENT_DAYS)).changes;
+  return Number(requests) + Number(guests);
 }
 
 /** A path under a link: the next segment is the link's token, which is all anyone needs to see the group or pay. */

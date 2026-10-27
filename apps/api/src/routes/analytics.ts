@@ -13,8 +13,11 @@
  * ANALYTICS_LIMITS is refused whole, with 400, or 413 for its size, so a bug
  * in the app can't fill the disk. The app keeps under them itself
  * (apps/mobile/src/analytics/tracker.ts). How often one address may post is
- * nginx's to limit (apps/api/deploy/nginx.conf). Nothing in here is ever read
- * back by a route.
+ * nginx's to limit (apps/api/deploy/nginx.conf). Neither stops a client that
+ * isn't the app posting from many addresses, and the table shares a disk with
+ * every settlement, so the server also takes at most ANALYTICS_DAILY_BYTES a
+ * day in all, and guest rows go after GUEST_EVENT_DAYS (pruneAnalytics in
+ * middleware.ts). Nothing in here is ever read back by a route.
  */
 
 import { Hono } from 'hono';
@@ -58,8 +61,18 @@ const BatchBody = z.object({
   events: z.array(EventBody).min(1).max(ANALYTICS_LIMITS.eventsPerBatch),
 });
 
-export function analyticsRoutes({ db, repo }: Ctx) {
+/**
+ * Bytes of app-reported batches the server takes in a day, over every
+ * client. It bounds how fast the table can grow, not who gets the room: that
+ * is nginx's per-address limit. Counted in memory, so a restart starts the
+ * day again.
+ */
+export const ANALYTICS_DAILY_BYTES = 50 * 1024 * 1024;
+
+export function analyticsRoutes({ db, repo }: Ctx, { dailyBytes = ANALYTICS_DAILY_BYTES } = {}) {
   const r = new Hono<AppEnv>();
+  /** What has been taken today (UTC). */
+  let taken = { day: '', bytes: 0 };
   const insert = db.prepare(
     `INSERT OR IGNORE INTO analytics_events
        (id, user_id, device_id, session_id, seq, kind, name, screen, props, platform, app_version, occurred_at, received_at)
@@ -72,6 +85,9 @@ export function analyticsRoutes({ db, repo }: Ctx) {
    * account's; with none, or one the server no longer knows, they're a guest's.
    *   over the limits, or not shaped like a batch   → 400 invalid_input
    *   over ANALYTICS_LIMITS.batchBytes               → 413 invalid_input
+   *   past today's ANALYTICS_DAILY_BYTES             → 429 conflict
+   * The app treats a 429 like any failed send: it keeps the batch and tries
+   * again later.
    */
   const sized = bodyLimit({
     maxSize: ANALYTICS_LIMITS.batchBytes,
@@ -79,7 +95,16 @@ export function analyticsRoutes({ db, repo }: Ctx) {
   });
 
   r.post('/analytics/events', sized, async (c) => {
-    const batch = parse(BatchBody, await c.req.json());
+    const body = await c.req.text();
+    const batch = parse(BatchBody, JSON.parse(body));
+    // Only a batch that would be kept counts against the day: one refused above stores nothing.
+    const day = nowIso().slice(0, 10);
+    if (taken.day !== day) taken = { day, bytes: 0 };
+    const bytes = Buffer.byteLength(body);
+    if (taken.bytes + bytes > dailyBytes) {
+      return c.json({ code: 'conflict', message: 'That’s enough for today. Try again later.' }, 429);
+    }
+    taken.bytes += bytes;
     const header = c.req.header('authorization');
     const user = header?.startsWith('Bearer ') ? repo.userByToken(header.slice(7)) : undefined;
     const received = nowIso();

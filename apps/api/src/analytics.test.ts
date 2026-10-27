@@ -9,7 +9,7 @@ import { ANALYTICS_HEADERS, ANALYTICS_LIMITS, type AnalyticsBatch, type User } f
 
 import { createApp } from './app';
 import { openDb, type Db } from './db';
-import { REQUEST_LOG_DAYS, pruneRequestLog } from './middleware';
+import { GUEST_EVENT_DAYS, REQUEST_LOG_DAYS, pruneAnalytics } from './middleware';
 import { SimulatedPayments } from './payments';
 
 let db: Db;
@@ -74,6 +74,35 @@ const batch = (over: Partial<AnalyticsBatch> = {}): AnalyticsBatch => ({
     },
   ],
   ...over,
+});
+
+describe('POST /analytics/events, past the day’s budget', () => {
+  /** Room for one batch() a day, not two. */
+  const capped = () => {
+    const one = Buffer.byteLength(JSON.stringify(batch()));
+    app = createApp({
+      db,
+      payments: (repo) =>
+        new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+      analyticsDailyBytes: Math.floor(one * 1.5),
+    });
+  };
+  const another = (prefix: string) => batch({ events: batch().events.map((e) => ({ ...e, id: `${prefix}-${e.id}` })) });
+
+  it('takes no more once the day’s bytes are used, keeping nothing of the batch it turned away', async () => {
+    capped();
+    expect((await call('POST', '/analytics/events', batch())).status).toBe(202);
+    const res = await call<{ code: string }>('POST', '/analytics/events', another('b'));
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe('conflict');
+    expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('counts only batches it keeps, so a refused one uses none of the day', async () => {
+    capped();
+    expect((await call('POST', '/analytics/events', { ...batch(), platform: 'fridge' })).status).toBe(400);
+    expect((await call('POST', '/analytics/events', batch())).status).toBe(202);
+  });
 });
 
 describe('POST /analytics/events', () => {
@@ -258,15 +287,22 @@ describe('the request log', () => {
     expect(rows('request')).toHaveLength(0);
   });
 
-  it('drops a request row once it is REQUEST_LOG_DAYS old, and nothing the app reported', async () => {
-    await call('POST', '/analytics/events', batch());
+  it('drops a request row once it is REQUEST_LOG_DAYS old, and a guest’s events once GUEST_EVENT_DAYS old', async () => {
+    const { token } = await signUp('Riya');
+    await call('POST', '/analytics/events', batch(), { authorization: `Bearer ${token}` });
+    const guest = batch({ deviceId: 'dev-2' }).events.map((e) => ({ ...e, id: `g-${e.id}` }));
+    await call('POST', '/analytics/events', batch({ deviceId: 'dev-2', events: guest }));
     await call('GET', '/groups');
     await written();
     const asked = Date.parse(rows('request')[0].occurred_at);
+    const days = Math.max(REQUEST_LOG_DAYS, GUEST_EVENT_DAYS);
+    // Signing up and the GET are request rows; the guest's three are app-reported.
+    const going = rows('request').length + guest.length;
 
-    expect(pruneRequestLog(db, asked + (REQUEST_LOG_DAYS - 1) * DAY)).toBe(0);
-    expect(pruneRequestLog(db, asked + (REQUEST_LOG_DAYS + 1) * DAY)).toBe(1);
+    expect(pruneAnalytics(db, asked + (Math.min(REQUEST_LOG_DAYS, GUEST_EVENT_DAYS) - 1) * DAY)).toBe(0);
+    expect(pruneAnalytics(db, asked + (days + 1) * DAY)).toBe(going);
     expect(rows('request')).toHaveLength(0);
+    // What an account reported stays: it's what a statistics page counts.
     expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
   });
 });

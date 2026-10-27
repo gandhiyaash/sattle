@@ -440,7 +440,9 @@ A link's token never goes in the table. Request rows leave it out of the params,
 
 A session is one launch of the app, or one return to it after half an hour away. The install's id is made once and kept beside the account token, so what a guest did before making an account is theirs afterwards; it identifies nothing but that copy of the app. The `props` column is JSON; a page wanting a value out of it can use SQLite's `json_extract`.
 
-Request rows are kept for 30 days (`REQUEST_LOG_DAYS`), and the server drops older ones on start and daily: a group left open refreshes every 4 seconds, about 900 requests an hour, and would otherwise outgrow everything else on the disk. What the app reports of itself is kept for good.
+Request rows are kept for 30 days (`REQUEST_LOG_DAYS`), and the server drops older ones on start and daily: a group left open refreshes every 4 seconds, about 900 requests an hour, and would otherwise outgrow everything else on the disk. What the app reports without an account goes after 30 days too (`GUEST_EVENT_DAYS`), since anyone can post it. What it reports for an account is kept for good.
+
+The route is public and the table shares a disk with every settlement, so besides nginx's limit per address the server takes at most 50 MB of batches a day in all (`ANALYTICS_DAILY_BYTES`). Past that it answers 429, and the app keeps the batch and tries again later. The count is kept in memory, so a restart starts the day again.
 
 ### Deploying
 

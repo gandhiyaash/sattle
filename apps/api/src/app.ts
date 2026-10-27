@@ -59,6 +59,8 @@ export interface AppDeps {
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
   demoUserId?: string;
   corsOrigin?: string | string[];
+  /** What POST /analytics/events takes in a day, in bytes; tests lower it. Defaults to ANALYTICS_DAILY_BYTES. */
+  analyticsDailyBytes?: number;
 }
 
 export function createApp(deps: AppDeps) {
@@ -110,7 +112,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', ledgerRoutes(ctx));
   app.route('/', historyRoutes(ctx));
   app.route('/', upiRoutes(ctx));
-  app.route('/', analyticsRoutes(ctx));
+  app.route('/', analyticsRoutes(ctx, { dailyBytes: deps.analyticsDailyBytes }));
 
   return app;
 }

@@ -6,7 +6,7 @@ import { openDb, seedIfEmpty } from './db';
 import { productionProblems, productionWarnings } from './env';
 import { NostrLedger } from './nostrLedger';
 import { LnurlClient } from './lnurl';
-import { REQUEST_LOG_DAYS, pruneRequestLog } from './middleware';
+import { pruneAnalytics } from './middleware';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
 import { LightningPayments } from './payments/lightning';
@@ -47,14 +47,14 @@ db.prepare(
      updated_at = ? WHERE status IN ${interrupted}`
 ).run(new Date().toISOString());
 
-// Request rows past REQUEST_LOG_DAYS go, now and daily, for a server that runs for weeks between
-// deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
+// Old request rows and guest events go (pruneAnalytics), now and daily, for a server that runs for
+// weeks between deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
 const prune = () => {
   try {
-    const n = pruneRequestLog(db);
-    if (n > 0) console.log(`request log: dropped ${n} row(s) older than ${REQUEST_LOG_DAYS} days`);
+    const n = pruneAnalytics(db);
+    if (n > 0) console.log(`analytics: dropped ${n} old row(s)`);
   } catch (e) {
-    console.error('request log:', e);
+    console.error('analytics:', e);
   }
 };
 prune();
