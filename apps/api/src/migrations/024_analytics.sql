@@ -32,8 +32,9 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   -- When the server took it, by its own.
   received_at  TEXT NOT NULL
 );
--- One index, for the daily prune of old request rows. The table takes a row
--- for every request, and nothing reads it yet, so every other index would
--- only slow those writes and grow the backups. A statistics page adds the
--- ones its own queries need, by user, session or name, when it exists.
-CREATE INDEX IF NOT EXISTS analytics_events_time ON analytics_events(occurred_at);
+-- One index, for the daily prune, which goes by when the server took a row
+-- (a device's clock can say anything). The table takes a row for nearly
+-- every request, and nothing reads it yet, so every other index would only
+-- slow those writes and grow the backups. A statistics page adds the ones
+-- its own queries need, by user, session or name, when it exists.
+CREATE INDEX IF NOT EXISTS analytics_events_received ON analytics_events(received_at);

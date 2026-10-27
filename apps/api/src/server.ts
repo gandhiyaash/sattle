@@ -49,16 +49,14 @@ db.prepare(
 
 // Old request rows and guest events go (pruneAnalytics), now and daily, for a server that runs for
 // weeks between deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
-const prune = () => {
-  try {
-    const n = pruneAnalytics(db);
-    if (n > 0) console.log(`analytics: dropped ${n} old row(s)`);
-  } catch (e) {
-    console.error('analytics:', e);
-  }
-};
-prune();
-setInterval(prune, 86_400_000).unref();
+const prune = () =>
+  pruneAnalytics(db)
+    .then((n) => {
+      if (n > 0) console.log(`analytics: dropped ${n} old row(s)`);
+    })
+    .catch((e) => console.error('analytics:', e));
+void prune();
+setInterval(() => void prune(), 86_400_000).unref();
 
 let lightning: LightningPayments | undefined;
 // One client for checking receive addresses and minting from them, so the

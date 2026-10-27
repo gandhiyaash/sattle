@@ -97,26 +97,45 @@ export const GUEST_EVENT_DAYS = 30;
  * can post, so they can't be kept for ever either, except from an install
  * that has since been signed in: what someone did before making an account
  * is theirs afterwards. What accounts report of themselves stays: there is
- * far less of it, and it's what a statistics page counts. Rows are dropped
- * by when they arrived, since a device's clock can say anything. Returns
- * how many went.
+ * far less of it, and it's what a statistics page counts.
+ *
+ * Both go by when the server took them (received_at, which the table's one
+ * index is on), since a device's clock can say anything. A month of request
+ * rows for one group left open is hundreds of thousands, so they go
+ * PRUNE_CHUNK at a time, each its own short commit, with a turn of the event
+ * loop between for requests waiting. Resolves to how many went.
  */
-export function pruneAnalytics(db: Db, now = Date.now()): number {
+export async function pruneAnalytics(db: Db, now = Date.now()): Promise<number> {
   const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
-  const requests = db
-    .prepare(`DELETE FROM analytics_events WHERE kind = 'request' AND occurred_at < ?`)
-    .run(daysAgo(REQUEST_LOG_DAYS)).changes;
-  const guests = db
-    .prepare(
-      `DELETE FROM analytics_events
-       WHERE kind != 'request' AND user_id IS NULL AND received_at < ?
+  const requests = db.prepare(
+    `DELETE FROM analytics_events WHERE rowid IN (
+       SELECT rowid FROM analytics_events WHERE received_at < ? AND kind = 'request' LIMIT ${PRUNE_CHUNK}
+     )`
+  );
+  const guests = db.prepare(
+    `DELETE FROM analytics_events WHERE rowid IN (
+       SELECT rowid FROM analytics_events
+       WHERE received_at < ? AND kind != 'request' AND user_id IS NULL
          AND (device_id IS NULL OR device_id NOT IN (
            SELECT device_id FROM analytics_events WHERE user_id IS NOT NULL AND device_id IS NOT NULL
-         ))`
-    )
-    .run(daysAgo(GUEST_EVENT_DAYS)).changes;
-  return Number(requests) + Number(guests);
+         ))
+       LIMIT ${PRUNE_CHUNK}
+     )`
+  );
+  let gone = 0;
+  for (const [stmt, before] of [[requests, daysAgo(REQUEST_LOG_DAYS)], [guests, daysAgo(GUEST_EVENT_DAYS)]] as const) {
+    for (;;) {
+      const n = Number(stmt.run(before).changes);
+      gone += n;
+      if (n < PRUNE_CHUNK) break;
+      await new Promise((r) => setImmediate(r));
+    }
+  }
+  return gone;
 }
+
+/** Rows pruneAnalytics deletes in one go. */
+const PRUNE_CHUNK = 5000;
 
 /** How long requestLog remembers which account a token on a public route named, and for how many tokens at most. */
 const TOKEN_MEMORY_MS = 60_000;
@@ -126,7 +145,8 @@ const TOKENS_REMEMBERED = 1000;
 const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
 
 /**
- * One row in analytics_events for every request answered, kind `request`:
+ * One row in analytics_events for every request answered that names an
+ * account or comes from the app (its device header), kind `request`:
  * the method and the route as registered (`POST /groups/:id/expenses`), with
  * the route's params, the status and how long it took in props. The
  * server's own account of what people do, beside what the app reports of
@@ -137,9 +157,17 @@ const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
  * app is still them. The device and session come from the headers the app
  * sends, so a guest's requests join their screens and taps.
  *
+ * A request with neither leaves no row. The API is on the open internet,
+ * and nothing limits how often a scanner may ask, so its requests would be
+ * an uncapped write to the disk every settlement is on. The app's own
+ * requests, the ones turned away included, carry its device header once it
+ * has read its install id, a moment after starting. A client that makes up
+ * a device header is still kept: this keeps out traffic that isn't aimed at
+ * Sattle, not traffic that is.
+ *
  * A request that matched no route is `GET (no route)`, with the path it asked
- * for, cut short, in props. The API is on the open internet, and every path
- * a scanner tries would otherwise be a name of its own.
+ * for, cut short, in props, so a client trying many paths doesn't make a
+ * name of each.
  *
  * A link's token is never kept: it's left out of the params, and out of the
  * path of a request that matched no route. Holding one is all it takes to
@@ -229,11 +257,18 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
           ...(!route && { path: c.req.path.replace(LINK_PATH, '/$1/:token').slice(0, ANALYTICS_LIMITS.text) }),
         };
         const name = `${c.req.method} ${route ?? '(no route)'}`;
-        const row = [
-          newId('r'), who(c), header(c, ANALYTICS_HEADERS.device),
-          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, new Date().toISOString(),
-        ];
-        if (waiting.push(row) === 1) setImmediate(write);
+        const user = who(c);
+        const device = header(c, ANALYTICS_HEADERS.device);
+        // Neither an account nor the app: a scanner or a script, with nothing to join it to, and
+        // free to send as many as it likes. Kept, it would be an uncapped write to the disk the
+        // settlements are on.
+        if (user || device) {
+          const row = [
+            newId('r'), user, device, header(c, ANALYTICS_HEADERS.session),
+            name, JSON.stringify(props), at, new Date().toISOString(),
+          ];
+          if (waiting.push(row) === 1) setImmediate(write);
+        }
       } catch (e) {
         console.error('request log:', e);
       }

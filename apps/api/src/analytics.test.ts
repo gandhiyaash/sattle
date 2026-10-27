@@ -230,12 +230,12 @@ describe('the request log', () => {
 
     await written();
     const log = rows('request');
-    expect(log.map((r) => r.name)).toEqual(['POST /accounts', 'POST /groups', 'GET /groups/:id/expenses']);
-    expect(log[0].user_id).toBeNull();
-    expect(log[1].user_id).toBe(riya.user.id);
-    expect(log[1].device_id).toBeNull();
+    // Signing up came from neither an account nor the app (no device header here), so it left none.
+    expect(log.map((r) => r.name)).toEqual(['POST /groups', 'GET /groups/:id/expenses']);
+    expect(log[0].user_id).toBe(riya.user.id);
+    expect(log[0].device_id).toBeNull();
 
-    const read = log[2];
+    const read = log[1];
     expect(read.user_id).toBe(riya.user.id);
     expect(read.device_id).toBe('dev-1');
     expect(read.session_id).toBe('s1');
@@ -248,8 +248,8 @@ describe('the request log', () => {
   });
 
   it('logs a request that failed, with the status it got, under the route it was for', async () => {
-    // Turned away before its handler, by auth.
-    expect((await call('GET', '/groups/nope')).status).toBe(401);
+    // Turned away before its handler, by auth: the app's, so still a row.
+    expect((await call('GET', '/groups/nope', undefined, { [ANALYTICS_HEADERS.device]: 'dev-1' })).status).toBe(401);
     const riya = await signUp('Riya');
     const auth = { authorization: `Bearer ${riya.token}` };
     // No route at all, nor for that method: under one name, with the path beside it.
@@ -263,7 +263,6 @@ describe('the request log', () => {
     const log = rows('request');
     expect(log.map((r) => [r.name, JSON.parse(r.props!).status, r.user_id])).toEqual([
       ['GET /groups/:id', 401, null],
-      ['POST /accounts', 201, null],
       ['GET (no route)', 404, riya.user.id],
       ['GET (no route)', 404, riya.user.id],
       ['GET /groups/:id', 404, riya.user.id],
@@ -271,14 +270,21 @@ describe('the request log', () => {
     ]);
     expect(JSON.parse(log[0].props!)).not.toHaveProperty('params');
     expect(JSON.parse(log[0].props!)).not.toHaveProperty('path');
-    expect(log.slice(2, 4).map((r) => JSON.parse(r.props!).path)).toEqual(['/no-such-route', '/join']);
-    expect(JSON.parse(log[4].props!).params).toEqual({ id: 'nope' });
+    expect(log.slice(1, 3).map((r) => JSON.parse(r.props!).path)).toEqual(['/no-such-route', '/join']);
+    expect(JSON.parse(log[3].props!).params).toEqual({ id: 'nope' });
   });
 
-  it('cuts short a path no route has, so a scanner’s can’t be long', async () => {
+  it('keeps nothing of a request from neither an account nor the app, like a scanner’s', async () => {
+    expect((await call('GET', '/wp-login.php')).status).toBe(401);
+    expect((await call('GET', '/groups/nope', undefined, { authorization: 'Bearer nope' })).status).toBe(401);
+    expect((await call('POST', '/accounts', { displayName: 'Riya' })).status).toBe(201);
+    await written();
+    expect(rows('request')).toHaveLength(0);
+  });
+
+  it('cuts short a path no route has, so a long one can’t be a name', async () => {
     const long = `/${'x'.repeat(2000)}`;
-    // No token, as a scanner sends none: turned away by auth, and still logged.
-    expect((await call('GET', long)).status).toBe(401);
+    expect((await call('GET', long, undefined, { [ANALYTICS_HEADERS.device]: 'dev-1' })).status).toBe(401);
     await written();
     const [row] = rows('request');
     expect(row.name).toBe('GET (no route)');
@@ -293,10 +299,11 @@ describe('the request log', () => {
     await written();
     db.prepare('DELETE FROM analytics_events').run();
 
-    expect((await call('GET', `/g/${link}`)).status).toBe(200);
+    const fromApp = { [ANALYTICS_HEADERS.device]: 'dev-1' };
+    expect((await call('GET', `/g/${link}`, undefined, fromApp)).status).toBe(200);
     expect((await call('GET', `/join/${link}`, undefined, auth)).status).toBe(200);
     expect((await call('GET', `/links/${link}/group`, undefined, auth)).status).toBe(200);
-    expect((await call('GET', `/s/${link}/no-such-thing`)).status).toBe(404);
+    expect((await call('GET', `/s/${link}/no-such-thing`, undefined, fromApp)).status).toBe(404);
 
     await written();
     const log = rows('request');
@@ -320,18 +327,30 @@ describe('the request log', () => {
     await call('POST', '/analytics/events', batch(), { authorization: `Bearer ${token}` });
     const guest = batch({ deviceId: 'dev-2' }).events.map((e) => ({ ...e, id: `g-${e.id}` }));
     await call('POST', '/analytics/events', batch({ deviceId: 'dev-2', events: guest }));
-    await call('GET', '/groups');
+    await call('GET', '/groups', undefined, { [ANALYTICS_HEADERS.device]: 'dev-3' });
     await written();
-    const asked = Date.parse(rows('request')[0].occurred_at);
+    const asked = Date.parse(rows('request')[0].received_at);
     const days = Math.max(REQUEST_LOG_DAYS, GUEST_EVENT_DAYS);
-    // Signing up and the GET are request rows; the guest's three are app-reported.
+    // The app's GET is a request row (signing up, from neither, isn't); the guest's three are app-reported.
     const going = rows('request').length + guest.length;
 
-    expect(pruneAnalytics(db, asked + (Math.min(REQUEST_LOG_DAYS, GUEST_EVENT_DAYS) - 1) * DAY)).toBe(0);
-    expect(pruneAnalytics(db, asked + (days + 1) * DAY)).toBe(going);
+    expect(await pruneAnalytics(db, asked + (Math.min(REQUEST_LOG_DAYS, GUEST_EVENT_DAYS) - 1) * DAY)).toBe(0);
+    expect(await pruneAnalytics(db, asked + (days + 1) * DAY)).toBe(going);
     expect(rows('request')).toHaveLength(0);
     // What an account reported stays: it's what a statistics page counts.
     expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('drops a big backlog in several goes', async () => {
+    const old = new Date(Date.now() - (REQUEST_LOG_DAYS + 1) * DAY).toISOString();
+    const add = db.prepare(
+      `INSERT INTO analytics_events (id, kind, name, device_id, occurred_at, received_at) VALUES (?, 'request', 'GET /groups', 'dev-1', ?, ?)`
+    );
+    db.exec('BEGIN');
+    for (let i = 0; i < 12_000; i++) add.run(`r-${i}`, old, old);
+    db.exec('COMMIT');
+    expect(await pruneAnalytics(db)).toBe(12_000);
+    expect(rows('request')).toHaveLength(0);
   });
 
   it('keeps what a guest did once that install has made an account', async () => {
@@ -342,7 +361,7 @@ describe('the request log', () => {
     await call('POST', '/analytics/events', batch(), { authorization: `Bearer ${token}` });
     const arrived = Date.parse(rows().find((r) => r.id === 'g-e1')!.received_at);
 
-    pruneAnalytics(db, arrived + (GUEST_EVENT_DAYS + 1) * DAY);
+    await pruneAnalytics(db, arrived + (GUEST_EVENT_DAYS + 1) * DAY);
     expect(rows().filter((r) => r.kind !== 'request').map((r) => r.id)).toEqual(['g-e1', 'g-e2', 'g-e3', 'e1', 'e2', 'e3']);
   });
 });

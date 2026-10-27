@@ -48,13 +48,14 @@ async function send(events: AnalyticsEvent[]) {
     // A browser closing the tab still sends it. The tracker keeps each batch under the 64 KB this allows.
     keepalive: true,
   });
-  // A 4xx would be the same next time (a refused batch, a server too old for the route), so it's
-  // dropped rather than sent forever. A 5xx, no answer at all, or a 429 from nginx's limit on the
-  // route (apps/api/deploy/nginx.conf) is tried again.
+  // A 5xx, no answer at all, or a 429 (nginx's limit on the route, or the server's daily cap) is
+  // tried again.
   if (res.status >= 500 || res.status === 429) throw new Error(`analytics: ${res.status}`);
-  // Dropped too, but the tracker keeps every batch under the limit, so a 413 means its BATCH_BYTES
-  // and the server's limit have come apart. Said aloud, so the loss isn't silent.
-  if (res.status === 413) console.warn(`analytics: dropped a batch of ${events.length} the server found too big`);
+  // Any other 4xx would be the same next time, so the batch is dropped rather than sent forever.
+  // The tracker keeps every batch to what the server takes, so one means the two have come apart:
+  // a 413 its BATCH_BYTES and the server's limit, a 400 the event's shape (a new kind, a changed
+  // field), a 404 a server too old for the route. Said aloud, so the loss isn't silent.
+  if (res.status >= 400) console.warn(`analytics: dropped a batch of ${events.length}; the server answered ${res.status}`);
 }
 
 export const analytics = new Tracker({ send, disabled: isMock() });
