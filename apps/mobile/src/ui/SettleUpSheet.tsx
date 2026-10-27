@@ -229,8 +229,8 @@ export function SettleUpSheet({
           <>
             <Text style={s.body}>
               {sats
-                ? 'Expired. Nothing was paid.'
-                : 'Expired, and the rate has moved. Nothing was paid.'}
+                ? 'Expired. Get a new invoice if you haven’t paid.'
+                : 'Expired, and the rate has moved. Get a new invoice if you haven’t paid.'}
             </Text>
             <Button
               label="Get a new invoice"

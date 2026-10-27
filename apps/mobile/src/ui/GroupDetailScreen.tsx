@@ -598,7 +598,7 @@ function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string)
     return `Only if it’s you on a new device. This one then leaves ${groupName}.`;
   }
   if (request.replacing) {
-    return `Only if you’ve checked with ${name}. Ask which code they see.`;
+    return `Only if you’ve checked with ${name}: their old device leaves ${groupName}. Ask which code they see.`;
   }
   if (twin) {
     return `More than one person wants to be ${name}. Ask ${name} which code they see.`;
@@ -942,7 +942,7 @@ function UpiClaimNote({
       <View style={s.linkBlock}>
         <Text style={declined ? s.linkError : s.linkNote}>
           {declined
-            ? `${otherName} says your UPI payment of ${amount} didn’t arrive.`
+            ? `${otherName} says the UPI payment of ${amount} didn’t arrive.`
             : claim.viaLink
               ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
               : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
@@ -965,7 +965,7 @@ function UpiClaimNote({
           ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
           : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
               claim.reference ? ` Ref ${claim.reference}.` : ''
-            } Did it arrive?`}
+            } Did it arrive? Check your UPI app.`}
       </Text>
       <Button
         label={declined ? 'It arrived after all' : 'Yes, I got it'}

@@ -411,7 +411,7 @@ function Expired({
         <Notice title="We can’t tell if this was paid" body={why} />
       ) : (
         <Notice
-          title="This expired"
+          title="This invoice expired"
           body={
             sats
               ? 'Get a new one to pay.'
