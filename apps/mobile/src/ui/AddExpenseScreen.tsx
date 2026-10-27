@@ -53,7 +53,7 @@ export interface AddExpenseScreenProps {
   currency?: string;
   /** Change this expense instead of adding one. */
   expense?: Expense;
-  /** With `expense`: who is signed in, to tell whether it's theirs to change. */
+  /** Who is signed in: to tell whether an expense is theirs to change, and who paid a new one. */
   userId?: string;
   onBack: () => void;
   /** The expense was added, changed or deleted. */
@@ -87,7 +87,10 @@ export function AddExpenseScreen({
 
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
-  const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? members[0]?.id ?? '');
+  // A new expense is usually one the person adding it paid, so it starts as theirs.
+  const [paidBy, setPaidBy] = useState(
+    expense?.paidByMemberId ?? members.find((m) => m.claimedByUserId === userId)?.id ?? members[0]?.id ?? ''
+  );
   // An uneven split comes back as the amounts it resolved to, which saving keeps.
   const [mode, setMode] = useState<SplitMode>(expense && expense.splitMode !== 'equal' ? 'exact' : 'equal');
   const [included, setIncluded] = useState<string[]>(
@@ -201,7 +204,16 @@ export function AddExpenseScreen({
   };
 
   return (
-    <Screen title={expense ? 'Edit expense' : 'Add expense'} onBack={onBack}>
+    <Screen
+      title={expense ? 'Edit expense' : 'Add expense'}
+      onBack={onBack}
+      // On screen however long the list of people is.
+      footer={
+        locked ? undefined : (
+          <Button label={expense ? 'Save changes' : 'Add expense'} variant="primary" busy={busy} onPress={submit} />
+        )
+      }
+    >
       {locked && (
         <Card>
           <Text style={s.notice}>Only {payer?.displayName ?? 'the person who paid'} can change this, because they paid it.</Text>
@@ -221,6 +233,8 @@ export function AddExpenseScreen({
               onChangeText={setDescription}
               placeholder="Dinner at Thalassa"
               placeholderTextColor={color.inkFaint}
+              // A new one starts typing straight away.
+              autoFocus={!expense}
               // Enter goes on to the amount, with the keyboard still up.
               returnKeyType="next"
               submitBehavior="submit"
@@ -240,6 +254,9 @@ export function AddExpenseScreen({
                 placeholder="0"
                 placeholderTextColor={color.inkFaint}
                 keyboardType={keyboard}
+                // Name, amount, Enter: for the usual expense, split equally and paid by you, that's all it takes.
+                returnKeyType="done"
+                onSubmitEditing={submit}
               />
               {sats && <Text style={s.currencySymbol}>sats</Text>}
             </View>
@@ -385,9 +402,6 @@ export function AddExpenseScreen({
 
       {error && <ErrorState message={error} />}
 
-      {!locked && (
-        <Button label={expense ? 'Save changes' : 'Add expense'} variant="primary" busy={busy} onPress={submit} />
-      )}
       {expense && !locked && (
         <ConfirmButton
           label="Delete expense"

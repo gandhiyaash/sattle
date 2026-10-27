@@ -425,11 +425,16 @@ export function SettleUpSheet({
 
   // -- normal: pick a rail -------------------------------------------------
 
+  // Only the ways that work from here. A greyed-out choice is one more thing to read before paying.
+  // Should none of them, they all stay, so each can say why not.
+  const usable = flow.options.rails.filter((o) => o.availability.available);
+  const rails = usable.length > 0 ? usable : flow.options.rails;
+
   return (
     <View style={s.sheet}>
       <Text style={s.title}>Pay {recipient.displayName} {amount}</Text>
 
-      {flow.options.rails.map((option) => (
+      {rails.map((option) => (
         <Button
           key={option.rail}
           label={option.label}

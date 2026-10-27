@@ -39,7 +39,7 @@ type Route =
   | { name: 'groups' }
   | { name: 'newGroup' }
   | { name: 'group'; groupId: string }
-  | { name: 'addExpense'; groupId: string; members: Member[]; currency: string }
+  | { name: 'addExpense'; groupId: string; members: Member[]; currency: string; userId: string }
   | { name: 'editExpense'; groupId: string; members: Member[]; currency: string; expense: Expense; userId: string }
   | { name: 'groupSettings'; groupId: string }
   | { name: 'history'; groupId: string }
@@ -219,8 +219,8 @@ function Navigator({
             tab={groupTab}
             onTab={setGroupTab}
             onBack={() => setRoute({ name: 'groups' })}
-            onAddExpense={(members, currency) =>
-              setRoute({ name: 'addExpense', groupId: route.groupId, members, currency })
+            onAddExpense={(members, currency, userId) =>
+              setRoute({ name: 'addExpense', groupId: route.groupId, members, currency, userId })
             }
             onEditExpense={(expense, members, currency, userId) =>
               setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
@@ -291,6 +291,7 @@ function Navigator({
             groupId={route.groupId}
             members={route.members}
             currency={route.currency}
+            userId={route.userId}
             onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
             onAdded={() => {
               refresh();

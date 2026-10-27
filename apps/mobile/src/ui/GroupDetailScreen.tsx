@@ -92,7 +92,8 @@ export interface GroupDetailScreenProps {
   tab: GroupTab;
   onTab: (tab: GroupTab) => void;
   onBack: () => void;
-  onAddExpense: (members: Member[], currency: string) => void;
+  /** `userId` is who is signed in, who a new expense starts as paid by. */
+  onAddExpense: (members: Member[], currency: string, userId: string) => void;
   /** Opens an expense to change or delete it. `userId` is who is signed in. */
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
@@ -230,6 +231,8 @@ export function GroupDetailScreen({
   );
   const owingMe = myDebts.filter((d) => d.toMemberId === data.myMemberId).map((d) => nameOf(d.fromMemberId));
   const rupees = data.currency === UPI_CURRENCY;
+  // Something of the user's to settle, and they're not already looking at it.
+  const toSettle = tab !== 'settle' && myDebts.length > 0;
   // A group kept in bitcoin, joined by someone who said they don't use it. Getting paid here takes
   // Lightning, and Wallet only shows that to someone who uses bitcoin, so setting it up turns it on.
   const turnsOnBitcoin = isBitcoin(data.currency) && !prefs.uses.includes('BTC');
@@ -281,7 +284,7 @@ export function GroupDetailScreen({
           // Not the accent: on this tab that is for paying.
           <Button label="History" onPress={onHistory} />
         ) : (
-          <Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />
+          <Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency, data.userId)} />
         )
       }
     >
@@ -324,22 +327,33 @@ export function GroupDetailScreen({
         </View>
       )}
 
-      <Card>
-        {data.expenses.length === 0 ? (
-          // Zero because nothing has happened yet, not because it was paid off.
-          <>
-            <Text style={s.label}>No expenses yet</Text>
-            <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
-          </>
-        ) : (
-          <>
-            <Text style={s.label}>
-              {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
-            </Text>
-            <Amount minor={data.myNet} currency={data.currency} size="lg" net />
-          </>
+      {/* What you owe or are owed is what you'd settle, so it goes straight there. */}
+      <Pressable
+        disabled={!toSettle}
+        onPress={() => onTab('settle')}
+        accessibilityRole={toSettle ? 'button' : undefined}
+        accessibilityHint={toSettle ? 'Opens Settle up' : undefined}
+      >
+        {({ pressed }) => (
+          <Card style={pressed ? { ...s.balance, backgroundColor: color.surfaceSunken } : s.balance}>
+            {data.expenses.length === 0 ? (
+              // Zero because nothing has happened yet, not because it was paid off.
+              <View>
+                <Text style={s.label}>No expenses yet</Text>
+                <Text style={s.nothingYet}>Add the first one and you'll see who owes what.</Text>
+              </View>
+            ) : (
+              <View>
+                <Text style={s.label}>
+                  {data.myNet > 0 ? 'You are owed' : data.myNet < 0 ? 'You owe' : 'All settled'}
+                </Text>
+                <Amount minor={data.myNet} currency={data.currency} size="lg" net />
+              </View>
+            )}
+            {toSettle && <Text style={s.balanceGo}>Settle up ›</Text>}
+          </Card>
         )}
-      </Card>
+      </Pressable>
 
       <Segmented options={TABS} value={tab} onChange={onTab} />
 
@@ -1032,6 +1046,8 @@ const useStyles = makeStyles((color) => ({
   inviteUrl: { ...type.amountSm, color: color.inkFaint, textAlign: 'center', marginBottom: space.sm },
   inviteNote: { ...type.caption, color: color.inkMuted, textAlign: 'center' },
   label: { ...type.label, color: color.inkMuted, marginBottom: space.xs },
+  balance: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  balanceGo: { ...type.label, color: color.accent },
   debtRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   debtText: { ...type.body, color: color.ink },
   blockedNote: {
