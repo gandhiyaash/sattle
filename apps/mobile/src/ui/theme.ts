@@ -163,6 +163,17 @@ export const space = {
   xxl: 32,
 } as const;
 
+/**
+ * How wide the app gets. On a laptop or a tablet the screens stay a phone's
+ * column in the middle, instead of buttons and rows running the width of the
+ * window with what they belong to at the far side.
+ */
+export const layout = {
+  maxWidth: 720,
+  /** A dialog: one thing to read and answer, narrower still. */
+  dialogWidth: 480,
+} as const;
+
 export const radius = {
   sm: 6,
   md: 10,

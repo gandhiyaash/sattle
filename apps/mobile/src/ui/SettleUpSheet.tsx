@@ -105,8 +105,7 @@ export function SettleUpSheet({
       <View style={s.sheet}>
         <Text style={s.title}>Did the payment go through?</Text>
         <Text style={s.body}>
-          Your UPI app doesn’t tell Sattle what happened. If the {amount} reached {name}, say so and it’s settled.{' '}
-          {name} has nothing to confirm.
+          {amount} to {name}
         </Text>
 
         {!flow.paidByHand && (
@@ -124,8 +123,7 @@ export function SettleUpSheet({
               autoCorrect={false}
             />
             <Text style={s.fieldNote}>
-              The number your UPI app shows for the payment, usually 12 digits: its UPI transaction ID, UTR or UPI Ref
-              No. It goes in the group’s history, so {name} can find the payment by it. You can leave it out.
+              The 12-digit number your UPI app shows.
             </Text>
           </>
         )}
@@ -148,20 +146,20 @@ export function SettleUpSheet({
     const instructions =
       said === 'success'
         ? // Only still on this step if telling the server failed: otherwise the sheet has gone to Settled.
-          'Your UPI app says the payment went through, but it couldn’t be recorded here. Tap Try again. Don’t pay a second time.'
+          'Paid, but not saved here yet. Tap Try again. Don’t pay twice.'
         : said === 'failed'
-          ? 'Your UPI app says the payment didn’t go through. Nothing was recorded, and you can try again.'
+          ? 'It didn’t go through. Try again.'
           : said === 'pending'
-            ? 'Your UPI app says the payment is still going through. Once it has, mark it as paid.'
+            ? 'Still going through. Tap I’ve paid once it has.'
             : said === 'unknown'
-              ? 'Your UPI app didn’t say whether the payment went through. If it did, mark it as paid.'
+              ? 'Did it go through? If so, tap I’ve paid.'
               : flow.upi.apps?.length
                 ? pickAppLine(flow.upi.apps.filter(refusesLinks).map((app) => app.name))
                 : // No list at all: the one button that opens whatever takes the link. An empty list is a
                   // phone with no UPI app, which the panel says, so it reads as an iPhone does.
                   flow.payWith && !flow.upi.apps
-                  ? 'Your UPI app opens with the amount filled in. Pay there and you’re brought back here.'
-                  : `Pay ${amount} to ${recipient.displayName} in your UPI app, then come back here and mark it as paid.`;
+                  ? 'Your UPI app opens with the amount filled in.'
+                  : `Pay in any UPI app, then tap I’ve paid.`;
     return (
       <View style={s.sheet}>
         <Text style={s.title}>Pay {recipient.displayName} by UPI</Text>
@@ -186,7 +184,6 @@ export function SettleUpSheet({
           <Button
             label="I’ve paid"
             variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
-            hint="Asks whether it went through, and settles it if it did."
             disabled={flow.busy}
             onPress={flow.askPaid}
           />
@@ -196,8 +193,7 @@ export function SettleUpSheet({
         {flow.copiedFor && (
           <Dialog visible={flow.step === 'upi_copied'} title="UPI ID copied" onClose={flow.dismissCopied}>
             <Text style={s.body}>
-              Paste it into {flow.copiedFor.name}’s search, pick {recipient.displayName}, and pay {amount}. Then come
-              back here and mark it as paid.
+              Paste it in {flow.copiedFor.name} and pay {amount}. Then come back and tap I’ve paid.
             </Text>
             <Text style={s.copiedId} selectable>
               {flow.upi.payee.upiId}
@@ -236,8 +232,8 @@ export function SettleUpSheet({
           <>
             <Text style={s.body}>
               {sats
-                ? 'This invoice expired. Lightning invoices only last a few minutes. Nothing moved.'
-                : 'This invoice expired. Lightning invoices only last a few minutes, and the sats price moves. Nothing moved.'}
+                ? 'Expired. Get a new invoice if you haven’t paid.'
+                : 'Expired, and the rate has moved. Get a new invoice if you haven’t paid.'}
             </Text>
             <Button
               label="Get a new invoice"
@@ -256,7 +252,7 @@ export function SettleUpSheet({
             />
             <View style={s.waitingInline}>
               <ActivityIndicator color={color.accent} size="small" />
-              <Text style={s.waitingNote}>Waiting for the payment. This updates on its own.</Text>
+              <Text style={s.waitingNote}>Waiting for the payment…</Text>
             </View>
           </>
         )}
@@ -288,11 +284,11 @@ export function SettleUpSheet({
             <ActivityIndicator color={color.accent} />
             <Text style={s.waitingStep}>
               {flow.settlement?.status === 'in_flight'
-                ? 'Payment in flight'
-                : 'Creating the invoice'}
+                ? 'Sending'
+                : 'Getting ready'}
             </Text>
             <Text style={s.waitingNote}>
-              The balance only moves when the payment proof arrives.
+              This updates on its own.
             </Text>
           </View>
         )}
@@ -326,8 +322,7 @@ export function SettleUpSheet({
       <View style={s.sheet}>
         <Text style={s.title}>Where should this go?</Text>
         <Text style={s.body}>
-          Ask {recipient.displayName} for their Lightning address. Any wallet
-          gives them one, and they don't need this app to receive.
+          Ask {recipient.displayName} for their Lightning address.
         </Text>
 
         <TextInput
@@ -382,7 +377,6 @@ export function SettleUpSheet({
           <Button
             label="Add their Lightning address"
             variant={first === 'add_address' ? 'primary' : 'secondary'}
-            hint="Fastest route. Works with any wallet they already have."
             onPress={flow.startAddressEntry}
           />
         )}
@@ -393,7 +387,6 @@ export function SettleUpSheet({
               label={reminder ? `Remind ${recipient.displayName} again` : `Remind ${recipient.displayName}`}
               track={reminder ? 'Remind them again' : 'Remind them'}
               variant={first === 'remind' ? 'primary' : 'secondary'}
-              hint={flow.ways.lightning ? 'Sends them a note to set up receiving.' : 'Sends them a note to add their UPI ID.'}
               onPress={sendReminder}
             />
             {reminder && <Text style={s.inviteNote}>{reminder}</Text>}
@@ -406,7 +399,6 @@ export function SettleUpSheet({
               label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
               track={invite.kind === 'sent' ? 'Invite them again' : 'Invite them'}
               variant={first === 'invite' ? 'primary' : 'secondary'}
-              hint="They see the group and can get paid here from then on."
               busy={invite.kind === 'busy'}
               onPress={sendInvite}
             />
@@ -464,10 +456,10 @@ export function SettleUpSheet({
 
 /** What the reminder asks the person owed to do, in terms of the ways this payer could then pay them. */
 function howToGetPaid(ways: PayWays): string {
-  if (!ways.lightning) return 'Add your UPI ID from Wallet in the app, so I can pay you there.';
+  if (!ways.lightning) return 'Add your UPI ID in Sattle, under Wallet, so I can pay you.';
   return ways.upi
-    ? 'Set up getting paid from Wallet in the app, with a UPI ID, a wallet or your Lightning address, so it has somewhere to land.'
-    : 'Set up receiving from Wallet in the app, with a wallet or your Lightning address, so it has somewhere to land.';
+    ? 'Set up getting paid in Sattle, under Wallet, so I can pay you.'
+    : 'Set up getting paid in Sattle, under Wallet, so I can pay you.';
 }
 
 const useStyles = makeStyles((color) => ({
@@ -520,8 +512,8 @@ const useStyles = makeStyles((color) => ({
 
 /** The line over the apps: what picking one does, naming any that are paid in by hand instead. */
 function pickAppLine(refusing: string[]): string {
-  if (!refusing.length) return 'Pick the app you pay with. It opens with the amount filled in, and you’re brought back here.';
+  if (!refusing.length) return 'Pick your UPI app.';
   const one = refusing.length === 1;
   const names = one ? refusing[0] : `${refusing.slice(0, -1).join(', ')} and ${refusing[refusing.length - 1]}`;
-  return `Pick the app you pay with. ${names} ${one ? 'opens' : 'open'} with the UPI ID copied for you to paste in. Any other opens with the amount filled in.`;
+  return `Pick your UPI app. ${names} ${one ? 'opens' : 'open'} with the UPI ID copied, to paste in.`;
 }

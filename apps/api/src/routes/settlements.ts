@@ -9,7 +9,7 @@ import { minor, parse } from '../http';
 import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, ProofBody, readPreimage } from '../proof';
-import { checkManualRecorder, checkPayer, checkSettlement, inProgressFor, newSettlement } from '../settlementRules';
+import { checkManualRecorder, checkNoPaymentUnderWay, checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
 
 const SettlementBody = z.object({
   fromMemberId: z.string(),
@@ -62,14 +62,23 @@ export function settlementRoutes({ db, repo, payments }: Ctx) {
     return c.json(settlement, 201);
   });
 
-  /** The payee records it; the payer only when the payee is a ghost. See checkManualRecorder. Whoever does is kept with it. */
+  /**
+   * The payee records it; the payer only when the payee is a ghost. See checkManualRecorder. Whoever does is kept with it.
+   *   a Lightning payment for it is under way → 409 conflict: it could still
+   *                                             be paid, and then it's paid twice
+   * Settling all that's owed answers a UPI payment someone said they made for
+   * it, so that goes. A part leaves it waiting on the rest.
+   */
   r.post('/groups/:id/settlements/manual', once, async (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
     const body = parse(ManualBody, await c.req.json());
     const settlement = transaction(db, () => {
+      const owed = debtsOf(repo, g).find((d) => d.fromMemberId === body.fromMemberId && d.toMemberId === body.toMemberId);
       checkSettlement(repo, g, body);
       checkManualRecorder(repo, body, user.id);
+      checkNoPaymentUnderWay(repo, g, body);
+      if (owed && body.amount >= owed.amount) repo.dropUpiClaimFor({ groupId: g.id, ...body });
       return repo.insertSettlement({
         ...newSettlement(g, body, 'manual', 'manually_confirmed'),
         note: body.note,

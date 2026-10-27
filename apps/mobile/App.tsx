@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
@@ -18,7 +18,7 @@ import { JoinAsNewScreen } from './src/ui/JoinScreen';
 import { OnboardingScreen } from './src/ui/OnboardingScreen';
 import { Loading, Screen } from './src/ui/primitives';
 import { RestoreScreen } from './src/ui/RestoreScreen';
-import { useColorMode } from './src/ui/theme';
+import { layout, useColorMode, useColors } from './src/ui/theme';
 import { readToured, writeToured } from './src/ui/tourStore';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
@@ -55,12 +55,18 @@ const isRestorePath = () =>
 
 export default function App() {
   const mode = useColorMode();
+  const color = useColors();
   return (
     // Where the status bar, the notch and the home indicator are, so the screens can keep clear of them.
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {/* Dark icons on the light theme, light ones on the dark. */}
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-      <Root />
+      {/* A phone's column in the middle of anything wider (layout.maxWidth). */}
+      <View style={{ flex: 1, backgroundColor: color.paper }}>
+        <View style={{ flex: 1, width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center' }}>
+          <Root />
+        </View>
+      </View>
     </SafeAreaProvider>
   );
 }

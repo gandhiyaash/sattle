@@ -178,7 +178,7 @@ function GuestPay({ token }: { token: string }) {
         <Text style={s.reason}>{view.reason}</Text>
         <Notice
           title={`Waiting for ${view.payeeName}`}
-          body={`Someone said this was paid by UPI. It’s settled once ${view.payeeName} confirms it arrived. You can close this.`}
+          body={`Paid by UPI. ${view.payeeName} will confirm it arrived.`}
         />
         <Footer />
       </Page>
@@ -229,12 +229,12 @@ function GuestPay({ token }: { token: string }) {
         <Button
           label="Pay by UPI"
           variant="primary"
-          hint={`From GPay, PhonePe or any UPI app. ${view.payeeName} confirms once it arrives.`}
+          hint={`GPay, PhonePe or any UPI app`}
           onPress={() => setByUpi(true)}
         />
         <Button
           label="Pay with Lightning"
-          hint="Get an invoice in sats to pay from any Lightning wallet."
+          hint="Any Lightning wallet"
           onPress={payWithLightning}
         />
         <Footer />
@@ -360,7 +360,7 @@ function Invoice({
             onPress={() => openAppLink(`lightning:${destination}`).catch(() => {})}
           />
           <Text style={s.hint}>
-            Works with Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.
+            Works with any Lightning wallet.
           </Text>
           <BrowserWalletPay invoice={destination} onPaid={onPaidInBrowser} />
 
@@ -416,8 +416,8 @@ function Expired({
           title="This invoice expired"
           body={
             sats
-              ? 'Lightning invoices only last a few minutes. Get a new one for the same amount.'
-              : 'Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate.'
+              ? 'Get a new one to pay.'
+              : 'The rate has moved. Get a new one to pay.'
           }
         />
       )}
@@ -494,7 +494,7 @@ function UpiPay({
             uri={upiPayUri({ upiId: payee.upiId, name: payee.name, amount: view.amount, note: view.reason })}
           />
           <Text style={s.hint}>
-            Pay {amount}, then tap below. {view.payeeName} confirms it arrived, and then it’s settled.
+            Pay {amount}, then tap I’ve paid.
           </Text>
           <Button label="I’ve paid" variant="primary" busy={saying} onPress={sayPaid} />
         </>
@@ -609,19 +609,29 @@ function ProofEntry({ onSubmit }: { onSubmit: (preimage: string) => Promise<void
   );
 }
 
-/** A receipt: what was owed, what was sent, and the rate that joined them. */
+/**
+ * A receipt: what was owed, what was sent, and the rate that joined them.
+ * Settled on the word of the person owed (marked settled, or a UPI payment
+ * they confirmed, from this link or the app) it says so, since Sattle didn't
+ * see money move.
+ */
 function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestSettlement }) {
   const s = useStyles();
   const { preimage } = settlement;
   // In sats the amount owed is the amount sent, and no rate joined them.
   const quote = isBitcoin(settlement.currency) ? undefined : settlement.quote;
+  const onTheirWord = settlement.status === 'manually_confirmed';
   return (
     <Page>
       <View style={s.tick}>
         <Text style={s.tickMark}>✓</Text>
       </View>
-      <Text style={s.title}>Paid</Text>
-      <Text style={s.reason}>{payeeName} has been paid. Nothing else to do — you can close this.</Text>
+      <Text style={s.title}>{onTheirWord ? 'Settled' : 'Paid'}</Text>
+      <Text style={s.reason}>
+        {onTheirWord
+          ? 'This has been settled. Nothing else to do — you can close this.'
+          : `${payeeName} has been paid. Nothing else to do — you can close this.`}
+      </Text>
       <View style={s.receipt}>
         <BreakdownRow label="Amount" value={formatAmount(settlement.amount, settlement.currency)} numeric />
         {quote && (
@@ -660,8 +670,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
           <Text style={s.brand}>Sattle</Text>
           <Text style={s.title}>Nothing to pay</Text>
           <Text style={s.reason}>
-            This has already been settled, or the amount changed since the link was sent. Nothing else to do — you
-            can close this.
+            You can close this.
           </Text>
         </Page>
       );
@@ -738,8 +747,8 @@ function Footer() {
   return (
     <Text style={s.footer}>
       {fromGroup
-        ? 'No account needed. Pay from any Lightning wallet.'
-        : 'No account needed. This link only shows this one payment — not the group.'}
+        ? 'No account needed.'
+        : 'No account needed. Only this payment is shown, not the group.'}
     </Text>
   );
 }

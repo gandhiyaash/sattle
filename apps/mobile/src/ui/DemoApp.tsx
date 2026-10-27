@@ -34,7 +34,7 @@ import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
-import { makeStyles, radius, space, type } from './theme';
+import { layout, makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
@@ -438,8 +438,11 @@ function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () =
           onClose();
         }}
       />
-      {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
-      <View style={[sheet.container, { paddingBottom: insets.bottom }]}>{children}</View>
+      {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
+      <View style={sheet.frame} pointerEvents="box-none">
+        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
+        <View style={[sheet.container, { paddingBottom: insets.bottom }]}>{children}</View>
+      </View>
     </Modal>
   );
 }
@@ -557,11 +560,11 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
 
 const useSheet = makeStyles((color) => ({
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
+  // A flow child, not absolutely placed: native layout ignores auto margins on an absolute box.
+  frame: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
   container: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    width: '100%',
+    maxWidth: layout.maxWidth,
     backgroundColor: color.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,

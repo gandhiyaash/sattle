@@ -78,6 +78,32 @@ describe('MockClient group links', () => {
     expect((await c.openPayLink(second, 'lightning')).settlement?.status).toBe('created');
   });
 
+  it('makes a new pay link when the last one was settled some other way', async () => {
+    const c = client();
+    const priya = (v: Awaited<ReturnType<typeof c.getGroupGuestView>>) => v.debts.find((d) => d.from === 'Priya' && d.to === 'Yash')!;
+
+    const before = priya(await c.getGroupGuestView('demo-group'));
+    const first = (await c.payFromGroupLink('demo-group', before.ref)).token;
+    // Priya pays in cash, and Yash marks it settled.
+    await c.markSettledManually({ groupId: 'g-flat', fromMemberId: 'm-flat-priya', toMemberId: 'm-flat-yash', amount: before.amount });
+
+    // Yash pays for something again, so Priya owes him the same amount as before.
+    await c.addExpense({
+      groupId: 'g-flat',
+      description: 'Same again',
+      amount: before.amount * 2,
+      paidByMemberId: 'm-flat-yash',
+      splitMode: 'equal',
+      parts: [{ memberId: 'm-flat-yash' }, { memberId: 'm-flat-priya' }],
+    });
+    const after = priya(await c.getGroupGuestView('demo-group'));
+    expect(after.amount).toBe(before.amount);
+    // The first link would only say "Settled" and charge nothing.
+    const second = (await c.payFromGroupLink('demo-group', after.ref)).token;
+    expect(second).not.toBe(first);
+    expect((await c.openPayLink(second, 'lightning')).settlement?.status).toBe('created');
+  });
+
   it('refuses a debt it never listed, and one whose payee can’t receive', async () => {
     const c = client();
     await expect(c.payFromGroupLink('demo-group', 'made-up')).rejects.toMatchObject({ code: 'link_expired' });

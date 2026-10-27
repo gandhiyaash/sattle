@@ -79,6 +79,20 @@ export function inProgressFor(repo: Repo, g: Group, body: Pair) {
     .find((s) => isInProgress(s) && s.fromMemberId === body.fromMemberId && s.toMemberId === body.toMemberId);
 }
 
+/**
+ * For settling a debt outside Lightning (Mark as settled, confirming a UPI
+ * payment): not while an invoice for it is out, which could still be paid,
+ * and then it's paid twice.
+ */
+export function checkNoPaymentUnderWay(repo: Repo, g: Group, body: Pair) {
+  if (inProgressFor(repo, g, body)) {
+    throw new SattleError(
+      'conflict',
+      'A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.'
+    );
+  }
+}
+
 /** Non-terminal, and not an awaiting_payment whose quote has lapsed. Shared with the app, so it lives in @sattle/core. */
 export { isInProgress };
 

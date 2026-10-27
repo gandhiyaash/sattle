@@ -190,15 +190,19 @@ describe('POST /s/:token/open', () => {
     expect(body.settlement!.id).not.toBe(failed.settlement!.id);
   });
 
-  it('expires once the debt is settled another way', async () => {
-    const { call, createLink, priyaOwesYash } = setup();
+  it('shows a debt settled another way as settled, and mints nothing', async () => {
+    const { call, createLink, priyaOwesYash, settlementCount } = setup();
     const link = await createLink();
     const d = await priyaOwesYash();
     await call('POST', '/groups/g-flat/settlements/manual', { ...d, note: 'cash' });
+    const before = settlementCount();
 
-    const { status, body } = await call<{ code: string }>('POST', `/s/${link.token}/open`);
-    expect(status).toBe(410);
-    expect(body.code).toBe('link_expired');
+    const { status, body } = await call<GuestView>('POST', `/s/${link.token}/open`);
+    expect(status).toBe(200);
+    expect(body.settlement).toMatchObject({ amount: d.amount, status: 'manually_confirmed' });
+    expect(settlementCount()).toBe(before);
+    // A page left open on the link sees it on its next look.
+    expect((await call<GuestView>('GET', `/s/${link.token}`)).body.settlement?.status).toBe('manually_confirmed');
   });
 
   it('expires once the debt shrinks below the link', async () => {
@@ -242,6 +246,18 @@ describe('POST /s/:token/open', () => {
     expect(body.code).toBe('conflict');
   });
 
+  it('won’t be marked settled while its invoice can still be paid', async () => {
+    const { call, createLink, priyaOwesYash } = setup('stalled');
+    const link = await createLink();
+    const d = await priyaOwesYash();
+    expect((await call('POST', `/s/${link.token}/open`)).status).toBe(200);
+
+    // Marking it settled now, and Priya then paying the invoice, would pay it twice.
+    const res = await call<{ code: string }>('POST', '/groups/g-flat/settlements/manual', { ...d, note: 'cash' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('conflict');
+  });
+
   it('never lets two links for the same debt both collect', async () => {
     const { call, createLink, waitForGuest } = setup();
     const a = await createLink();
@@ -253,10 +269,34 @@ describe('POST /s/:token/open', () => {
     expect(busy.status).toBe(409);
     expect(busy.body.code).toBe('conflict');
 
-    await waitForGuest(a.token, (v) => v.settlement?.status === 'confirmed');
-    const after = await call<{ code: string }>('POST', `/s/${b.token}/open`);
-    expect(after.status).toBe(410);
-    expect(after.body.code).toBe('link_expired');
+    const paid = await waitForGuest(a.token, (v) => v.settlement?.status === 'confirmed');
+    // The other link shows the payment that settled it, and starts none of its own.
+    const after = await call<GuestView>('POST', `/s/${b.token}/open`);
+    expect(after.status).toBe(200);
+    expect(after.body.settlement?.id).toBe(paid.settlement!.id);
+    // But not its invoice or proof: those are the receipt of whoever paid through the first link.
+    expect(paid.settlement!.destination).toBeDefined();
+    expect(after.body.settlement?.destination).toBeUndefined();
+    expect(after.body.settlement?.preimage).toBeUndefined();
+  });
+
+  it('keeps a link settled even once the same two people owe again', async () => {
+    const { call, createLink, priyaOwesYash } = setup();
+    const link = await createLink();
+    const d = await priyaOwesYash();
+    await call('POST', '/groups/g-flat/settlements/manual', { ...d, note: 'cash' });
+    await call('POST', '/groups/g-flat/expenses', {
+      description: 'Groceries',
+      amount: d.amount * 4,
+      paidByMemberId: 'm-flat-yash',
+      splitMode: 'equal',
+      parts: [{ memberId: 'm-flat-yash' }, { memberId: 'm-flat-priya' }],
+    });
+    expect((await priyaOwesYash()).amount).toBeGreaterThanOrEqual(link.amount);
+
+    const { status, body } = await call<GuestView>('POST', `/s/${link.token}/open`);
+    expect(status).toBe(200);
+    expect(body.settlement?.status).toBe('manually_confirmed');
   });
 
   it('replays a repeated idempotency key', async () => {

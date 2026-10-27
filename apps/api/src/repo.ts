@@ -32,7 +32,13 @@ type Row = Record<string, unknown>;
 const opt = <T>(v: unknown) => (v === null || v === undefined ? undefined : (v as T));
 
 export const newId = (prefix: string) => `${prefix}-${randomUUID()}`;
-export const nowIso = () => new Date().toISOString();
+// Each call is later than the last, even within a millisecond: rules such as
+// settledOutsideLink order rows by these times, and a tie can't be ordered.
+let lastNow = 0;
+export const nowIso = () => {
+  lastNow = Math.max(Date.now(), lastNow + 1);
+  return new Date(lastNow).toISOString();
+};
 
 const toUser = (r: Row): User => ({
   id: r.id as string,

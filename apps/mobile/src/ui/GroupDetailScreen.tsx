@@ -7,7 +7,9 @@
  *
  * A few things here carry weight beyond looking tidy:
  *
- * 1. Every member row shows their state — In app / Not joined / Payable.
+ * 1. Every member row shows their state — In app / Not joined / Payable —
+ *    and where they stand: what they owe the group, what it owes them, or
+ *    settled once they're square, so paying someone shows here too.
  *    That is what makes the "only one person installs" claim legible instead
  *    of a line in a README. One link, from Invite in the header, is
  *    for all of them: a QR code to scan across the table, and the same
@@ -118,6 +120,8 @@ interface GroupView {
   approveJoins: boolean;
   /** Ghosts that no expense or payment names. */
   removable: Set<string>;
+  /** Each member's net in the group: positive is owed to them, negative is what they owe. */
+  nets: Map<string, number>;
   /** The user's own UPI ID, if they've given one. */
   upi: UpiProfile;
   userId: string;
@@ -182,6 +186,7 @@ export function GroupDetailScreen({
       waiting,
       approveJoins: group.approveJoins,
       removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
+      nets: new Map(balances.map((b) => [b.memberId, b.net])),
       upi,
       userId: user.id,
       myMemberId: mine?.id ?? null,
@@ -290,8 +295,8 @@ export function GroupDetailScreen({
             <QrCode value={shared.url} size={200} />
           </View>
           <Text style={s.inviteHint}>
-            {`Scan this with a phone’s camera. It opens the group: what’s been split, what they owe, and Join. ${
-              data.approveJoins ? 'Whoever joins waits for you to let them in.' : 'Whoever joins picks their name and is in.'
+            {`Scan to see the group and join.${
+              data.approveJoins ? ' You let them in.' : ''
             }`}
           </Text>
           <Text style={s.inviteUrl} selectable>
@@ -374,7 +379,15 @@ export function GroupDetailScreen({
           {data.members.map((member, i) => (
             <View key={member.id}>
               {i > 0 && <Divider />}
-              <MemberRow member={member} isMe={member.id === data.myMemberId} mode={mode} ways={ways} />
+              <MemberRow
+                member={member}
+                isMe={member.id === data.myMemberId}
+                mode={mode}
+                ways={ways}
+                // Before any expense there is nothing to be square about.
+                net={data.expenses.length > 0 ? (data.nets.get(member.id) ?? 0) : undefined}
+                currency={data.currency}
+              />
               {data.removable.has(member.id) && (
                 <View style={s.memberAction}>
                   <ConfirmButton
@@ -403,7 +416,7 @@ export function GroupDetailScreen({
             <GetPaidCard names={owingMe} ways={ways} turnsOnBitcoin={turnsOnBitcoin} onSetUp={setUpGettingPaid} />
           )}
           {myDebts.length === 0 ? (
-            <Text style={s.emptyTab}>Nothing to settle. You don’t owe anyone here, and nobody owes you.</Text>
+            <Text style={s.emptyTab}>All settled.</Text>
           ) : (
             <View style={{ gap: space.sm }}>
               {myDebts.map((debt) => {
@@ -513,15 +526,14 @@ function GetPaidCard({
       <Text style={s.getPaidTitle}>{who} can’t pay you yet</Text>
       <Text style={s.linkIntro}>
         {!ways.lightning
-          ? 'Add your UPI ID, and they can pay you in the app.'
+          ? 'Add your UPI ID so they can pay you.'
           : ways.upi
-            ? 'Add a way to get paid: a UPI ID, a Lightning wallet, or a Lightning address. Then they can pay you in the app.'
-            : 'Add a way to get paid: a Lightning wallet or a Lightning address. Then they can pay you in the app.'}
+            ? 'Add a way to get paid so they can pay you.'
+            : 'Add a way to get paid so they can pay you.'}
       </Text>
       {turnsOnBitcoin && (
         <Text style={s.linkNote}>
-          This group is kept in bitcoin, so they pay you over Lightning. Setting it up turns Bitcoin on for you; you
-          can turn it off again under Account.
+          This also turns on Bitcoin for you.
         </Text>
       )}
       <Button label="Set up getting paid" variant="primary" onPress={onSetUp} />
@@ -603,18 +615,18 @@ function JoinRequestCard({
 function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string): string {
   const { name } = request;
   if (request.replacing === 'you') {
-    return `If it’s you, on a new phone or browser, let them in: that one becomes ${name}, and this device leaves ${groupName}. If it isn’t you, tap Not them.`;
+    return `Only if it’s you on a new device. This one then leaves ${groupName}.`;
   }
   if (request.replacing) {
-    return `${name} has joined already. Letting them in hands ${name}’s place to this new account, and the old one leaves ${groupName}. Do it only if you’ve checked with ${name}, say by asking which code they see.`;
+    return `Only if you’ve checked with ${name}: their old device leaves ${groupName}. Ask which code they see.`;
   }
   if (twin) {
-    return `More than one person is asking to be ${name}. Ask ${name} which code they see, and let in only that one.`;
+    return `More than one person wants to be ${name}. Ask ${name} which code they see.`;
   }
   if (request.existing) {
-    return `They’ll see everything in ${groupName} and take over ${name}’s balance. Let them in only if you know it’s ${name}: if unsure, ask which code they see.`;
+    return `Only let in if it’s ${name}. Ask which code they see.`;
   }
-  return `They’ll see everything in ${groupName} and can add to it.`;
+  return `They’ll see and add to ${groupName}.`;
 }
 
 /** "just now", "5 min ago", "2 h ago", "3 days ago". */
@@ -648,13 +660,13 @@ function cannotReceiveNote(member: Member, mode: PaymentMode, ways: PayWays): st
   // UPI is the only way they're shown, and this person hasn't given a UPI ID.
   if (!ways.lightning) {
     return member.claimedByUserId
-      ? `${name} hasn’t added a UPI ID yet, so you can’t pay them here.`
-      : `${name} isn't on Sattle yet. Invite them, or mark it settled if you paid another way.`;
+      ? `${name} hasn’t added a UPI ID yet.`
+      : `${name} hasn’t joined yet.`;
   }
-  if (mode === 'simulated') return `${name} hasn't joined — you can still pay them an address.`;
+  if (mode === 'simulated') return `${name} hasn’t joined yet.`;
   return member.claimedByUserId
-    ? `${name} needs to set up receiving before you can pay here.`
-    : `${name} isn't on Sattle yet. Invite them, or mark it settled if you paid another way.`;
+    ? `${name} can’t be paid here yet.`
+    : `${name} hasn’t joined yet.`;
 }
 
 const REFRESH_MS = 4000;
@@ -675,8 +687,27 @@ type LinkState =
   /** The user has no way to be paid, so there was no link to make. */
   | { kind: 'no_way' };
 
-/** One member, with their state, in terms of the ways to pay the user is shown. */
-function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean; mode: PaymentMode; ways: PayWays }) {
+/**
+ * One member, with their state, in terms of the ways to pay the user is shown,
+ * and where they stand in the group: what they owe, what they get back, or
+ * settled.
+ */
+function MemberRow({
+  member,
+  isMe,
+  mode,
+  ways,
+  net,
+  currency,
+}: {
+  member: Member;
+  isMe: boolean;
+  mode: PaymentMode;
+  ways: PayWays;
+  /** Their net in the group; undefined before there is anything to owe. */
+  net: number | undefined;
+  currency: string;
+}) {
   const s = useStyles();
   const lightning = ways.lightning && canReceive(member, mode);
   // Someone with only a UPI ID can still be paid here, in a rupee group.
@@ -685,11 +716,11 @@ function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean
     member.status === 'ghost'
       ? (ways.lightning && member.lightningAddress) || 'Not joined'
       : member.status === 'nwc_linked' && ways.lightning
-        ? 'External wallet'
+        ? 'In app'
         : upiOnly
-          ? 'In app · takes UPI'
+          ? 'Takes UPI'
           : ways.lightning && mode === 'real' && !lightning
-            ? 'In app · can’t receive yet'
+            ? 'Can’t be paid yet'
             : 'In app';
   return (
     <View style={s.memberRow}>
@@ -701,7 +732,15 @@ function MemberRow({ member, isMe, mode, ways }: { member: Member; isMe: boolean
         </Text>
         <Text style={s.memberMeta}>{state}</Text>
       </View>
-      {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
+      <View style={s.memberSide}>
+        {net !== undefined && (
+          <View style={s.memberBalance}>
+            {net !== 0 && <Text style={s.memberMeta}>{net > 0 ? 'gets back' : 'owes'}</Text>}
+            <Amount minor={net} currency={currency} size="sm" net />
+          </View>
+        )}
+        {member.status === 'ghost' && <Badge text={lightning ? 'Payable' : 'No app'} tone={lightning ? 'accent' : 'neutral'} />}
+      </View>
     </View>
   );
 }
@@ -760,13 +799,13 @@ function nothingToPayWith(ways: PayWays, hasUpiId: boolean): string {
   // They've given a UPI ID and still can't be paid by link, so shared links aren't allowed to show it.
   if (ways.upi && hasUpiId) {
     return ways.lightning
-      ? 'Your UPI ID is turned off for shared links, and you have no Lightning wallet, so nobody could pay this link. Turn it back on from Wallet, or add a wallet.'
-      : 'Your UPI ID is turned off for shared links, so nobody could pay this link. Turn it back on from Wallet.';
+      ? 'Your UPI ID is off for shared links. Turn it on in Wallet, or add a wallet.'
+      : 'Your UPI ID is off for shared links. Turn it on in Wallet.';
   }
-  if (!ways.lightning) return 'Add your UPI ID first, so the link has a way to pay you.';
+  if (!ways.lightning) return 'Add your UPI ID first.';
   return ways.upi
-    ? 'Add a way to get paid first: a UPI ID, a Lightning wallet, or a Lightning address. Then the link has somewhere to send the money.'
-    : 'Add a way to get paid first: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.';
+    ? 'Add a way to get paid first.'
+    : 'Add a way to get paid first.';
 }
 
 /**
@@ -950,10 +989,10 @@ function UpiClaimNote({
       <View style={s.linkBlock}>
         <Text style={declined ? s.linkError : s.linkNote}>
           {declined
-            ? `${otherName} says the UPI payment of ${amount} didn’t arrive. Check with them, or pay again.`
+            ? `${otherName} says the UPI payment of ${amount} didn’t arrive.`
             : claim.viaLink
-              ? `Someone on a shared link told ${otherName} this was paid by UPI (${amount}). It’s settled once they confirm it arrived.`
-              : `You told ${otherName} you paid ${amount} by UPI. It’s settled once they confirm it arrived.`}
+              ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
+              : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
         </Text>
         <Button
           label={declined ? 'OK' : 'I didn’t pay after all'}
@@ -972,8 +1011,8 @@ function UpiClaimNote({
         {declined
           ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
           : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
-              claim.reference ? ` Reference ${claim.reference}.` : ''
-            } Check your bank or UPI app before you confirm.`}
+              claim.reference ? ` Ref ${claim.reference}.` : ''
+            } Did it arrive? Check your UPI app.`}
       </Text>
       <Button
         label={declined ? 'It arrived after all' : 'Yes, I got it'}
@@ -1025,6 +1064,8 @@ const useStyles = makeStyles((color) => ({
     padding: space.lg,
   },
   memberName: { ...type.body, fontWeight: '500', color: color.ink },
+  memberSide: { alignItems: 'flex-end', gap: space.xs },
+  memberBalance: { alignItems: 'flex-end' },
   // Lines up under the name: row padding, avatar, gap.
   memberAction: { paddingLeft: space.lg + 36 + space.md, paddingRight: space.lg, paddingBottom: space.md },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
