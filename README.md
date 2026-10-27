@@ -50,6 +50,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 | `EXPO_PUBLIC_MOCK_ALWAYS_FAIL` | `false` | `true` makes every mock payment end in `failed` |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:3000` | real backend base URL |
 | `EXPO_PUBLIC_APP_URL` | `http://localhost:8081` | base for the links the app shares |
+| `EXPO_PUBLIC_APP_VERSION` | app.json's `version` | what the app says it is when it reports how it's used. The release builds set it: the version tagged, `pr-<number>`, or `web-<commit>` |
 
 `apps/api/.env`:
 
@@ -83,14 +84,15 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   lightningAddress.ts        Parses what people paste. An address is not an invoice.
   upi.ts                     UPI: parsing an ID, the upi://pay link, and reading what a UPI app hands back.
   nostrLedger.ts             Reading a group's ledger back from Nostr events with its backup key. Imported as @sattle/core/nostrLedger, so only what reads it pulls in nostr-tools.
+  analytics.ts               What the app reports of how it is used: the event and batch shapes, and the limits the server holds a batch to.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
 
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, history, upi.
-  middleware.ts              Auth (with the public /s/, /g/ and /join/ prefixes) and idempotency.
+  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, history, upi, analytics.
+  middleware.ts              Auth (with the public /s/, /g/, /join/ and /analytics/ prefixes), idempotency, and the request log.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
   repo.ts                    Row ↔ domain mapping. Only domain types leave it.
@@ -118,6 +120,11 @@ apps/mobile/                 @sattle/mobile: Expo
     account/
       tokenStore.ts          Where the device keeps its account token. SecureStore on native, localStorage on web.
       signInKey.ts           The token as a sign-in key, to copy to another device and paste there.
+    analytics/
+      tracker.ts             What the app reports of how it is used, queued and sent in batches. No React Native, so it runs under vitest.
+      analytics.ts           The app's tracker: where to post, who's signed in, which install, and the app going to the background and back.
+      useScreenView.ts       The hook at the top of every screen, sheet and page: this is showing.
+      deviceStore.ts         This install's id for that. SecureStore on native, localStorage on web.
     ledger/
       readBack.ts            Fetches a group's entries from relays and reads them with its backup key. Loaded only when someone restores.
     client/
@@ -419,6 +426,19 @@ On a group's **Settle up** tab, the button at the bottom is **History** rather t
 Nothing is stored as a history. `buildHistory` in `@sattle/core` reads it off three things the server already keeps, and the mock builds it the same way: the expenses, the changes to them, and the settlements. Migration 019 added what those didn't say: who added an expense, who changed or removed one and how it read before, and who marked a debt as settled or confirmed a UPI payment. Each "who" is the member that person was in the group. Things from before 019 show without a name, and an expense edited before it shows as added the way it read after that first edit, since the earlier reading wasn't kept.
 
 Two things are left out on purpose. A payment that failed or ran out isn't in the history, because it moved nothing. And saving an expense exactly as it stood isn't a change: the server notes nothing for it, in the history or on Nostr.
+
+### Usage statistics
+
+The server keeps a record of how the app is used, in one table, `analytics_events`, for a statistics page that doesn't exist yet. Nothing reads it; nothing in the app shows it. One row per thing that happened, with who was signed in when someone was, which install and session it was in, and when, by the device's clock and by the server's:
+
+- **What the app reports of itself** (`apps/mobile/src/analytics`, `POST /analytics/events`). Every screen, sheet and page says when it is showing, with what tells one showing from another: the group, the tab, the step of paying. Every control says when it was pressed, by what it said, or by its `track` name where the label holds someone's name. The app says when it opens, goes to the background and comes back, and when it hands off to another app: a wallet or a UPI app opened, a link put on the share sheet, something copied. An error put on screen is a row too. The route is public, since a guest on a pay page counts too; a bearer token sent with the batch names the account. In demo mode nothing is sent.
+- **What the server saw** (`requestLog` in `middleware.ts`). One row per request answered, kind `request`: the method and the route it was for, like `POST /groups/:id/expenses`, with the route's params, the status and how long it took. A request turned away by auth is a row under its route too, and a token sent to a public route still names the account. Every request from the app carries the install and session in `x-sattle-device` and `x-sattle-session`, so these rows join the app's. `/health` and the analytics route itself are left out.
+
+The app queues events and posts them every few seconds, sooner when enough has piled up, and on going to the background. A long queue goes in several posts, each under 50 events and 48 KB, since nginx takes 64 KB at most. A post that fails goes again with the same ids, so the server keeps each event once, and the wait doubles after each failure up to five minutes. The app cuts down what the server would refuse: a name over 120 characters is shortened and props over 4 KB are left out. The server refuses a batch over `ANALYTICS_LIMITS` whole, and the app drops a refused batch instead of sending it forever.
+
+A link's token never goes in the table. Request rows leave it out of the params, and out of the path of a request that matched no route, since holding one is all it takes to see a group or pay. Nor does an invoice or a UPI ID: opening a wallet or a UPI app records only which kind it was.
+
+A session is one launch of the app, or one return to it after half an hour away. The install's id is made once and kept beside the account token, so what a guest did before making an account is theirs afterwards; it identifies nothing but that copy of the app. The `props` column is JSON; a page wanting a value out of it can use SQLite's `json_extract`. Nothing prunes the table yet.
 
 ### Deploying
 

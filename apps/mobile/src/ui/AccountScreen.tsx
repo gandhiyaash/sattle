@@ -18,6 +18,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { NOSTR_AUTH_PATHS, type User } from '@sattle/core';
 import { signInKey } from '../account/signInKey';
 import { readToken, writeToken } from '../account/tokenStore';
+import { useScreenView } from '../analytics/useScreenView';
 import { chooseCurrencies, useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CurrencyPicker } from './CurrencyPicker';
@@ -35,6 +36,7 @@ export interface AccountScreenProps {
 }
 
 export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScreenProps) {
+  useScreenView('Account');
   const s = useStyles();
   const client = useClient();
   const prefs = useCurrencyPrefs();

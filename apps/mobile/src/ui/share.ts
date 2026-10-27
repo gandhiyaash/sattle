@@ -9,6 +9,8 @@
 import * as Clipboard from 'expo-clipboard';
 import { Platform, Share } from 'react-native';
 
+import { analytics } from '../analytics/analytics';
+
 /**
  * Copies text, for pasting into another app. Returns a line saying what
  * happened, for under the button.
@@ -18,6 +20,12 @@ import { Platform, Share } from 'react-native';
  * so a selected, off-screen field and the old copy command are the fallback.
  */
 export async function copyText(text: string): Promise<string> {
+  const note = await copy(text);
+  analytics.action('copy', { copied: note === 'Copied.' });
+  return note;
+}
+
+async function copy(text: string): Promise<string> {
   if (Platform.OS !== 'web') {
     await Clipboard.setStringAsync(text);
     return 'Copied.';
@@ -54,6 +62,12 @@ export async function copyText(text: string): Promise<string> {
 export type ShareOutcome = 'sent' | 'not-sent' | 'copied' | 'blocked';
 
 export async function sendOrCopy(message: string): Promise<ShareOutcome> {
+  const outcome = await shareOrCopy(message);
+  analytics.action('share', { outcome });
+  return outcome;
+}
+
+async function shareOrCopy(message: string): Promise<ShareOutcome> {
   if (Platform.OS !== 'web') {
     const r = await Share.share({ message }).catch(() => null);
     return r?.action === Share.sharedAction ? 'sent' : 'not-sent';

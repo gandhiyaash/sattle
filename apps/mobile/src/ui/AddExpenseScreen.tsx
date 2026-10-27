@@ -34,6 +34,8 @@ import {
   type Member,
   type SplitMode,
 } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import {
   Avatar,
@@ -77,6 +79,7 @@ export function AddExpenseScreen({
   onBack,
   onAdded,
 }: AddExpenseScreenProps) {
+  useScreenView(expense ? 'Edit expense' : 'Add expense', { groupId });
   const color = useColors();
   const s = useStyles();
   const client = useClient();
@@ -252,7 +255,10 @@ export function AddExpenseScreen({
             {members.map((member) => (
               <Pressable
                 key={member.id}
-                onPress={() => setPaidBy(member.id)}
+                onPress={() => {
+                  analytics.tap('Paid by', { control: 'chip' });
+                  setPaidBy(member.id);
+                }}
                 style={[s.chip, paidBy === member.id && s.chipActive]}
               >
                 <Text style={[s.chipText, paidBy === member.id && s.chipTextActive]}>
@@ -269,7 +275,10 @@ export function AddExpenseScreen({
             {MODES.map((m) => (
               <Pressable
                 key={m.mode}
-                onPress={() => setMode(m.mode)}
+                onPress={() => {
+                  analytics.tap('Split', { control: 'chip', mode: m.mode });
+                  setMode(m.mode);
+                }}
                 style={[s.chip, mode === m.mode && s.chipActive]}
               >
                 <Text style={[s.chipText, mode === m.mode && s.chipTextActive]}>
@@ -292,7 +301,13 @@ export function AddExpenseScreen({
                   {i > 0 && <Divider />}
                   <View style={s.memberRow}>
                     {/* Only this part toggles, so the controls on the right don't. */}
-                    <Pressable onPress={() => toggle(member.id)} style={s.memberToggle}>
+                    <Pressable
+                      onPress={() => {
+                        analytics.tap('Between', { control: 'row', on: !on });
+                        toggle(member.id);
+                      }}
+                      style={s.memberToggle}
+                    >
                       <View style={[s.check, on && s.checkOn]}>
                         {on && <Text style={s.checkMark}>✓</Text>}
                       </View>
@@ -314,7 +329,10 @@ export function AddExpenseScreen({
                     {on && mode === 'shares' && (
                       <View style={s.stepper}>
                         <Pressable
-                          onPress={() => step(member.id, -1)}
+                          onPress={() => {
+                            analytics.tap('One fewer share', { control: 'stepper' });
+                            step(member.id, -1);
+                          }}
                           disabled={shares <= 1}
                           hitSlop={6}
                           style={[s.stepBtn, shares <= 1 && { opacity: 0.35 }]}
@@ -324,7 +342,10 @@ export function AddExpenseScreen({
                         </Pressable>
                         <Text style={s.stepCount}>{shares}</Text>
                         <Pressable
-                          onPress={() => step(member.id, 1)}
+                          onPress={() => {
+                            analytics.tap('One more share', { control: 'stepper' });
+                            step(member.id, 1);
+                          }}
                           disabled={shares >= MAX_SHARES}
                           hitSlop={6}
                           style={s.stepBtn}

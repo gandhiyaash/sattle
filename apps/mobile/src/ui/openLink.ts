@@ -13,10 +13,21 @@
 
 import { Linking, Platform } from 'react-native';
 
+import { analytics } from '../analytics/analytics';
+
 export async function openAppLink(uri: string): Promise<void> {
+  // Only what kind of app it was for: the link itself holds an invoice or someone's UPI ID.
+  const scheme = uri.split(':')[0];
   if (Platform.OS !== 'web') {
-    await Linking.openURL(uri);
+    try {
+      await Linking.openURL(uri);
+    } catch (e) {
+      analytics.action('open link', { scheme, opened: false });
+      throw e;
+    }
+    analytics.action('open link', { scheme, opened: true });
     return;
   }
+  analytics.action('open link', { scheme });
   window.location.href = uri;
 }

@@ -1,19 +1,21 @@
 import type { MiddlewareHandler } from 'hono';
+import { matchedRoutes } from 'hono/route';
 
-import { SattleError, type User } from '@sattle/core';
+import { ANALYTICS_HEADERS, ANALYTICS_LIMITS, SattleError, type User } from '@sattle/core';
 
 import type { AppEnv } from './context';
 import type { Db } from './db';
-import { nowIso, type Repo } from './repo';
+import { newId, nowIso, type Repo } from './repo';
 
 /**
  * Reachable without signing in: the guest pay page under /s/, the group page
  * under /g/, who its link offers to join as under /join/, making an
- * account, and signing in with Nostr under /auth/. Joining is not here: that needs an account, so it lives at
+ * account, signing in with Nostr under /auth/, and the app reporting how it is used under
+ * /analytics/, since a guest on a pay page counts too. Joining is not here: that needs an account, so it lives at
  * POST /join, and asking at POST /join-requests. Making or removing a group link isn't either:
  * /groups/:id/link.
  */
-const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts', '/auth/'];
+const PUBLIC_PREFIXES = ['/health', '/s/', '/g/', '/join/', '/accounts', '/auth/', '/analytics/'];
 
 /** Where a sign-in key is replaced. The one route an old key can reach, and only for a replay. */
 export const REPLACE_KEY_PATH = '/me/token';
@@ -77,6 +79,81 @@ export function idempotency(db: Db): MiddlewareHandler<AppEnv> {
     } finally {
       if (c.res.ok) store.run(c.res.status, await c.res.clone().text(), userId, key);
       else release.run(userId, key);
+    }
+  };
+}
+
+/** A path under a link: the next segment is the link's token, which is all anyone needs to see the group or pay. */
+const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
+
+/**
+ * One row in analytics_events for every request answered, kind `request`:
+ * the method and the route as registered (`POST /groups/:id/expenses`), with
+ * the route's params, the status and how long it took in props. The
+ * server's own account of what people do, beside what the app reports of
+ * itself (routes/analytics.ts). It runs before auth, so a request turned
+ * away is a row too, under the route it was for; who asked is known by the
+ * time the answer is back. On a public route auth doesn't look, so a token
+ * sent there is looked up here: a member opening their group's page in the
+ * app is still them. The device and session come from the headers the app
+ * sends, so a guest's requests join their screens and taps.
+ *
+ * A link's token is never kept: it's left out of the params, and out of the
+ * path of a request that matched no route. Holding one is all it takes to
+ * see a group or pay a debt, and the people reading this table later needn't
+ * be able to.
+ *
+ * Left out: /health, which the app asks on every start and nobody taps, the
+ * analytics route itself, and preflights. A request that threw is still a
+ * row, with the status its error became: Hono answers an error where it was
+ * thrown, so by the time next() is back the answer is on the context. Writing
+ * the row can't fail the request: that would make a broken table cost people
+ * their payments.
+ */
+export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
+  const insert = db.prepare(
+    `INSERT INTO analytics_events
+       (id, user_id, device_id, session_id, kind, name, props, occurred_at, received_at)
+     VALUES (?, ?, ?, ?, 'request', ?, ?, ?, ?)`
+  );
+  const header = (c: Parameters<MiddlewareHandler<AppEnv>>[0], name: string) => {
+    const v = c.req.header(name)?.trim();
+    return v && v.length <= ANALYTICS_LIMITS.id ? v : null;
+  };
+  const skipped = (path: string) => path === '/health' || path.startsWith('/analytics/');
+  const who = (c: Parameters<MiddlewareHandler<AppEnv>>[0]) => {
+    const user = c.get('user');
+    if (user) return user.id;
+    const bearer = c.req.header('authorization');
+    return (bearer?.startsWith('Bearer ') && repo.userByToken(bearer.slice(7))?.id) || null;
+  };
+
+  return async (c, next) => {
+    if (c.req.method === 'OPTIONS' || skipped(c.req.path)) return next();
+    const started = Date.now();
+    const at = nowIso();
+    try {
+      await next();
+    } finally {
+      try {
+        // The route the request was for, whether or not it got that far: the last one matched
+        // that isn't a middleware for every path. None means no route has that method and path.
+        const route = matchedRoutes(c).findLast((r) => r.path !== '/*')?.path;
+        // Only once the handler ran. A request turned away before it has none.
+        const { token: _, ...params } = c.req.param() as Record<string, string>;
+        const props = {
+          status: c.res.status,
+          ms: Date.now() - started,
+          ...(Object.keys(params).length > 0 && { params }),
+        };
+        const name = `${c.req.method} ${route ?? c.req.path.replace(LINK_PATH, '/$1/:token')}`;
+        insert.run(
+          newId('r'), who(c), header(c, ANALYTICS_HEADERS.device),
+          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, nowIso()
+        );
+      } catch (e) {
+        console.error('request log:', e);
+      }
     }
   };
 }

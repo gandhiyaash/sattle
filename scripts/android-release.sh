@@ -47,6 +47,8 @@ VERSION_NAME="${VERSION_NAME:-$(node -p "require('$MOBILE/package.json').version
 export EXPO_PUBLIC_USE_MOCK=false
 export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://battle.axiosiiitl.dev}"
 export EXPO_PUBLIC_APP_URL="${EXPO_PUBLIC_APP_URL:-https://sattle.axiosiiitl.dev}"
+# What the app says it is when it reports how it's used (apps/mobile/src/analytics).
+export EXPO_PUBLIC_APP_VERSION="$VERSION_NAME"
 
 # --- keystore -----------------------------------------------------------------------------
 

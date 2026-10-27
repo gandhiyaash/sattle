@@ -24,6 +24,8 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import type { PayWays } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { Card, Divider, Screen, SectionLabel } from './primitives';
 import { makeStyles, space, type } from './theme';
 
@@ -179,6 +181,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
 }
 
 export function FaqScreen({ onBack, ways }: FaqScreenProps) {
+  useScreenView('FAQ');
   const s = useStyles();
   return (
     <Screen title="FAQ" onBack={onBack}>
@@ -213,7 +216,10 @@ function Question({ faq }: { faq: Faq }) {
   return (
     <View style={{ gap: space.xs }}>
       <Pressable
-        onPress={() => setOpen(!open)}
+        onPress={() => {
+          analytics.tap(faq.question, { control: 'faq', open: !open });
+          setOpen(!open);
+        }}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}

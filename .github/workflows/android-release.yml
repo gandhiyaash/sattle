@@ -165,6 +165,8 @@ jobs:
           # Default to the deployed API and web app; repository variables override them.
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
           EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+          # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
+          EXPO_PUBLIC_APP_VERSION: ${{ env.NEW_VERSION }}
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}

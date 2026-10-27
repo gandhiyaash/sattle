@@ -14,22 +14,24 @@
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
  *   routes/history.ts      what has happened in a group: expenses added, changed and removed, and debts settled
  *   routes/upi.ts          a UPI ID on the account, and paying a debt over UPI
+ *   routes/analytics.ts    what the app reports of how it is used, kept for a statistics page to come
  */
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 
-import { SattleError } from '@sattle/core';
+import { ANALYTICS_HEADERS, SattleError } from '@sattle/core';
 
 import type { AppEnv, Ctx } from './context';
 import type { Db } from './db';
 import { STATUS } from './http';
-import { auth } from './middleware';
+import { auth, requestLog } from './middleware';
 import { NostrLedger } from './nostrLedger';
 import { NwcClient, type NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
 import { createRepo, type Repo } from './repo';
 import { accountRoutes } from './routes/accounts';
+import { analyticsRoutes } from './routes/analytics';
 import type { LnurlClient } from './lnurl';
 import { eventRoutes, type EventOptions } from './routes/events';
 import { groupRoutes } from './routes/groups';
@@ -84,10 +86,15 @@ export function createApp(deps: AppDeps) {
     '*',
     cors({
       origin: deps.corsOrigin ?? '*',
-      allowHeaders: ['authorization', 'content-type', 'idempotency-key'],
+      allowHeaders: ['authorization', 'content-type', 'idempotency-key', ANALYTICS_HEADERS.device, ANALYTICS_HEADERS.session],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      // The app's own headers make every request from the web one a browser asks about first.
+      // Ten minutes of the answer saves asking before each.
+      maxAge: 600,
     })
   );
+  // Before auth, so a request turned away is a row too. Who asked is read once the answer is back.
+  app.use('*', requestLog(deps.db, repo));
   app.use('*', auth(repo, deps.demoUserId));
 
   // Public, so the app knows who it can offer to pay before anyone signs in.
@@ -103,6 +110,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', ledgerRoutes(ctx));
   app.route('/', historyRoutes(ctx));
   app.route('/', upiRoutes(ctx));
+  app.route('/', analyticsRoutes(ctx));
 
   return app;
 }

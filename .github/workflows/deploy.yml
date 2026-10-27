@@ -86,6 +86,8 @@ jobs:
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
           EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
         run: |
+          # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
+          export EXPO_PUBLIC_APP_VERSION="web-$(git rev-parse --short HEAD)"
           npx expo export --platform web --output-dir dist
           tar -czf "$GITHUB_WORKSPACE/sattle-web.tgz" -C dist .
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"

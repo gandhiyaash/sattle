@@ -21,6 +21,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { isBitcoin } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import { currencyNames } from './CurrencyPicker';
@@ -34,6 +35,7 @@ export interface NewGroupScreenProps {
 }
 
 export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
+  useScreenView('New group');
   const color = useColors();
   const s = useStyles();
   const client = useClient();

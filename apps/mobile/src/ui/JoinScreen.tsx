@@ -30,6 +30,8 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SattleError, parseGroupLinkToken, type JoinAs } from '@sattle/core';
 import { clearToken, writeToken } from '../account/tokenStore';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { createAccount } from '../client/ApiClient';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
@@ -49,6 +51,7 @@ export interface JoinScreenProps {
 
 /** For someone who already has an account on this device. */
 export function JoinScreen({ token, onBack, onAsked, onJoined, onAlreadyIn }: JoinScreenProps) {
+  useScreenView('Join', { fromLink: token !== undefined });
   const client = useClient();
   // A retry after a lost response replays the join instead of finding the name taken.
   const keys = useActionKeys();
@@ -120,6 +123,7 @@ export function JoinAsNewScreen({
   /** The link is no use to them, and they have no account yet. They start the app without it. */
   onSkip: () => void;
 }) {
+  useScreenView('Join as new');
   // The account made for a join that hasn't gone through, and the name it was made under.
   // It exists to be that member. If they can't be, or they pick someone else, it is deleted,
   // so nobody ends up with an account named after a person they didn't join as.
@@ -316,7 +320,10 @@ function WhoAreYou({
               <View key={m.ref}>
                 {i > 0 && <Divider />}
                 <Pressable
-                  onPress={() => setPicked(m.ref)}
+                  onPress={() => {
+                    analytics.tap('Pick name', { control: 'radio', joined: false });
+                    setPicked(m.ref);
+                  }}
                   disabled={busy}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: on }}
@@ -347,7 +354,10 @@ function WhoAreYou({
                   <View style={s.row}>{row}</View>
                 ) : (
                   <Pressable
-                    onPress={() => setPicked(m.ref)}
+                    onPress={() => {
+                      analytics.tap('Pick name', { control: 'radio', joined: true });
+                      setPicked(m.ref);
+                    }}
                     disabled={busy}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: on }}
@@ -365,7 +375,10 @@ function WhoAreYou({
           })}
           {listed > 0 && <Divider />}
           <Pressable
-            onPress={() => setPicked(NEW)}
+            onPress={() => {
+              analytics.tap('Add myself', { control: 'radio' });
+              setPicked(NEW);
+            }}
             disabled={busy}
             accessibilityRole="radio"
             accessibilityState={{ selected: adding }}

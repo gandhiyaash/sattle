@@ -34,6 +34,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatAmount, isBitcoin, type Debt, type Member, type PayWays } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
 import { refusesLinks } from '../upi/upiApps';
@@ -61,6 +62,8 @@ export function SettleUpSheet({
   const color = useColors();
   const s = useStyles();
   const flow = useSettleFlow(debt, members, groupName, currency);
+  // Each step of paying is its own showing, so where people stop is in the record.
+  useScreenView('Settle up', { groupId: debt.groupId, step: flow.step });
   const [draft, setDraft] = useState('');
   // The reference the payer may type in for a UPI payment they say went through.
   const [reference, setReference] = useState('');

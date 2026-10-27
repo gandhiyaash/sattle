@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { computeBalances, formatFiat, groupDebts } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import type { ReadBack } from '../ledger/readBack';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Screen, SectionLabel } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -23,6 +24,7 @@ export interface RestoreScreenProps {
 }
 
 export function RestoreScreen({ onBack, initialKey }: RestoreScreenProps) {
+  useScreenView('Restore', { fromGroup: initialKey !== undefined });
   const color = useColors();
   const s = useStyles();
   const [key, setKey] = useState(initialKey ?? '');

@@ -6,6 +6,7 @@ import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-c
 import { SattleError, parseSharedLink } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
+import { startReporting } from './src/analytics/analytics';
 import type { SattleClient } from './src/client/SattleClient';
 import { useCurrenciesRead } from './src/prefs/useCurrencyPrefs';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
@@ -114,6 +115,8 @@ function Root() {
   }, []);
   // Android only: Play downloads a new version in the background. See updates/updater.ts.
   useEffect(watchForUpdates, []);
+  // What happens in the app, reported to the server for the record. See analytics/analytics.ts.
+  useEffect(startReporting, []);
   if (token) {
     // Nothing but the one payment: no navigator, no demo bar, no app state.
     return (

@@ -46,6 +46,7 @@ import {
   type GuestSettlement,
   type GuestView,
 } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CopyInvoice } from './InvoicePanel';
 import { openAppLink } from './openLink';
@@ -72,6 +73,7 @@ type Load =
   | { kind: 'failed'; error: SattleError };
 
 export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps) {
+  useScreenView('Pay page', { fromGroup });
   return (
     <FromGroup.Provider value={fromGroup}>
       <GuestPay token={token} />

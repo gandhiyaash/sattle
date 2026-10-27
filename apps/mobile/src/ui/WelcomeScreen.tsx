@@ -16,6 +16,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { NOSTR_AUTH_PATHS, SattleError } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { createAccount, signInWithNostr } from '../client/ApiClient';
 import { parseSignInKey } from '../account/signInKey';
 import { writeToken } from '../account/tokenStore';
@@ -31,6 +32,7 @@ export interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
+  useScreenView('Welcome');
   const [signingIn, setSigningIn] = useState<'key' | 'nostr' | null>(null);
   if (signingIn === 'key') return <SignInWithKey onReady={onReady} onBack={() => setSigningIn(null)} />;
   if (signingIn === 'nostr') return <SignInWithNostr onReady={onReady} onBack={() => setSigningIn(null)} />;

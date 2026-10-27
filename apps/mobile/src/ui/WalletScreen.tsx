@@ -29,6 +29,7 @@ import {
   type UpiProfile,
   type WalletConnection,
 } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
@@ -54,6 +55,7 @@ export interface WalletScreenProps {
 }
 
 export function WalletScreen({ onBack, onOpenFaq }: WalletScreenProps) {
+  useScreenView('Wallet');
   const s = useStyles();
   const client = useClient();
   const wallet = useWallet();

@@ -22,6 +22,8 @@ import {
   type GroupLink,
   type UpiOnGroupLink,
 } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
@@ -68,6 +70,7 @@ interface Settings {
 }
 
 export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: GroupSettingsScreenProps) {
+  useScreenView('Manage group', { groupId });
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
@@ -386,7 +389,10 @@ function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJo
           </View>
           <Switch
             value={on}
-            onValueChange={change}
+            onValueChange={(next) => {
+              analytics.tap('Approve who joins', { control: 'switch', on: next });
+              void change(next);
+            }}
             disabled={busy}
             accessibilityLabel="Approve who joins"
             trackColor={{ false: color.lineStrong, true: color.accent }}
@@ -438,14 +444,18 @@ function LedgerBackupSection({
     if (Platform.OS === 'web') {
       try {
         await navigator.clipboard.writeText(data.uri);
+        analytics.action('share backup key', { outcome: 'copied' });
         setNote('Copied. It unlocks this group’s history, so only give it to people in the group.');
       } catch {
+        analytics.action('share backup key', { outcome: 'blocked' });
         setNote('Copy the key below by hand:');
       }
       return;
     }
     const r = await Share.share({ message: data.uri }).catch(() => null);
-    setNote(r?.action === Share.sharedAction ? 'Saved. Keep it somewhere only you can read.' : 'Here’s the key:');
+    const sent = r?.action === Share.sharedAction;
+    analytics.action('share backup key', { outcome: sent ? 'sent' : 'not-sent' });
+    setNote(sent ? 'Saved. Keep it somewhere only you can read.' : 'Here’s the key:');
   };
 
   return (
