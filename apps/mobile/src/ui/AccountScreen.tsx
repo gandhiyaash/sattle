@@ -49,7 +49,7 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
   return (
     <Screen title="Account" onBack={onBack}>
       {loading && <Loading lines={1} />}
-      {error && <ErrorState message={error.message} onRetry={reload} />}
+      {error && <ErrorState message={error.message} error={error} onRetry={reload} />}
 
       {data && (
         <Card style={{ gap: space.xs }}>

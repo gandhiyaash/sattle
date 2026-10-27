@@ -178,7 +178,7 @@ export function SettleUpSheet({
           onPay={flow.payWith ?? undefined}
           onOpened={flow.leftForUpi}
         />
-        {flow.error && <ErrorState message={flow.error.message} />}
+        {flow.error && <ErrorState message={flow.error.message} error={flow.error} />}
 
         {flow.recordUpiSuccess ? (
           <Button label="Try again" variant="primary" busy={flow.busy} onPress={flow.recordUpiSuccess} />
@@ -391,6 +391,7 @@ export function SettleUpSheet({
           <>
             <Button
               label={reminder ? `Remind ${recipient.displayName} again` : `Remind ${recipient.displayName}`}
+              track={reminder ? 'Remind them again' : 'Remind them'}
               variant={first === 'remind' ? 'primary' : 'secondary'}
               hint={flow.ways.lightning ? 'Sends them a note to set up receiving.' : 'Sends them a note to add their UPI ID.'}
               onPress={sendReminder}
@@ -403,6 +404,7 @@ export function SettleUpSheet({
           <>
             <Button
               label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
+              track={invite.kind === 'sent' ? 'Invite them again' : 'Invite them'}
               variant={first === 'invite' ? 'primary' : 'secondary'}
               hint="They see the group and can get paid here from then on."
               busy={invite.kind === 'busy'}
@@ -444,6 +446,8 @@ export function SettleUpSheet({
         <Button
           key={option.rail}
           label={option.label}
+          // That one's label is the address itself.
+          track={option.rail === 'lightning_address' ? 'Pay their Lightning address' : undefined}
           // A greyed-out button says why, not what it would have done.
           hint={option.availability.available ? option.detail : (option.availability.reason ?? option.detail)}
           variant={option.rank === 1 ? 'primary' : 'secondary'}
@@ -453,7 +457,7 @@ export function SettleUpSheet({
         />
       ))}
 
-      {flow.error && <ErrorState message={flow.error.message} />}
+      {flow.error && <ErrorState message={flow.error.message} error={flow.error} />}
     </View>
   );
 }

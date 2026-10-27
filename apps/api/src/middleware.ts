@@ -4,7 +4,7 @@ import { matchedRoutes } from 'hono/route';
 import { ANALYTICS_HEADERS, ANALYTICS_LIMITS, SattleError, type User } from '@sattle/core';
 
 import type { AppEnv } from './context';
-import type { Db } from './db';
+import { transaction, type Db } from './db';
 import { newId, nowIso, type Repo } from './repo';
 
 /**
@@ -83,6 +83,22 @@ export function idempotency(db: Db): MiddlewareHandler<AppEnv> {
   };
 }
 
+/** How long a request row is kept. */
+export const REQUEST_LOG_DAYS = 30;
+
+/**
+ * Drops request rows older than REQUEST_LOG_DAYS; server.ts runs it on start
+ * and daily. A screen that keeps itself current (a group, every 4 s while
+ * it shows) asks about 900 times an hour, so without this the request log
+ * would outgrow everything else on the disk. What the app reports of itself
+ * stays: there is far less of it, and it's what a statistics page counts.
+ * Returns how many went.
+ */
+export function pruneRequestLog(db: Db, now = Date.now()): number {
+  const before = new Date(now - REQUEST_LOG_DAYS * 86_400_000).toISOString();
+  return Number(db.prepare(`DELETE FROM analytics_events WHERE kind = 'request' AND occurred_at < ?`).run(before).changes);
+}
+
 /** A path under a link: the next segment is the link's token, which is all anyone needs to see the group or pay. */
 const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
 
@@ -98,6 +114,10 @@ const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
  * app is still them. The device and session come from the headers the app
  * sends, so a guest's requests join their screens and taps.
  *
+ * A request that matched no route is `GET (no route)`, with the path it asked
+ * for, cut short, in props. The API is on the open internet, and every path
+ * a scanner tries would otherwise be a name of its own.
+ *
  * A link's token is never kept: it's left out of the params, and out of the
  * path of a request that matched no route. Holding one is all it takes to
  * see a group or pay a debt, and the people reading this table later needn't
@@ -109,6 +129,13 @@ const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
  * thrown, so by the time next() is back the answer is on the context. Writing
  * the row can't fail the request: that would make a broken table cost people
  * their payments.
+ *
+ * Rows are written once the answer has gone, at the end of the event loop's
+ * turn, all those waiting in one commit: one fsync for however many requests
+ * finished meanwhile, not one each before answering. A crash loses the few
+ * still waiting, which this table can spare. (PRAGMA synchronous = NORMAL
+ * would make each commit cheap too, but for every table, and a power cut
+ * could then lose a payment the server had already recorded.)
  */
 export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
   const insert = db.prepare(
@@ -126,6 +153,18 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
     if (user) return user.id;
     const bearer = c.req.header('authorization');
     return (bearer?.startsWith('Bearer ') && repo.userByToken(bearer.slice(7))?.id) || null;
+  };
+  let waiting: (string | null)[][] = [];
+  const write = () => {
+    const rows = waiting;
+    waiting = [];
+    try {
+      transaction(db, () => {
+        for (const row of rows) insert.run(...row);
+      });
+    } catch (e) {
+      console.error('request log:', e);
+    }
   };
 
   return async (c, next) => {
@@ -145,12 +184,14 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
           status: c.res.status,
           ms: Date.now() - started,
           ...(Object.keys(params).length > 0 && { params }),
+          ...(!route && { path: c.req.path.replace(LINK_PATH, '/$1/:token').slice(0, ANALYTICS_LIMITS.text) }),
         };
-        const name = `${c.req.method} ${route ?? c.req.path.replace(LINK_PATH, '/$1/:token')}`;
-        insert.run(
+        const name = `${c.req.method} ${route ?? '(no route)'}`;
+        const row = [
           newId('r'), who(c), header(c, ANALYTICS_HEADERS.device),
-          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, nowIso()
-        );
+          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, nowIso(),
+        ];
+        if (waiting.push(row) === 1) setImmediate(write);
       } catch (e) {
         console.error('request log:', e);
       }

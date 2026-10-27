@@ -72,7 +72,7 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
   if (error || !data) {
     return (
       <Screen title="History" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group’s history.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Could not load this group’s history.'} error={error} onRetry={reload} />
       </Screen>
     );
   }

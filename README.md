@@ -438,7 +438,9 @@ The app queues events and posts them every few seconds, sooner when enough has p
 
 A link's token never goes in the table. Request rows leave it out of the params, and out of the path of a request that matched no route, since holding one is all it takes to see a group or pay. Nor does an invoice or a UPI ID: opening a wallet or a UPI app records only which kind it was.
 
-A session is one launch of the app, or one return to it after half an hour away. The install's id is made once and kept beside the account token, so what a guest did before making an account is theirs afterwards; it identifies nothing but that copy of the app. The `props` column is JSON; a page wanting a value out of it can use SQLite's `json_extract`. Nothing prunes the table yet.
+A session is one launch of the app, or one return to it after half an hour away. The install's id is made once and kept beside the account token, so what a guest did before making an account is theirs afterwards; it identifies nothing but that copy of the app. The `props` column is JSON; a page wanting a value out of it can use SQLite's `json_extract`.
+
+Request rows are kept for 30 days (`REQUEST_LOG_DAYS`), and the server drops older ones on start and daily: a group left open refreshes every 4 seconds, about 900 requests an hour, and would otherwise outgrow everything else on the disk. What the app reports of itself is kept for good.
 
 ### Deploying
 

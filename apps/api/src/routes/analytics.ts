@@ -12,8 +12,9 @@
  * was lost, the app retried) is kept once. A batch over the limits in
  * ANALYTICS_LIMITS is refused whole, with 400, or 413 for its size, so a bug
  * in the app can't fill the disk. The app keeps under them itself
- * (apps/mobile/src/analytics/tracker.ts). Nothing in here is ever read back
- * by a route.
+ * (apps/mobile/src/analytics/tracker.ts). How often one address may post is
+ * nginx's to limit (apps/api/deploy/nginx.conf). Nothing in here is ever read
+ * back by a route.
  */
 
 import { Hono } from 'hono';

@@ -268,7 +268,7 @@ function WhoAreYou({
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
       <>
-        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} onRetry={retry} />
+        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} error={error} onRetry={retry} />
         <Button label={otherwise.label} onPress={otherwise.onPress} />
       </>
     );
@@ -446,6 +446,8 @@ function WhoAreYou({
                 ? `Ask to join as ${name}`
                 : 'Ask to join'
         }
+        // Only pressable once there's a name.
+        track={returning ? 'Ask to be them again' : atOnce ? 'Join as them' : 'Ask to join as them'}
         variant="primary"
         busy={busy}
         disabled={!name}

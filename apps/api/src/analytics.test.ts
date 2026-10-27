@@ -9,6 +9,7 @@ import { ANALYTICS_HEADERS, ANALYTICS_LIMITS, type AnalyticsBatch, type User } f
 
 import { createApp } from './app';
 import { openDb, type Db } from './db';
+import { REQUEST_LOG_DAYS, pruneRequestLog } from './middleware';
 import { SimulatedPayments } from './payments';
 
 let db: Db;
@@ -54,6 +55,11 @@ type Row = {
 /** In the order they were written. */
 const rows = (kind?: string) =>
   db.prepare(`SELECT * FROM analytics_events ${kind ? `WHERE kind = '${kind}'` : ''} ORDER BY rowid`).all() as Row[];
+
+const DAY = 86_400_000;
+
+/** The request log writes at the end of the event loop's turn (see requestLog). */
+const written = () => new Promise((r) => setImmediate(r));
 
 const batch = (over: Partial<AnalyticsBatch> = {}): AnalyticsBatch => ({
   deviceId: 'dev-1',
@@ -165,6 +171,7 @@ describe('the request log', () => {
       [ANALYTICS_HEADERS.session]: 's1',
     });
 
+    await written();
     const log = rows('request');
     expect(log.map((r) => r.name)).toEqual(['POST /accounts', 'POST /groups', 'GET /groups/:id/expenses']);
     expect(log[0].user_id).toBeNull();
@@ -188,24 +195,37 @@ describe('the request log', () => {
     expect((await call('GET', '/groups/nope')).status).toBe(401);
     const riya = await signUp('Riya');
     const auth = { authorization: `Bearer ${riya.token}` };
-    // No route at all, nor for that method: logged as asked for.
+    // No route at all, nor for that method: under one name, with the path beside it.
     expect((await call('GET', '/no-such-route', undefined, auth)).status).toBe(404);
     expect((await call('GET', '/join', undefined, auth)).status).toBe(404);
     // Reached its handler, which threw.
     expect((await call('GET', '/groups/nope', undefined, auth)).status).toBe(404);
     expect((await call('POST', '/groups', { name: '' }, auth)).status).toBe(400);
 
+    await written();
     const log = rows('request');
     expect(log.map((r) => [r.name, JSON.parse(r.props!).status, r.user_id])).toEqual([
       ['GET /groups/:id', 401, null],
       ['POST /accounts', 201, null],
-      ['GET /no-such-route', 404, riya.user.id],
-      ['GET /join', 404, riya.user.id],
+      ['GET (no route)', 404, riya.user.id],
+      ['GET (no route)', 404, riya.user.id],
       ['GET /groups/:id', 404, riya.user.id],
       ['POST /groups', 400, riya.user.id],
     ]);
     expect(JSON.parse(log[0].props!)).not.toHaveProperty('params');
+    expect(JSON.parse(log[0].props!)).not.toHaveProperty('path');
+    expect(log.slice(2, 4).map((r) => JSON.parse(r.props!).path)).toEqual(['/no-such-route', '/join']);
     expect(JSON.parse(log[4].props!).params).toEqual({ id: 'nope' });
+  });
+
+  it('cuts short a path no route has, so a scanner’s can’t be long', async () => {
+    const long = `/${'x'.repeat(2000)}`;
+    // No token, as a scanner sends none: turned away by auth, and still logged.
+    expect((await call('GET', long)).status).toBe(401);
+    await written();
+    const [row] = rows('request');
+    expect(row.name).toBe('GET (no route)');
+    expect(JSON.parse(row.props!).path).toBe(long.slice(0, ANALYTICS_LIMITS.text));
   });
 
   it('never keeps a link’s token', async () => {
@@ -213,6 +233,7 @@ describe('the request log', () => {
     const auth = { authorization: `Bearer ${riya.token}` };
     const group = (await call<{ id: string }>('POST', '/groups', { name: 'Manali', memberNames: ['Kabir'] }, auth)).body;
     const link = (await call<{ token: string }>('POST', `/groups/${group.id}/link`, undefined, auth)).body.token;
+    await written();
     db.prepare('DELETE FROM analytics_events').run();
 
     expect((await call('GET', `/g/${link}`)).status).toBe(200);
@@ -220,13 +241,10 @@ describe('the request log', () => {
     expect((await call('GET', `/links/${link}/group`, undefined, auth)).status).toBe(200);
     expect((await call('GET', `/s/${link}/no-such-thing`)).status).toBe(404);
 
+    await written();
     const log = rows('request');
-    expect(log.map((r) => r.name)).toEqual([
-      'GET /g/:token',
-      'GET /join/:token',
-      'GET /links/:token/group',
-      'GET /s/:token/no-such-thing',
-    ]);
+    expect(log.map((r) => r.name)).toEqual(['GET /g/:token', 'GET /join/:token', 'GET /links/:token/group', 'GET (no route)']);
+    expect(JSON.parse(log[3].props!).path).toBe('/s/:token/no-such-thing');
     for (const r of log) expect(JSON.stringify(r)).not.toContain(link);
     // Public routes don't need an account, but one sent along is who asked.
     expect(log.map((r) => r.user_id)).toEqual([null, riya.user.id, riya.user.id, null]);
@@ -236,6 +254,19 @@ describe('the request log', () => {
     await call('GET', '/health');
     await app.request('/groups', { method: 'OPTIONS', headers: { origin: 'https://sattle.example', 'access-control-request-method': 'GET' } });
     await call('POST', '/analytics/events', batch());
+    await written();
     expect(rows('request')).toHaveLength(0);
+  });
+
+  it('drops a request row once it is REQUEST_LOG_DAYS old, and nothing the app reported', async () => {
+    await call('POST', '/analytics/events', batch());
+    await call('GET', '/groups');
+    await written();
+    const asked = Date.parse(rows('request')[0].occurred_at);
+
+    expect(pruneRequestLog(db, asked + (REQUEST_LOG_DAYS - 1) * DAY)).toBe(0);
+    expect(pruneRequestLog(db, asked + (REQUEST_LOG_DAYS + 1) * DAY)).toBe(1);
+    expect(rows('request')).toHaveLength(0);
+    expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
   });
 });

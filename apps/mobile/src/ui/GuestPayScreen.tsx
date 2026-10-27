@@ -486,7 +486,7 @@ function UpiPay({
       {loading ? (
         <ActivityIndicator color={color.accent} />
       ) : error || !payee ? (
-        <ErrorState message={error?.message ?? 'Couldn’t get the UPI details. Try again.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Couldn’t get the UPI details. Try again.'} error={error} onRetry={reload} />
       ) : (
         <>
           <UpiPanel
@@ -677,7 +677,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
       return (
         <Page>
           <Text style={s.brand}>Sattle</Text>
-          <ErrorState message={error.message} onRetry={onRetry} />
+          <ErrorState message={error.message} error={error} onRetry={onRetry} />
         </Page>
       );
   }

@@ -184,7 +184,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
       <Screen title="Sattle" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} onRetry={retry} />
+        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} error={error} onRetry={retry} />
       </Screen>
     );
   }

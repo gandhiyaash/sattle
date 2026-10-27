@@ -211,7 +211,7 @@ export function GroupDetailScreen({
   if (error || !data) {
     return (
       <Screen title="Group" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Could not load this group.'} error={error} onRetry={reload} />
       </Screen>
     );
   }

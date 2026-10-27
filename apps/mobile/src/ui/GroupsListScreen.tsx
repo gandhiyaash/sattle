@@ -142,7 +142,7 @@ export function GroupsListScreen({
         {!(data?.length === 0 && asked.data?.length) && <SectionLabel>Groups</SectionLabel>}
 
         {loading && <Loading lines={2} />}
-        {error && <ErrorState message={error.message} onRetry={reload} />}
+        {error && <ErrorState message={error.message} error={error} onRetry={reload} />}
 
         {data?.length === 0 && !asked.data?.length && (
           <EmptyState

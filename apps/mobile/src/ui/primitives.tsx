@@ -25,7 +25,7 @@ import {
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
+import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, SattleError, type Quote } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
@@ -564,14 +564,20 @@ export function Loading({ lines = 3 }: { lines?: number }) {
 
 export function ErrorState({
   message,
+  error,
   onRetry,
 }: {
   message: string;
+  /** What was thrown, when the message came from it: the record gets its code. */
+  error?: unknown;
   onRetry?: () => void;
 }) {
   const color = useColors();
-  // Each message put on screen is noted once, however many times it's drawn.
-  useEffect(() => analytics.error(message), [message]);
+  // Each message put on screen is noted once, however many times it's drawn, but never in its
+  // own words: most come from the server, and name a member or the group. Its code, or just
+  // that one showed.
+  const code = error instanceof SattleError ? error.code : 'error';
+  useEffect(() => analytics.error(code), [code, message]);
   return (
     <Card style={{ backgroundColor: color.dangerWash, borderColor: color.danger }}>
       <Text style={[type.body, { color: color.danger }]}>{message}</Text>

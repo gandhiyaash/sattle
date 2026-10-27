@@ -218,9 +218,9 @@ export class Tracker {
     this.track('action', name, props);
   }
 
-  /** An error was put on screen. */
-  error(message: string, props?: Props) {
-    this.track('error', message, props);
+  /** An error was put on screen. `code` is which; never its message, which can name people. */
+  error(code: string, props?: Props) {
+    this.track('error', code, props);
   }
 
   track(kind: AnalyticsEvent['kind'], name: string, props?: Props) {

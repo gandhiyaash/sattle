@@ -49,8 +49,12 @@ async function send(events: AnalyticsEvent[]) {
     keepalive: true,
   });
   // A 4xx would be the same next time (a refused batch, a server too old for the route), so it's
-  // dropped rather than sent forever. A 5xx or no answer at all is tried again.
-  if (res.status >= 500) throw new Error(`analytics: ${res.status}`);
+  // dropped rather than sent forever. A 5xx, no answer at all, or a 429 from nginx's limit on the
+  // route (apps/api/deploy/nginx.conf) is tried again.
+  if (res.status >= 500 || res.status === 429) throw new Error(`analytics: ${res.status}`);
+  // Dropped too, but the tracker keeps every batch under the limit, so a 413 means its BATCH_BYTES
+  // and the server's limit have come apart. Said aloud, so the loss isn't silent.
+  if (res.status === 413) console.warn(`analytics: dropped a batch of ${events.length} the server found too big`);
 }
 
 export const analytics = new Tracker({ send, disabled: isMock() });

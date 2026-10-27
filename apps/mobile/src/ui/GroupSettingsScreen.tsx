@@ -107,7 +107,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
   if (error || !data) {
     return (
       <Screen title="Manage group" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Could not load this group.'} error={error} onRetry={reload} />
       </Screen>
     );
   }
