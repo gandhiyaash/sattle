@@ -26,7 +26,7 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area
 import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
-import { makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 const LOGO = {
   light: require('../../assets/logo-light.png'),
@@ -602,7 +602,16 @@ const useStyles = makeStyles((color) => ({
 
   dialogBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
   dialogCenter: { flex: 1, justifyContent: 'center', padding: space.xl },
-  dialogCard: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.sm, ...shadow },
+  dialogCard: {
+    width: '100%',
+    maxWidth: layout.dialogWidth,
+    alignSelf: 'center',
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    padding: space.xl,
+    gap: space.sm,
+    ...shadow,
+  },
   dialogTitle: { ...type.title, color: color.ink, marginBottom: space.xs },
   btn: {
     height: 48,
