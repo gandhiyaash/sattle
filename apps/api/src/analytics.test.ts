@@ -77,17 +77,19 @@ const batch = (over: Partial<AnalyticsBatch> = {}): AnalyticsBatch => ({
 });
 
 describe('POST /analytics/events, past the day’s budget', () => {
-  /** Room for one batch() a day, not two. */
+  const one = () => Buffer.byteLength(JSON.stringify(batch()));
+  /** Room for one and a half batch() a day, in all and from the one address the tests post from. */
   const capped = () => {
-    const one = Buffer.byteLength(JSON.stringify(batch()));
     app = createApp({
       db,
       payments: (repo) =>
         new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
-      analyticsDailyBytes: Math.floor(one * 1.5),
+      analyticsDailyBytes: Math.floor(one() * 1.5),
+      analyticsAddressDailyBytes: Math.floor(one() * 1.5),
     });
   };
   const another = (prefix: string) => batch({ events: batch().events.map((e) => ({ ...e, id: `${prefix}-${e.id}` })) });
+  const from = (address: string) => ({ 'x-real-ip': address });
 
   it('takes no more once the day’s bytes are used, keeping nothing of the batch it turned away', async () => {
     capped();
@@ -102,6 +104,32 @@ describe('POST /analytics/events, past the day’s budget', () => {
     capped();
     expect((await call('POST', '/analytics/events', { ...batch(), platform: 'fridge' })).status).toBe(400);
     expect((await call('POST', '/analytics/events', batch())).status).toBe(202);
+  });
+
+  it('charges nothing for a batch sent again whose events it already has', async () => {
+    capped();
+    expect((await call('POST', '/analytics/events', batch())).status).toBe(202);
+    // The answer was lost, so the app sends the same ids again, twice.
+    for (let i = 0; i < 2; i++) {
+      const again = await call<{ accepted: number }>('POST', '/analytics/events', batch());
+      expect(again).toEqual({ status: 202, body: { accepted: 0 } });
+    }
+    // Only the first used the day: a new batch is still past the room left.
+    expect((await call('POST', '/analytics/events', another('b'))).status).toBe(429);
+  });
+
+  it('gives one address only its share, so other phones are still taken', async () => {
+    // Room for three in all; one address may use one and a half.
+    app = createApp({
+      db,
+      payments: (repo) =>
+        new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+      analyticsDailyBytes: one() * 3,
+      analyticsAddressDailyBytes: Math.floor(one() * 1.5),
+    });
+    expect((await call('POST', '/analytics/events', batch(), from('203.0.113.7'))).status).toBe(202);
+    expect((await call('POST', '/analytics/events', another('b'), from('203.0.113.7'))).status).toBe(429);
+    expect((await call('POST', '/analytics/events', another('c'), from('198.51.100.4'))).status).toBe(202);
   });
 });
 
@@ -304,5 +332,17 @@ describe('the request log', () => {
     expect(rows('request')).toHaveLength(0);
     // What an account reported stays: it's what a statistics page counts.
     expect(rows().map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('keeps what a guest did once that install has made an account', async () => {
+    // Before signing up: a guest on dev-1.
+    const before = batch().events.map((e) => ({ ...e, id: `g-${e.id}` }));
+    await call('POST', '/analytics/events', batch({ events: before }));
+    const { token } = await signUp('Riya');
+    await call('POST', '/analytics/events', batch(), { authorization: `Bearer ${token}` });
+    const arrived = Date.parse(rows().find((r) => r.id === 'g-e1')!.received_at);
+
+    pruneAnalytics(db, arrived + (GUEST_EVENT_DAYS + 1) * DAY);
+    expect(rows().filter((r) => r.kind !== 'request').map((r) => r.id)).toEqual(['g-e1', 'g-e2', 'g-e3', 'e1', 'e2', 'e3']);
   });
 });

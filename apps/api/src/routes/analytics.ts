@@ -16,8 +16,14 @@
  * nginx's to limit (apps/api/deploy/nginx.conf). Neither stops a client that
  * isn't the app posting from many addresses, and the table shares a disk with
  * every settlement, so the server also takes at most ANALYTICS_DAILY_BYTES a
- * day in all, and guest rows go after GUEST_EVENT_DAYS (pruneAnalytics in
+ * day in all, and no one address more than ANALYTICS_ADDRESS_DAILY_BYTES of
+ * it, and guest rows go after GUEST_EVENT_DAYS (pruneAnalytics in
  * middleware.ts). Nothing in here is ever read back by a route.
+ *
+ * Times here are the wall clock's, not nowIso's: nowIso only ever moves
+ * forward, a millisecond at a time when called faster than that, so that
+ * links and settlements order right. Analytics needs no such order, and
+ * calling it once per event would push it ahead of the real time.
  */
 
 import { Hono } from 'hono';
@@ -29,7 +35,6 @@ import { ANALYTICS_KINDS, ANALYTICS_LIMITS, ANALYTICS_PLATFORMS, type AnalyticsE
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { parse } from '../http';
-import { nowIso } from '../repo';
 
 const id = z.string().trim().min(1).max(ANALYTICS_LIMITS.id);
 const text = z.string().trim().min(1).max(ANALYTICS_LIMITS.text);
@@ -41,7 +46,7 @@ const props = z
 const at = z
   .string()
   .max(40)
-  .transform((s) => (Number.isFinite(Date.parse(s)) ? new Date(s).toISOString() : nowIso()));
+  .transform((s) => new Date(Number.isFinite(Date.parse(s)) ? s : Date.now()).toISOString());
 
 const EventBody = z.object({
   id,
@@ -62,17 +67,32 @@ const BatchBody = z.object({
 });
 
 /**
- * Bytes of app-reported batches the server takes in a day, over every
- * client. It bounds how fast the table can grow, not who gets the room: that
- * is nginx's per-address limit. Counted in memory, so a restart starts the
- * day again.
+ * Bytes of app-reported events the server keeps in a day, over every
+ * client. It bounds how fast the table can grow. Counted in memory, so a
+ * restart starts the day again.
  */
 export const ANALYTICS_DAILY_BYTES = 50 * 1024 * 1024;
 
-export function analyticsRoutes({ db, repo }: Ctx, { dailyBytes = ANALYTICS_DAILY_BYTES } = {}) {
+/**
+ * The most of that one address may use in a day, so a single client can't
+ * spend the day's room and leave every real phone turned away until
+ * midnight. The address is nginx's X-Real-IP (Cloudflare's visitor address,
+ * see deploy/nginx.conf); a request without it, as on a dev server, counts as
+ * one address. A whole campus behind one address is still well inside it:
+ * an event is a few hundred bytes.
+ */
+export const ANALYTICS_ADDRESS_DAILY_BYTES = 5 * 1024 * 1024;
+
+/** Thrown inside the insert to undo a batch past the day's room. */
+const FULL = Symbol('analytics: full for today');
+
+export function analyticsRoutes(
+  { db, repo }: Ctx,
+  { dailyBytes = ANALYTICS_DAILY_BYTES, addressDailyBytes = ANALYTICS_ADDRESS_DAILY_BYTES } = {}
+) {
   const r = new Hono<AppEnv>();
-  /** What has been taken today (UTC). */
-  let taken = { day: '', bytes: 0 };
+  /** What has been kept today (UTC), in all and by address. */
+  let taken = { day: '', bytes: 0, byAddress: new Map<string, number>() };
   const insert = db.prepare(
     `INSERT OR IGNORE INTO analytics_events
        (id, user_id, device_id, session_id, seq, kind, name, screen, props, platform, app_version, occurred_at, received_at)
@@ -85,7 +105,8 @@ export function analyticsRoutes({ db, repo }: Ctx, { dailyBytes = ANALYTICS_DAIL
    * account's; with none, or one the server no longer knows, they're a guest's.
    *   over the limits, or not shaped like a batch   → 400 invalid_input
    *   over ANALYTICS_LIMITS.batchBytes               → 413 invalid_input
-   *   past today's ANALYTICS_DAILY_BYTES             → 429 conflict
+   *   past today's ANALYTICS_DAILY_BYTES, or this
+   *   address's ANALYTICS_ADDRESS_DAILY_BYTES          → 429 conflict
    * The app treats a 429 like any failed send: it keeps the batch and tries
    * again later.
    */
@@ -97,28 +118,40 @@ export function analyticsRoutes({ db, repo }: Ctx, { dailyBytes = ANALYTICS_DAIL
   r.post('/analytics/events', sized, async (c) => {
     const body = await c.req.text();
     const batch = parse(BatchBody, JSON.parse(body));
-    // Only a batch that would be kept counts against the day: one refused above stores nothing.
-    const day = nowIso().slice(0, 10);
-    if (taken.day !== day) taken = { day, bytes: 0 };
+    const now = new Date().toISOString();
+    const day = now.slice(0, 10);
+    if (taken.day !== day) taken = { day, bytes: 0, byAddress: new Map() };
+    const address = c.req.header('x-real-ip') ?? '';
     const bytes = Buffer.byteLength(body);
-    if (taken.bytes + bytes > dailyBytes) {
-      return c.json({ code: 'conflict', message: 'That’s enough for today. Try again later.' }, 429);
-    }
-    taken.bytes += bytes;
+    const fromAddress = taken.byAddress.get(address) ?? 0;
     const header = c.req.header('authorization');
     const user = header?.startsWith('Bearer ') ? repo.userByToken(header.slice(7)) : undefined;
-    const received = nowIso();
-    const accepted = transaction(db, () => {
-      let n = 0;
-      for (const e of batch.events) {
-        const { changes } = insert.run(
-          e.id, user?.id ?? null, batch.deviceId, e.sessionId, e.seq, e.kind, e.name, e.screen ?? null,
-          e.props === undefined ? null : JSON.stringify(e.props), batch.platform, batch.appVersion ?? null, e.at, received
-        );
-        n += Number(changes);
-      }
-      return n;
-    });
+    const received = now;
+    // Only what is kept counts against the day: a batch sent again after a lost answer, its
+    // events already here, stores nothing and costs nothing. So the batch goes in first, and
+    // comes out again if what it added would go past the room left.
+    let kept = 0;
+    let accepted: number;
+    try {
+      accepted = transaction(db, () => {
+        let n = 0;
+        for (const e of batch.events) {
+          const { changes } = insert.run(
+            e.id, user?.id ?? null, batch.deviceId, e.sessionId, e.seq, e.kind, e.name, e.screen ?? null,
+            e.props === undefined ? null : JSON.stringify(e.props), batch.platform, batch.appVersion ?? null, e.at, received
+          );
+          n += Number(changes);
+        }
+        kept = Math.ceil((bytes * n) / batch.events.length);
+        if (taken.bytes + kept > dailyBytes || fromAddress + kept > addressDailyBytes) throw FULL;
+        return n;
+      });
+    } catch (e) {
+      if (e !== FULL) throw e;
+      return c.json({ code: 'conflict', message: 'That’s enough for today. Try again later.' }, 429);
+    }
+    taken.bytes += kept;
+    taken.byAddress.set(address, fromAddress + kept);
     return c.json({ accepted }, 202);
   });
 

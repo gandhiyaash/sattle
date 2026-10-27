@@ -94,10 +94,12 @@ export const GUEST_EVENT_DAYS = 30;
  * and daily. A screen that keeps itself current (a group, every 4 s while
  * it shows) asks about 900 times an hour, so without this the request log
  * would outgrow everything else on the disk. Guest rows are the ones anyone
- * can post, so they can't be kept for ever either. What accounts report of
- * themselves stays: there is far less of it, and it's what a statistics page
- * counts. Rows are dropped by when they arrived, since a device's clock can
- * say anything. Returns how many went.
+ * can post, so they can't be kept for ever either, except from an install
+ * that has since been signed in: what someone did before making an account
+ * is theirs afterwards. What accounts report of themselves stays: there is
+ * far less of it, and it's what a statistics page counts. Rows are dropped
+ * by when they arrived, since a device's clock can say anything. Returns
+ * how many went.
  */
 export function pruneAnalytics(db: Db, now = Date.now()): number {
   const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
@@ -105,7 +107,13 @@ export function pruneAnalytics(db: Db, now = Date.now()): number {
     .prepare(`DELETE FROM analytics_events WHERE kind = 'request' AND occurred_at < ?`)
     .run(daysAgo(REQUEST_LOG_DAYS)).changes;
   const guests = db
-    .prepare(`DELETE FROM analytics_events WHERE kind != 'request' AND user_id IS NULL AND received_at < ?`)
+    .prepare(
+      `DELETE FROM analytics_events
+       WHERE kind != 'request' AND user_id IS NULL AND received_at < ?
+         AND (device_id IS NULL OR device_id NOT IN (
+           SELECT device_id FROM analytics_events WHERE user_id IS NOT NULL AND device_id IS NOT NULL
+         ))`
+    )
     .run(daysAgo(GUEST_EVENT_DAYS)).changes;
   return Number(requests) + Number(guests);
 }
@@ -140,6 +148,11 @@ const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
  * thrown, so by the time next() is back the answer is on the context. Writing
  * the row can't fail the request: that would make a broken table cost people
  * their payments.
+ *
+ * Its times are the wall clock's, not nowIso's, which moves a millisecond
+ * ahead each time it's called faster than that, so that links and
+ * settlements order right: two calls for every request would push it ahead
+ * of the real time under load.
  *
  * Rows are written once the answer has gone, at the end of the event loop's
  * turn, all those waiting in one commit: one fsync for however many requests
@@ -181,7 +194,7 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     if (c.req.method === 'OPTIONS' || skipped(c.req.path)) return next();
     const started = Date.now();
-    const at = nowIso();
+    const at = new Date().toISOString();
     try {
       await next();
     } finally {
@@ -200,7 +213,7 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
         const name = `${c.req.method} ${route ?? '(no route)'}`;
         const row = [
           newId('r'), who(c), header(c, ANALYTICS_HEADERS.device),
-          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, nowIso(),
+          header(c, ANALYTICS_HEADERS.session), name, JSON.stringify(props), at, new Date().toISOString(),
         ];
         if (waiting.push(row) === 1) setImmediate(write);
       } catch (e) {
