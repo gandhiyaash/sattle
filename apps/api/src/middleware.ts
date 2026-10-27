@@ -163,6 +163,11 @@ const TOKENS_REMEMBERED = 1000;
 const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
 
 /**
+ * Off unless AppDeps.requestLog is set (REQUEST_LOG=true in server.ts): with
+ * it on, every route is a write to the disk the settlements are on, and a
+ * client faking the app's device header can still write a lot, so its
+ * limits want more thought before it runs in production.
+ *
  * One row in analytics_events for every request answered that names an
  * account or comes from the app (its device header), kind `request`:
  * the method and the route as registered (`POST /groups/:id/expenses`), with

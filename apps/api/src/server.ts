@@ -47,8 +47,8 @@ db.prepare(
      updated_at = ? WHERE status IN ${interrupted}`
 ).run(new Date().toISOString());
 
-// Old request rows and guest events go (pruneAnalytics), now and daily, for a server that runs for
-// weeks between deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
+// Old usage rows go (pruneAnalytics: requests and guests' after 30 days, the rest after a year), now
+// and daily, for a server that runs for weeks between deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
 const prune = () =>
   pruneAnalytics(db)
     .then((n) => {
@@ -77,6 +77,8 @@ const app = createApp({
   demoUserId: env.DEMO_USER_ID || undefined,
   lnurl,
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
+  // A row per request answered (requestLog). Off unless set: see AppDeps.requestLog.
+  requestLog: env.REQUEST_LOG === 'true',
   payments: (repo, wallets) =>
     realPayments
       ? (lightning = new LightningPayments({

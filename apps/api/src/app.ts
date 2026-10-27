@@ -62,6 +62,13 @@ export interface AppDeps {
   /** What POST /analytics/events keeps in a day, in bytes, in all and from one address; tests lower them. */
   analyticsDailyBytes?: number;
   analyticsAddressDailyBytes?: number;
+  /**
+   * Keep a row in analytics_events for each request the server answers
+   * (requestLog in middleware.ts). Off unless asked for (REQUEST_LOG=true):
+   * every route is then a write to the disk the settlements are on, and its
+   * limits aren't settled yet. What the app reports of itself is kept either way.
+   */
+  requestLog?: boolean;
 }
 
 export function createApp(deps: AppDeps) {
@@ -97,7 +104,7 @@ export function createApp(deps: AppDeps) {
     })
   );
   // Before auth, so a request turned away is a row too. Who asked is read once the answer is back.
-  app.use('*', requestLog(deps.db, repo));
+  if (deps.requestLog) app.use('*', requestLog(deps.db, repo));
   app.use('*', auth(repo, deps.demoUserId));
 
   // Public, so the app knows who it can offer to pay before anyone signs in.

@@ -78,10 +78,10 @@ export const ANALYTICS_DAILY_BYTES = 50 * 1024 * 1024;
  * spend the day's room and leave every real phone turned away until
  * midnight. The address is nginx's X-Real-IP (Cloudflare's visitor address,
  * see deploy/nginx.conf); a request without it, as on a dev server, counts as
- * one address. nginx always sets it, but the API takes it as sent, so a
- * client reaching the API's port directly could name any address it liked:
- * keep that port closed to the outside. The daily total holds either way. A whole campus behind one address is still well inside it:
- * an event is a few hundred bytes.
+ * one address. The API takes it as sent, so it trusts it only because in
+ * production it listens on 127.0.0.1, behind nginx (server.ts). A whole
+ * campus behind one address is still well inside the share: an event is a
+ * few hundred bytes.
  */
 export const ANALYTICS_ADDRESS_DAILY_BYTES = 5 * 1024 * 1024;
 

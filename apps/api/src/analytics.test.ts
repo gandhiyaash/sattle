@@ -17,10 +17,12 @@ let app: ReturnType<typeof createApp>;
 
 beforeEach(() => {
   db = openDb(':memory:');
+  // The request log is off unless asked for; these tests cover it, so they ask.
   app = createApp({
     db,
     payments: (repo) =>
       new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+    requestLog: true,
   });
 });
 
@@ -218,6 +220,18 @@ describe('POST /analytics/events', () => {
 });
 
 describe('the request log', () => {
+  it('keeps nothing unless it is turned on', async () => {
+    app = createApp({
+      db,
+      payments: (repo) =>
+        new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+    });
+    const { token } = await signUp('Riya');
+    await call('GET', '/me', undefined, { authorization: `Bearer ${token}`, [ANALYTICS_HEADERS.device]: 'dev-1' });
+    await written();
+    expect(rows('request')).toHaveLength(0);
+  });
+
   it('keeps one row per request, with the route as registered and the path as asked', async () => {
     const riya = await signUp('Riya');
     const auth = { authorization: `Bearer ${riya.token}` };

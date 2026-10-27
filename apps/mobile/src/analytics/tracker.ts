@@ -162,7 +162,7 @@ export class Tracker {
     if (this.awaySince !== null) return;
     this.awaySince = this.now();
     this.track('app', 'background');
-    void this.flush();
+    void this.flush(true);
   }
 
   /** Back in front. After long enough away, a new session, opened like the first. Nothing when it never left. */
@@ -249,18 +249,20 @@ export class Tracker {
 
   /**
    * Sends what's queued now, in as many posts as it takes, even while
-   * sending has been failing: for going to the background, when the app may
-   * not come back. One at a time: a flush during a send waits for it, and if
-   * that send failed, leaves the rest to the backoff rather than trying again
-   * at once. Never throws: what couldn't be sent is put back, oldest first,
-   * and tried again later.
+   * sending has been failing. One at a time: a flush during a send waits for
+   * it, and if that send failed, leaves the rest to the backoff rather than
+   * trying again at once, unless `leaving`: going to the background, when the
+   * app may not get another turn. Never throws: what couldn't be sent is put
+   * back, oldest first, and tried again later.
    */
-  flush(): Promise<void> {
+  flush(leaving = false): Promise<void> {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    if (this.sending) return this.sending.then(() => (this.failures > 0 ? this.schedule() : this.flush()));
+    if (this.sending) {
+      return this.sending.then(() => (this.failures > 0 && !leaving ? this.schedule() : this.flush(leaving)));
+    }
     if (this.queue.length === 0) return Promise.resolve();
     this.sending = this.drain().finally(() => {
       this.sending = null;

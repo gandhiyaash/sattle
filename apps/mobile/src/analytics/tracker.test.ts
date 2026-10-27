@@ -211,6 +211,32 @@ describe('Tracker', () => {
     expect(tries).toBe(2);
   });
 
+  it('still sends at once on going to the background, even right after a send failed', async () => {
+    let tries = 0;
+    let finish!: () => void;
+    const t = make({
+      send: (events) => {
+        tries++;
+        if (tries > 1) {
+          sent.push(events);
+          return Promise.resolve();
+        }
+        return new Promise<void>((_, reject) => {
+          finish = () => reject(new Error('offline'));
+        });
+      },
+    });
+    t.tap('One');
+    const first = t.flush();
+    // The app leaves while that send is out, and it fails: the app may not get another turn.
+    t.background();
+    finish();
+    await first;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tries).toBe(2);
+    expect(names(sent[0])).toEqual(['tap:One', 'app:background']);
+  });
+
   it('sends at once on going inactive while sending works', async () => {
     const t = make();
     t.tap('One');
