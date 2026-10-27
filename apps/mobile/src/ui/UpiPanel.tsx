@@ -72,7 +72,7 @@ export function UpiPanel({
           <View style={s.qrFrame}>
             <QrCode value={uri} size={200} />
           </View>
-          <Text style={s.hint}>Scan this with GPay, PhonePe, Paytm or any UPI app.</Text>
+          <Text style={s.hint}>Scan with any UPI app.</Text>
         </>
       )}
 
@@ -113,14 +113,14 @@ export function UpiPanel({
             ))}
           </View>
         ) : (
-          <Text style={s.hint}>No UPI app on this phone. Pay the UPI ID above from one, then mark it as paid.</Text>
+          <Text style={s.hint}>No UPI app here. Pay the UPI ID above from another phone.</Text>
         )
       ) : (
         (!web || onPhoneBrowser()) && (
           <Button label={web ? 'Open a UPI app on this phone' : 'Open UPI app'} variant={web ? 'secondary' : 'primary'} busy={busy} onPress={open} />
         )
       )}
-      {failed && <Text style={s.error}>No UPI app opened. Pay the UPI ID above from your UPI app.</Text>}
+      {failed && <Text style={s.error}>No UPI app opened. Pay the UPI ID above instead.</Text>}
     </View>
   );
 }

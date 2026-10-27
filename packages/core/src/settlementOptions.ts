@@ -114,7 +114,7 @@ export function resolveSettlementOptions({
     candidates.push({
       rail: 'in_app',
       label: 'Pay from your balance',
-      detail: `Instant, and ${name} gets it in the app.`,
+      detail: 'Instant',
       availability: walletAvailable
         ? { available: true }
         : { available: false, reason: 'The wallet needs the mobile app.' },
@@ -125,7 +125,7 @@ export function resolveSettlementOptions({
     candidates.push({
       rail: 'invoice',
       label: 'Pay with Lightning',
-      detail: 'Get an invoice in sats to pay from Phoenix, Wallet of Satoshi, or any Lightning wallet.',
+      detail: 'Any Lightning wallet',
       availability: { available: true },
     });
   }
@@ -134,7 +134,7 @@ export function resolveSettlementOptions({
     candidates.push({
       rail: 'lightning_address',
       label: `Pay ${recipient.lightningAddress}`,
-      detail: `${name} doesn't need the app to receive this.`,
+      detail: 'Straight to their wallet',
       availability: walletAvailable
         ? { available: true }
         : { available: false, reason: 'Paying an address needs the mobile wallet.' },
@@ -145,7 +145,7 @@ export function resolveSettlementOptions({
     candidates.push({
       rail: 'upi',
       label: 'Pay by UPI',
-      detail: `From GPay, PhonePe or any UPI app. ${name} confirms once it arrives.`,
+      detail: 'GPay, PhonePe or any UPI app',
       availability: { available: true },
     });
   }

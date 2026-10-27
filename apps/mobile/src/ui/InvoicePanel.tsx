@@ -43,7 +43,7 @@ export function InvoicePanel({
   return (
     <View style={s.panel}>
       <Button label="Open your wallet" variant="primary" onPress={() => openAppLink(`lightning:${invoice}`).catch(() => {})} />
-      <Text style={s.hint}>Or scan this from Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.</Text>
+      <Text style={s.hint}>Or scan with any Lightning wallet.</Text>
       <View style={s.qrFrame}>
         <QrCode value={`lightning:${invoice}`} size={qrSize} caseInsensitive />
       </View>

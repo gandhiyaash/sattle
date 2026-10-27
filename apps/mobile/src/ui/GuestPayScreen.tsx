@@ -176,7 +176,7 @@ function GuestPay({ token }: { token: string }) {
         <Text style={s.reason}>{view.reason}</Text>
         <Notice
           title={`Waiting for ${view.payeeName}`}
-          body={`Someone said this was paid by UPI. It’s settled once ${view.payeeName} confirms it arrived. You can close this.`}
+          body={`Paid by UPI. ${view.payeeName} will confirm it arrived.`}
         />
         <Footer />
       </Page>
@@ -227,12 +227,12 @@ function GuestPay({ token }: { token: string }) {
         <Button
           label="Pay by UPI"
           variant="primary"
-          hint={`From GPay, PhonePe or any UPI app. ${view.payeeName} confirms once it arrives.`}
+          hint="GPay, PhonePe or any UPI app"
           onPress={() => setByUpi(true)}
         />
         <Button
           label="Pay with Lightning"
-          hint="Get an invoice in sats to pay from any Lightning wallet."
+          hint="Any Lightning wallet"
           onPress={payWithLightning}
         />
         <Footer />
@@ -276,7 +276,6 @@ function GuestPay({ token }: { token: string }) {
           header={header}
           reason={view.reason}
           why={settlement.failureReason}
-          sats={isBitcoin(settlement.currency)}
           onRenew={retry}
           proof={proof}
           other={upiInstead}
@@ -339,7 +338,7 @@ function Invoice({
   const sats = isBitcoin(settlement.currency);
   // The server only marks it `expired` later; don't leave a dead QR up meanwhile.
   if (left === 0) {
-    return <Expired header={header} reason={reason} sats={sats} onRenew={onRenew} proof={proof} other={other} />;
+    return <Expired header={header} reason={reason} onRenew={onRenew} proof={proof} other={other} />;
   }
 
   const { destination, quote } = settlement;
@@ -357,9 +356,7 @@ function Invoice({
             variant="primary"
             onPress={() => openAppLink(`lightning:${destination}`).catch(() => {})}
           />
-          <Text style={s.hint}>
-            Works with Phoenix, Wallet of Satoshi, Zeus, Blink — any Lightning wallet.
-          </Text>
+          <Text style={s.hint}>Works with any Lightning wallet.</Text>
           <BrowserWalletPay invoice={destination} onPaid={onPaidInBrowser} />
 
           <View style={s.qrBlock}>
@@ -386,7 +383,6 @@ function Expired({
   header,
   reason,
   why,
-  sats,
   onRenew,
   proof,
   other,
@@ -395,8 +391,6 @@ function Expired({
   reason: string;
   /** The server's reason, when it couldn't tell whether this was paid. */
   why?: string;
-  /** The debt is in sats, so a new invoice is for the same amount: there's no rate to have moved. */
-  sats: boolean;
   onRenew: () => void;
   proof: React.ReactNode;
   /** Another way to pay, now that this invoice is dead. */
@@ -410,14 +404,7 @@ function Expired({
       {why ? (
         <Notice title="We can’t tell if this was paid" body={why} />
       ) : (
-        <Notice
-          title="This invoice expired"
-          body={
-            sats
-              ? 'Lightning invoices only last a few minutes. Get a new one for the same amount.'
-              : 'Lightning invoices only last a few minutes, and the sats price moves. Get a new one at today’s rate.'
-          }
-        />
+        <Notice title="This expired" body="Get a new one to pay." />
       )}
       {/* Paid already? Their proof settles it; a new invoice would mean paying twice. */}
       {proof}
@@ -492,7 +479,7 @@ function UpiPay({
             uri={upiPayUri({ upiId: payee.upiId, name: payee.name, amount: view.amount, note: view.reason })}
           />
           <Text style={s.hint}>
-            Pay {amount}, then tap below. {view.payeeName} confirms it arrived, and then it’s settled.
+            Pay {amount}, then tap I’ve paid.
           </Text>
           <Button label="I’ve paid" variant="primary" busy={saying} onPress={sayPaid} />
         </>
@@ -627,8 +614,8 @@ function Paid({ payeeName, settlement }: { payeeName: string; settlement: GuestS
       <Text style={s.title}>{onTheirWord ? 'Settled' : 'Paid'}</Text>
       <Text style={s.reason}>
         {onTheirWord
-          ? `${payeeName} has marked this settled. Nothing else to do — you can close this.`
-          : `${payeeName} has been paid. Nothing else to do — you can close this.`}
+          ? `${payeeName} marked this settled. You can close this.`
+          : `${payeeName} has been paid. You can close this.`}
       </Text>
       <View style={s.receipt}>
         <BreakdownRow label="Amount" value={formatAmount(settlement.amount, settlement.currency)} numeric />
@@ -668,8 +655,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
           <Text style={s.brand}>Sattle</Text>
           <Text style={s.title}>Nothing to pay</Text>
           <Text style={s.reason}>
-            This has already been settled, or the amount changed since the link was sent. Nothing else to do — you
-            can close this.
+            You can close this.
           </Text>
         </Page>
       );
@@ -746,8 +732,8 @@ function Footer() {
   return (
     <Text style={s.footer}>
       {fromGroup
-        ? 'No account needed. Pay from any Lightning wallet.'
-        : 'No account needed. This link only shows this one payment — not the group.'}
+        ? 'No account needed.'
+        : 'No account needed. Only this payment is shown, not the group.'}
     </Text>
   );
 }
