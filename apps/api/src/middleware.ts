@@ -118,6 +118,10 @@ export function pruneAnalytics(db: Db, now = Date.now()): number {
   return Number(requests) + Number(guests);
 }
 
+/** How long requestLog remembers which account a token on a public route named, and for how many tokens at most. */
+const TOKEN_MEMORY_MS = 60_000;
+const TOKENS_REMEMBERED = 1000;
+
 /** A path under a link: the next segment is the link's token, which is all anyone needs to see the group or pay. */
 const LINK_PATH = /^\/(s|g|join|links)\/[^/]+/;
 
@@ -172,11 +176,25 @@ export function requestLog(db: Db, repo: Repo): MiddlewareHandler<AppEnv> {
     return v && v.length <= ANALYTICS_LIMITS.id ? v : null;
   };
   const skipped = (path: string) => path === '/health' || path.startsWith('/analytics/');
+  // On a public route auth doesn't look the token up, so this does. A screen kept current asks
+  // every few seconds with the same token, so what it named is remembered for a minute rather
+  // than read from users each time. A token replaced or an account deleted in that minute is
+  // still named in a row or two of the log, which is all this is for.
+  const named = new Map<string, { id: string | null; until: number }>();
   const who = (c: Parameters<MiddlewareHandler<AppEnv>>[0]) => {
     const user = c.get('user');
     if (user) return user.id;
     const bearer = c.req.header('authorization');
-    return (bearer?.startsWith('Bearer ') && repo.userByToken(bearer.slice(7))?.id) || null;
+    if (!bearer?.startsWith('Bearer ')) return null;
+    const token = bearer.slice(7);
+    const now = Date.now();
+    const known = named.get(token);
+    if (known && known.until > now) return known.id;
+    // Made-up tokens are remembered too, so the map is kept small rather than grown by them.
+    if (named.size >= TOKENS_REMEMBERED) named.clear();
+    const id = repo.userByToken(token)?.id ?? null;
+    named.set(token, { id, until: now + TOKEN_MEMORY_MS });
+    return id;
   };
   let waiting: (string | null)[][] = [];
   const write = () => {

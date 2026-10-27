@@ -183,6 +183,41 @@ describe('Tracker', () => {
     expect(names(sent[sent.length - 1])).toEqual(['tap:After']);
   });
 
+  it('leaves a retry to the backoff when asked to send during a failing send, or by iOS going inactive', async () => {
+    let tries = 0;
+    let finish!: () => void;
+    const t = make({
+      send: () => {
+        tries++;
+        return new Promise<void>((_, reject) => {
+          finish = () => reject(new Error('offline'));
+        });
+      },
+    });
+    t.tap('One');
+    const first = t.flush();
+    // Asked again while that send is out, and it fails: no second try straight after.
+    const again = t.flush();
+    finish();
+    await first;
+    await again;
+    expect(tries).toBe(1);
+    // iOS's shade, pulled while the server is down: still the backoff's call.
+    await t.flushIfWorking();
+    expect(tries).toBe(1);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(tries).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tries).toBe(2);
+  });
+
+  it('sends at once on going inactive while sending works', async () => {
+    const t = make();
+    t.tap('One');
+    await t.flushIfWorking();
+    expect(names(sent[0])).toEqual(['tap:One']);
+  });
+
   it('drops the oldest once too much is waiting', async () => {
     const t = make();
     fail = true;

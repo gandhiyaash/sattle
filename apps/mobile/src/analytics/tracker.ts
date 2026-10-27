@@ -248,16 +248,19 @@ export class Tracker {
   }
 
   /**
-   * Sends what's queued, in as many posts as it takes. One at a time: a
-   * flush during a send waits for it. Never throws: what couldn't be sent is
-   * put back, oldest first, and tried again later.
+   * Sends what's queued now, in as many posts as it takes, even while
+   * sending has been failing: for going to the background, when the app may
+   * not come back. One at a time: a flush during a send waits for it, and if
+   * that send failed, leaves the rest to the backoff rather than trying again
+   * at once. Never throws: what couldn't be sent is put back, oldest first,
+   * and tried again later.
    */
   flush(): Promise<void> {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    if (this.sending) return this.sending.then(() => this.flush());
+    if (this.sending) return this.sending.then(() => (this.failures > 0 ? this.schedule() : this.flush()));
     if (this.queue.length === 0) return Promise.resolve();
     this.sending = this.drain().finally(() => {
       this.sending = null;
@@ -265,6 +268,18 @@ export class Tracker {
       this.schedule();
     });
     return this.sending;
+  }
+
+  /**
+   * Sends what's queued now while sending works, and otherwise leaves it to
+   * the backoff. For moments that may or may not be a leaving, like iOS's
+   * notification shade or app switcher: pulled down again and again while the
+   * server is down, each would otherwise be another try at once.
+   */
+  flushIfWorking(): Promise<void> {
+    if (this.failures === 0) return this.flush();
+    this.schedule();
+    return Promise.resolve();
   }
 
   /** Batch after batch, until the queue is empty or a send fails. */

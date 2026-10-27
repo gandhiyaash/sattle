@@ -76,8 +76,9 @@ export function startReporting(): () => void {
     if (state === 'active') analytics.foreground();
     else if (state === 'background') analytics.background();
     // iOS only: the notification shade, a call, or the app switcher, where swiping the app away
-    // ends it with no background first. Nothing to record, but what's queued goes now.
-    else if (state === 'inactive') void analytics.flush();
+    // ends it with no background first. Nothing to record, but what's queued goes now, unless
+    // sending has been failing: then the backoff decides, or each pull of the shade is a try.
+    else if (state === 'inactive') void analytics.flushIfWorking();
   });
   return () => sub.remove();
 }
