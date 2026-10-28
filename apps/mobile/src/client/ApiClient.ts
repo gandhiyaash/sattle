@@ -12,6 +12,7 @@ import {
   NOSTR_AUTH_PATHS,
   SattleError,
   TERMINAL_STATUSES,
+  type ConversionRate,
   type CreateGroupInput,
   type CreatePayLinkInput,
   type CreateSettlementInput,
@@ -158,6 +159,9 @@ export class ApiClient implements SattleClient {
   }
   addExpense(input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
     return this.request<Expense>('POST', `/groups/${input.groupId}/expenses`, input, idempotencyKey);
+  }
+  getConversionRate(from: string, to: string) {
+    return this.request<ConversionRate>('GET', `/rates/convert?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
   }
   getDebts(groupId: string) {
     return this.request<Debt[]>('GET', `/groups/${groupId}/debts`);

@@ -5,6 +5,7 @@ import type { NostrLedger } from './nostrLedger';
 import type { LnurlClient } from './lnurl';
 import type { NwcApi } from './nwc';
 import type { PaymentBackend } from './payments';
+import type { RateService } from './rates';
 import type { Repo } from './repo';
 import type { WalletStore } from './walletStore';
 
@@ -28,4 +29,6 @@ export interface Ctx {
   nwc: (uri: string) => NwcApi;
   /** Checks a receive address answers before it's saved. Absent when payments are simulated. */
   lnurl?: Pick<LnurlClient, 'payParams'>;
+  /** Prices of a bitcoin, for converting an expense paid in another currency. Absent: none can be. */
+  rates?: RateService;
 }

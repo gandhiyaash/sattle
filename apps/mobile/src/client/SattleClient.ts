@@ -12,6 +12,7 @@
  */
 
 import type {
+  ConversionRate,
   CreateGroupInput,
   CreatePayLinkInput,
   CreateSettlementInput,
@@ -58,6 +59,8 @@ export interface SattleClient {
 
   getExpenses(groupId: string): Promise<Expense[]>;
   addExpense(input: ExpenseInput, idempotencyKey?: string): Promise<Expense>;
+  /** What one `from` (a dollar, a baht) is worth in the smallest unit of `to`, the group's currency, now. */
+  getConversionRate(from: string, to: string): Promise<ConversionRate>;
 
   /** What is owed, simplified or not as the group chose (groupDebts), counting only confirmed settlements. */
   getDebts(groupId: string): Promise<Debt[]>;

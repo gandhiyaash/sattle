@@ -42,6 +42,7 @@ import {
   canReceive,
   computeBalances,
   formatAmount,
+  formatFiat,
   groupDebts,
   isBitcoin,
   payLinkPath,
@@ -92,8 +93,11 @@ export interface GroupDetailScreenProps {
   tab: GroupTab;
   onTab: (tab: GroupTab) => void;
   onBack: () => void;
-  /** `userId` is who is signed in, who a new expense starts as paid by. */
-  onAddExpense: (members: Member[], currency: string, userId: string) => void;
+  /**
+   * `userId` is who is signed in, who a new expense starts as paid by. `lastCurrency` is what the
+   * newest expense was paid in, when not the group's currency: a new one starts there.
+   */
+  onAddExpense: (members: Member[], currency: string, userId: string, lastCurrency?: string) => void;
   /** Opens an expense to change or delete it. `userId` is who is signed in. */
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
@@ -284,7 +288,13 @@ export function GroupDetailScreen({
           // Not the accent: on this tab that is for paying.
           <Button label="History" onPress={onHistory} />
         ) : (
-          <Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency, data.userId)} />
+          <Button
+            label="Add expense"
+            variant="primary"
+            onPress={() =>
+              onAddExpense(data.members, data.currency, data.userId, data.expenses[0]?.original?.currency)
+            }
+          />
         )
       }
     >
@@ -375,7 +385,13 @@ export function GroupDetailScreen({
                       {nameOf(expense.paidByMemberId)} paid · {splitSummary(expense, nameOf)}
                     </Text>
                   </View>
-                  <Amount minor={expense.amount} currency={data.currency} size="md" />
+                  <View style={s.expenseAmount}>
+                    <Amount minor={expense.amount} currency={data.currency} size="md" />
+                    {/* What the receipt says, under what it came to here. */}
+                    {expense.original && (
+                      <Text style={s.expenseMeta}>{formatFiat(expense.original.amount, expense.original.currency)}</Text>
+                    )}
+                  </View>
                 </Pressable>
               </View>
             ))}
@@ -1102,4 +1118,5 @@ const useStyles = makeStyles((color) => ({
   },
   expenseName: { ...type.body, fontWeight: '500', color: color.ink },
   expenseMeta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
+  expenseAmount: { alignItems: 'flex-end' },
 }));

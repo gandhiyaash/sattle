@@ -64,6 +64,7 @@ const app = createApp({
   ledger,
   demoUserId: env.DEMO_USER_ID || undefined,
   lnurl,
+  rates,
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
   payments: (repo, wallets) =>
     realPayments

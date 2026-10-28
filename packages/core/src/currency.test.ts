@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { amountAsTyped, formatAmount, formatFiat, formatSats, isSupportedCurrency, parseAmount } from './currency';
+import {
+  amountAsTyped,
+  conversionRate,
+  convertForeign,
+  currencySymbol,
+  foreignCurrenciesFor,
+  formatAmount,
+  formatFiat,
+  formatConversion,
+  formatSats,
+  isSupportedCurrency,
+  parseAmount,
+} from './currency';
 
 describe('formatFiat', () => {
   it('formats rupees in Indian grouping', () => {
@@ -69,5 +81,51 @@ describe('isSupportedCurrency', () => {
     expect(isSupportedCurrency('BTC')).toBe(true);
     expect(isSupportedCurrency('USD')).toBe(false);
     expect(isSupportedCurrency(undefined)).toBe(false);
+  });
+});
+
+describe('spending in another currency', () => {
+  it('prices a dollar in paise through what each pays for a bitcoin', () => {
+    // ₹88,00,000 and $1,00,000 a bitcoin: a dollar is ₹88.
+    expect(conversionRate('USD', 100_000, 'INR', 8_800_000)).toBe(8_800);
+  });
+
+  it('prices a dollar in sats for a group kept in bitcoin, with no second price', () => {
+    expect(conversionRate('USD', 100_000, 'BTC')).toBe(1_000);
+  });
+
+  it('refuses a price it cannot use rather than make one up', () => {
+    expect(() => conversionRate('USD', 0, 'INR', 8_800_000)).toThrow();
+    expect(() => conversionRate('USD', 100_000, 'INR')).toThrow();
+  });
+
+  it('converts what was paid into the group’s smallest unit', () => {
+    // $12.50 at ₹88 a dollar is ₹1,100.
+    expect(convertForeign({ currency: 'USD', amount: 1_250, rate: 8_800 })).toBe(110_000);
+    // Yen are typed whole: ¥1,500 at 59 paise a yen.
+    expect(convertForeign({ currency: 'JPY', amount: 1_500, rate: 59 })).toBe(88_500);
+  });
+
+  it('types and shows yen whole, and baht with satang', () => {
+    expect(parseAmount('1500', 'JPY')).toBe(1_500);
+    expect(parseAmount('12.5', 'THB')).toBe(1_250);
+    expect(formatFiat(1_500, 'JPY')).toBe('¥1,500');
+  });
+
+  it('says what a rate is in words people check against a receipt', () => {
+    expect(formatConversion('USD', 8_812, 'INR')).toBe('1 USD = ₹88.12');
+    expect(formatConversion('USD', 1_123, 'BTC')).toBe('1 USD = 1,123 sats');
+  });
+
+  it('gives each currency the sign on its receipts', () => {
+    expect(currencySymbol('INR')).toBe('₹');
+    expect(currencySymbol('USD')).toBe('$');
+    expect(currencySymbol('THB')).toBe('฿');
+    expect(currencySymbol('BTC')).toBe('sats');
+  });
+
+  it('never offers the group’s own currency as a foreign one', () => {
+    expect(foreignCurrenciesFor('INR')).not.toContain('INR');
+    expect(foreignCurrenciesFor('BTC')).toContain('INR');
   });
 });

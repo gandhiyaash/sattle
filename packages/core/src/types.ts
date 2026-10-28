@@ -85,6 +85,20 @@ export interface ExpensePartInput {
   amount?: number;
 }
 
+/**
+ * What was actually paid, when it was paid in a currency other than the group's: on a trip,
+ * the bill in baht. The expense's own amount is this converted (convertForeign), and that is
+ * what everyone owes; the original is kept so people can check it against the receipt.
+ */
+export interface ForeignAmount {
+  /** Three-letter code, one of TRIP_CURRENCIES. */
+  currency: string;
+  /** Smallest units of `currency`: cents, or whole yen. */
+  amount: number;
+  /** What one whole unit of `currency` was worth in the group's smallest unit, when it was added. */
+  rate: number;
+}
+
 export interface ExpenseInput {
   groupId: string;
   description: string;
@@ -93,6 +107,8 @@ export interface ExpenseInput {
   paidByMemberId: string;
   splitMode: SplitMode;
   parts: ExpensePartInput[];
+  /** Paid in another currency: `amount` is then convertForeign(original). */
+  original?: ForeignAmount;
 }
 
 export interface ResolvedPart {
@@ -112,6 +128,18 @@ export interface Expense {
   createdAt: string;
   /** Who put it in, which needn't be who paid. Absent for one added before that was kept. */
   addedByMemberId?: string;
+  /** Paid in another currency. Absent for one paid in the group's own. */
+  original?: ForeignAmount;
+}
+
+/** What a whole unit of one currency is worth in another's smallest unit, now (conversionRate). */
+export interface ConversionRate {
+  from: string;
+  to: string;
+  rate: number;
+  /** Where the prices came from, e.g. "CoinGecko". Absent for a made-up one. */
+  provider?: string;
+  fetchedAt?: string;
 }
 
 export interface Balance {

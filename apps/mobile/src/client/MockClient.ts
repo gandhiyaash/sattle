@@ -16,6 +16,9 @@ import {
   buildQuote,
   canChangeExpense,
   canReceive,
+  conversionRate,
+  foreignAmountProblem,
+  isBitcoin,
   groupDebts,
   isInProgress,
   fixtures,
@@ -27,6 +30,7 @@ import {
   settledOutsideLink,
   toGuestSettlement,
   toGuestSettlementFromElsewhere,
+  type ConversionRate,
   type CreateGroupInput,
   type CreatePayLinkInput,
   type CreateSettlementInput,
@@ -73,6 +77,27 @@ export interface MockClientOptions {
   /** INR per BTC used for quotes. */
   rateFiatPerBtc?: number;
 }
+
+/**
+ * The demo's price of a bitcoin in each trip currency besides rupees, which the options set.
+ * Made up, near enough to real prices that a converted bill looks right.
+ */
+const MOCK_BTC_PRICES: Record<string, number> = {
+  USD: 105_000,
+  EUR: 97_000,
+  GBP: 83_000,
+  AED: 385_000,
+  SGD: 140_000,
+  THB: 3_500_000,
+  MYR: 470_000,
+  IDR: 1_700_000_000,
+  VND: 2_750_000_000,
+  JPY: 16_000_000,
+  LKR: 32_000_000,
+  NPR: 14_400_000,
+  AUD: 160_000,
+  CAD: 145_000,
+};
 
 /** An encrypted ledger entry on nos.lol, published by sattle.axiosiiitl.dev. */
 const DEMO_LEDGER_EVENT =
@@ -360,6 +385,23 @@ export class MockClient implements SattleClient {
     });
   }
 
+  /** Made-up prices of a bitcoin, near enough to real ones that the demo's conversions look right. */
+  getConversionRate(from: string, to: string) {
+    return this.call(() => {
+      const price = (code: string) => (code === 'INR' ? this.opts.rateFiatPerBtc : MOCK_BTC_PRICES[code]);
+      const fromPrice = price(from);
+      if (!fromPrice) throw new SattleError('network', `Couldn’t get a rate for ${from} right now.`);
+      const rate: ConversionRate = {
+        from,
+        to,
+        rate: conversionRate(from, fromPrice, to, isBitcoin(to) ? undefined : price(to)),
+        provider: 'Demo prices',
+        fetchedAt: this.now(),
+      };
+      return rate;
+    });
+  }
+
   // -- writes ---------------------------------------------------------------
 
   addExpense(input: ExpenseInput, idempotencyKey?: string) {
@@ -369,6 +411,8 @@ export class MockClient implements SattleClient {
         (id) => !g.memberIds.includes(id)
       );
       if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
+      const foreign = foreignAmountProblem(input.amount, input.original, g.currency);
+      if (foreign) throw new SattleError('invalid_expense', foreign);
 
       const expense: Expense = {
         id: this.id('e'),
@@ -1164,14 +1208,19 @@ export class MockClient implements SattleClient {
         (id) => !g.memberIds.includes(id)
       );
       if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
+      const foreign = foreignAmountProblem(input.amount, input.original, g.currency);
+      if (foreign) throw new SattleError('invalid_expense', foreign);
       const current = this.findExpense(g.id, expenseId);
       this.checkExpenseOwner(current);
       const before = { ...current };
-      const next = { ...current, ...input, parts: resolveParts(input, g.currency) };
+      // Changed back to the group's own currency, it no longer has an original.
+      const { original: _was, ...kept } = current;
+      const next: Expense = { ...kept, ...input, parts: resolveParts(input, g.currency) };
       // Saved as it already stood: that isn't a change, so nothing is noted.
       if (sameExpense(before, next)) return current;
       this.noteChange(g.id, { expenseId, before, after: next });
-      return Object.assign(current, next);
+      this.expenses = this.expenses.map((e) => (e === current ? next : e));
+      return next;
     }, idempotencyKey);
   }
 

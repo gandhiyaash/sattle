@@ -1,7 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, parseLightningAddress, resolveParts, sameExpense, type Expense, type Group } from '@sattle/core';
+import {
+  SattleError,
+  foreignAmountProblem,
+  parseLightningAddress,
+  resolveParts,
+  sameExpense,
+  type Expense,
+  type Group,
+} from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -27,6 +35,14 @@ const ExpenseBody = z.object({
       })
     )
     .min(1),
+  // Paid in another currency: what was paid, and the rate the app converted it at.
+  original: z
+    .object({
+      currency: z.string(),
+      amount: minor,
+      rate: z.number().positive().finite(),
+    })
+    .optional(),
 });
 
 export const CreateGroupBody = z.object({
@@ -191,6 +207,8 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
       (id) => !g.memberIds.includes(id)
     );
     if (bad) throw new SattleError('invalid_expense', 'Someone in that split isn’t in this group.');
+    const foreign = foreignAmountProblem(body.amount, body.original, g.currency);
+    if (foreign) throw new SattleError('invalid_expense', foreign);
     return { ...body, groupId: g.id };
   };
 
@@ -229,7 +247,9 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const expense = transaction(db, () => {
       const current = findExpense(g, c.req.param('expenseId'));
       checkExpenseOwner(repo, current, user.id);
-      const next = { ...current, ...input, parts: resolveParts(input, g.currency) };
+      // Changed back to the group's own currency, it no longer has an original.
+      const { original: _was, ...kept } = current;
+      const next: Expense = { ...kept, ...input, parts: resolveParts(input, g.currency) };
       if (sameExpense(current, next)) return current;
       return repo.updateExpense(next, current, repo.memberForUser(g.id, user.id)!.id);
     });

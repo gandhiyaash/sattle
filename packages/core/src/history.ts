@@ -80,6 +80,9 @@ export function sameExpense(a: Expense, b: Expense): boolean {
     a.paidByMemberId === b.paidByMemberId &&
     a.splitMode === b.splitMode &&
     a.parts.length === b.parts.length &&
-    a.parts.every((p, i) => p.memberId === b.parts[i].memberId && p.amount === b.parts[i].amount)
+    a.parts.every((p, i) => p.memberId === b.parts[i].memberId && p.amount === b.parts[i].amount) &&
+    a.original?.currency === b.original?.currency &&
+    a.original?.amount === b.original?.amount &&
+    a.original?.rate === b.original?.rate
   );
 }

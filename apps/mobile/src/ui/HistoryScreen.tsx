@@ -22,6 +22,8 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-na
 
 import {
   formatAmount,
+  formatConversion,
+  formatFiat,
   formatRate,
   formatSats,
   isBitcoin,
@@ -364,6 +366,12 @@ function ExpenseDetail({ entry, by, nameOf, currency }: { entry: ExpenseEntry; b
       {expense && (
         <View style={s.amountBlock}>
           <Text style={[s.amount, entry.kind === 'expense_removed' && s.amountGone]}>{money(expense.amount)}</Text>
+          {expense.original && (
+            <Text style={s.amountOriginal}>
+              Paid {formatFiat(expense.original.amount, expense.original.currency)} at{' '}
+              {formatConversion(expense.original.currency, expense.original.rate, currency)}
+            </Text>
+          )}
         </View>
       )}
       <View style={s.rows}>
@@ -419,6 +427,7 @@ const useStyles = makeStyles((color) => ({
   title: { ...type.title, color: color.ink, marginBottom: space.xs },
   amountBlock: { alignItems: 'center', marginBottom: space.md },
   amount: { ...type.amountLg, color: color.ink },
+  amountOriginal: { ...type.caption, color: color.inkMuted, marginTop: space.xs },
   amountGone: { color: color.inkFaint, textDecorationLine: 'line-through' },
   rows: {
     backgroundColor: color.surfaceSunken,

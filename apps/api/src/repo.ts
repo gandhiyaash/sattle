@@ -65,6 +65,7 @@ const toExpense = (r: Row): Expense => ({
   parts: JSON.parse(r.parts as string),
   createdAt: r.created_at as string,
   addedByMemberId: opt(r.added_by_member_id),
+  ...(r.original ? { original: JSON.parse(r.original as string) } : {}),
 });
 
 const toExpenseChange = (r: Row): ExpenseChange => ({
@@ -212,12 +213,13 @@ export function createRepo(db: Db) {
     expensesOfGroup: db.prepare('SELECT * FROM expenses WHERE group_id = ? ORDER BY created_at'),
     insertExpense: db.prepare(
       `INSERT INTO expenses (id, group_id, description, amount, paid_by_member_id, split_mode, parts, created_at,
-                             added_by_member_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                             added_by_member_id, original)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     expenseById: db.prepare('SELECT * FROM expenses WHERE id = ?'),
     updateExpense: db.prepare(
-      'UPDATE expenses SET description = ?, amount = ?, paid_by_member_id = ?, split_mode = ?, parts = ? WHERE id = ?'
+      `UPDATE expenses SET description = ?, amount = ?, paid_by_member_id = ?, split_mode = ?, parts = ?, original = ?
+       WHERE id = ?`
     ),
     deleteExpense: db.prepare('DELETE FROM expenses WHERE id = ?'),
     insertExpenseChange: db.prepare(
@@ -518,7 +520,7 @@ export function createRepo(db: Db) {
     insertExpense(e: Expense) {
       q.insertExpense.run(
         e.id, e.groupId, e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.createdAt,
-        e.addedByMemberId ?? null
+        e.addedByMemberId ?? null, e.original ? JSON.stringify(e.original) : null
       );
       return e;
     },
@@ -532,7 +534,10 @@ export function createRepo(db: Db) {
      * group's history.
      */
     updateExpense(e: Expense, before: Expense, byMemberId: string) {
-      q.updateExpense.run(e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts), e.id);
+      q.updateExpense.run(
+        e.description, e.amount, e.paidByMemberId, e.splitMode, JSON.stringify(e.parts),
+        e.original ? JSON.stringify(e.original) : null, e.id
+      );
       q.insertExpenseChange.run(e.groupId, e.id, JSON.stringify(e), JSON.stringify(before), byMemberId, nowIso());
       return e;
     },

@@ -14,6 +14,7 @@
  *   routes/ledger.ts       the group's backup key for its ledger on Nostr
  *   routes/history.ts      what has happened in a group: expenses added, changed and removed, and debts settled
  *   routes/upi.ts          a UPI ID on the account, and paying a debt over UPI
+ *   routes/rates.ts        what a currency is worth in a group's, for an expense paid in it
  */
 
 import { Hono } from 'hono';
@@ -38,6 +39,8 @@ import { historyRoutes } from './routes/history';
 import { joinRoutes } from './routes/joining';
 import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
+import { rateRoutes } from './routes/rates';
+import type { RateService } from './rates';
 import { settlementRoutes } from './routes/settlements';
 import { upiRoutes } from './routes/upi';
 import { walletRoutes } from './routes/wallet';
@@ -57,6 +60,8 @@ export interface AppDeps {
   /** Acts as this user when no bearer token is sent. Dev only — unset in production. */
   demoUserId?: string;
   corsOrigin?: string | string[];
+  /** Prices for converting an expense paid in another currency. Without it, none can be. */
+  rates?: RateService;
 }
 
 export function createApp(deps: AppDeps) {
@@ -64,7 +69,7 @@ export function createApp(deps: AppDeps) {
   const wallets = createWalletStore(deps.db);
   const nwc = deps.nwc ?? ((uri: string) => new NwcClient(uri));
   const ledger = deps.ledger ?? new NostrLedger({ db: deps.db, relays: [] });
-  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, lnurl: deps.lnurl, payments: deps.payments(repo, wallets) };
+  const ctx: Ctx = { db: deps.db, repo, wallets, nwc, ledger, lnurl: deps.lnurl, rates: deps.rates, payments: deps.payments(repo, wallets) };
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {
@@ -103,6 +108,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', ledgerRoutes(ctx));
   app.route('/', historyRoutes(ctx));
   app.route('/', upiRoutes(ctx));
+  app.route('/', rateRoutes(ctx));
 
   return app;
 }
