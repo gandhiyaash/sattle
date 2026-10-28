@@ -35,6 +35,22 @@ on:
           - '3'
           - '4'
           - '5'
+  # publish.yml runs this with the same inputs, then deploys the server.
+  workflow_call:
+    inputs:
+      bump_type:
+        type: string
+        required: true
+      track:
+        type: string
+        required: true
+      update_priority:
+        type: string
+        required: true
+    outputs:
+      started_at:
+        description: 'When the build started, in seconds since 1970'
+        value: ${{ jobs.release.outputs.started_at }}
 
 # Two runs bumping the version at once would race for the same tag.
 concurrency:
@@ -47,8 +63,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      # publish.yml times the server deploy from this.
+      started_at: ${{ steps.start.outputs.at }}
 
     steps:
+      - name: Note the Start Time
+        id: start
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -80,7 +103,7 @@ jobs:
         env:
           USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
           API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
-          TRACK: ${{ github.event.inputs.track }}
+          TRACK: ${{ inputs.track }}
         run: |
           # Both of these build fine and only show up once someone opens the app.
           if [ "$USE_MOCK" = "true" ] && [ "$TRACK" = "production" ]; then
@@ -94,7 +117,7 @@ jobs:
 
       - name: Determine Version
         env:
-          BUMP_TYPE: ${{ github.event.inputs.bump_type }}
+          BUMP_TYPE: ${{ inputs.bump_type }}
           REF: ${{ github.ref_name }}
         run: |
           set -e
@@ -123,7 +146,13 @@ jobs:
             exit 1
           fi
           echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
-          echo "Building v$NEW_VERSION (latest tag: ${LAST:-none})"
+          # Play takes an upload only if its version code is above every earlier one. The
+          # run number won't do: each workflow counts its own from 1, and publish.yml builds
+          # releases too. Minutes since 1970 rise whichever workflow builds, and stay under
+          # Play's cap of 2100000000 for thousands of years.
+          VERSION_CODE=$(( $(date +%s) / 60 ))
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "Building v$NEW_VERSION, version code $VERSION_CODE (latest tag: ${LAST:-none})"
 
       - name: Install Dependencies
         run: npm ci
@@ -172,7 +201,7 @@ jobs:
           set -e
           chmod +x ./gradlew
           ./gradlew assembleRelease bundleRelease \
-            -PSATTLE_VERSION_CODE="${{ github.run_number }}" \
+            -PSATTLE_VERSION_CODE="$VERSION_CODE" \
             -PSATTLE_VERSION_NAME="$NEW_VERSION" \
             -PSATTLE_UPLOAD_STORE_FILE=sattle-release.keystore \
             -PSATTLE_UPLOAD_STORE_PASSWORD="$STORE_PASSWORD" \
@@ -248,7 +277,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_CREDENTIALS }}
           packageName: com.chanakya.sattle
           releaseFiles: apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
-          track: ${{ github.event.inputs.track }}
+          track: ${{ inputs.track }}
           # Read by the app's updater (apps/mobile/src/updates/updater.ts) on installed copies.
-          inAppUpdatePriority: ${{ github.event.inputs.update_priority }}
+          inAppUpdatePriority: ${{ inputs.update_priority }}
           status: completed
