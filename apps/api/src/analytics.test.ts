@@ -11,6 +11,7 @@ import { createApp } from './app';
 import { openDb, type Db } from './db';
 import { ACCOUNT_EVENT_DAYS, GUEST_EVENT_DAYS, REQUEST_LOG_DAYS, pruneAnalytics } from './middleware';
 import { SimulatedPayments } from './payments';
+import { sharer } from './routes/analytics';
 
 let db: Db;
 let app: ReturnType<typeof createApp>;
@@ -132,6 +133,36 @@ describe('POST /analytics/events, past the day’s budget', () => {
     expect((await call('POST', '/analytics/events', batch(), from('203.0.113.7'))).status).toBe(202);
     expect((await call('POST', '/analytics/events', another('b'), from('203.0.113.7'))).status).toBe(429);
     expect((await call('POST', '/analytics/events', another('c'), from('198.51.100.4'))).status).toBe(202);
+  });
+
+  it('gives an IPv6 /64 one share, however many of its addresses post', async () => {
+    app = createApp({
+      db,
+      payments: (repo) =>
+        new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 1, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+      analyticsDailyBytes: one() * 3,
+      analyticsAddressDailyBytes: Math.floor(one() * 1.5),
+    });
+    expect((await call('POST', '/analytics/events', batch(), from('2001:db8:1:2::a'))).status).toBe(202);
+    expect((await call('POST', '/analytics/events', another('b'), from('2001:db8:1:2:ffff::b'))).status).toBe(429);
+    expect((await call('POST', '/analytics/events', another('c'), from('2001:db8:1:3::a'))).status).toBe(202);
+  });
+});
+
+describe('sharer', () => {
+  it('takes an IPv6 address to its /64, however it is written', () => {
+    for (const a of ['2001:db8:0:2::1', '2001:0DB8:0000:0002:aaaa:bbbb:cccc:dddd', '2001:db8:0:2:1:2:192.0.2.1', '2001:db8:0:2::1%eth0']) {
+      expect(sharer(a)).toBe('2001:db8:0:2::/64');
+    }
+    expect(sharer('::1')).toBe('0:0:0:0::/64');
+    expect(sharer('2001:db8::')).toBe('2001:db8:0:0::/64');
+  });
+
+  it('keeps an IPv4 address, mapped or not, and anything else, as it is', () => {
+    expect(sharer('203.0.113.7')).toBe('203.0.113.7');
+    expect(sharer('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    expect(sharer('')).toBe('');
+    expect(sharer('not an address')).toBe('not an address');
   });
 });
 

@@ -26,6 +26,8 @@
  * calling it once per event would push it ahead of the real time.
  */
 
+import { isIPv6 } from 'node:net';
+
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -78,12 +80,37 @@ export const ANALYTICS_DAILY_BYTES = 50 * 1024 * 1024;
  * spend the day's room and leave every real phone turned away until
  * midnight. The address is nginx's X-Real-IP (Cloudflare's visitor address,
  * see deploy/nginx.conf); a request without it, as on a dev server, counts as
- * one address. The API takes it as sent, so it trusts it only because in
- * production it listens on 127.0.0.1, behind nginx (server.ts). A whole
- * campus behind one address is still well inside the share: an event is a
- * few hundred bytes.
+ * one address, and an IPv6 one counts as its /64 (see sharer). The API takes
+ * it as sent, so it trusts it only because in production it listens on
+ * 127.0.0.1, behind nginx (server.ts). A whole campus behind one address is
+ * still well inside the share: an event is a few hundred bytes.
  */
 export const ANALYTICS_ADDRESS_DAILY_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Whose share of the day a request comes out of. An IPv6 client has a whole
+ * /64 to itself and can take a new address in it whenever it likes, so each
+ * address getting its own share would let it spend the day for everyone; the
+ * share is the /64's instead. An IPv4 address, IPv4 mapped into IPv6 included,
+ * is its own. Anything else, like no address at all, is taken as it is.
+ */
+export function sharer(address: string): string {
+  const ip = address.split('%')[0];
+  if (!isIPv6(ip)) return address;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return mapped[1];
+  // An IPv4 tail, as in 64:ff9b::192.0.2.1, is the last two groups.
+  const hex = ip.replace(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/, (_, a, b, c, d) =>
+    `${((+a << 8) | +b).toString(16)}:${((+c << 8) | +d).toString(16)}`
+  );
+  const [head, tail] = hex.split('::');
+  const groups = (s: string) => (s ? s.split(':') : []);
+  const full =
+    tail === undefined
+      ? groups(head)
+      : [...groups(head), ...Array<string>(8 - groups(head).length - groups(tail).length).fill('0'), ...groups(tail)];
+  return `${full.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(':')}::/64`;
+}
 
 /** Thrown inside the insert to undo a batch past the day's room. */
 const FULL = Symbol('analytics: full for today');
@@ -123,7 +150,7 @@ export function analyticsRoutes(
     const now = new Date().toISOString();
     const day = now.slice(0, 10);
     if (taken.day !== day) taken = { day, bytes: 0, byAddress: new Map() };
-    const address = c.req.header('x-real-ip') ?? '';
+    const address = sharer(c.req.header('x-real-ip') ?? '');
     const bytes = Buffer.byteLength(body);
     const fromAddress = taken.byAddress.get(address) ?? 0;
     const header = c.req.header('authorization');

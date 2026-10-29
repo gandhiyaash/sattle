@@ -18,6 +18,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { NOSTR_AUTH_PATHS, type User } from '@sattle/core';
 import { signInKey } from '../account/signInKey';
 import { readToken, writeToken } from '../account/tokenStore';
+import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { chooseCurrencies, useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
@@ -92,6 +93,9 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
               label="Delete my account"
               confirmLabel="Yes, delete my account"
               onConfirm={async () => {
+                // What's queued, this screen and these taps, goes under the account while it's live,
+                // so deleting it deletes them too. Never throws.
+                await analytics.flush();
                 await client.deleteAccount();
                 onDeleted();
               }}
