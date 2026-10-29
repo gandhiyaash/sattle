@@ -217,6 +217,8 @@ export function createRepo(db: Db) {
     removeAccountsOf: db.prepare('DELETE FROM member_accounts WHERE member_id = ?'),
     nextAccount: db.prepare('SELECT user_id FROM member_accounts WHERE member_id = ? ORDER BY joined_at, rowid LIMIT 1'),
     setFirstAccount: db.prepare('UPDATE members SET claimed_by_user_id = ? WHERE id = ?'),
+    // A member's pay links belong to its first account (see the pay-link route), so they go to the next one.
+    handPayLinks: db.prepare('UPDATE pay_links SET created_by_user_id = ? WHERE to_member_id = ? AND created_by_user_id = ?'),
     setLinked: db.prepare(`UPDATE members SET status = 'nwc_linked' WHERE id = ?`),
     // nwc_linked while one of the accounts that are this member has a wallet connected.
     refreshLinked: db.prepare(
@@ -505,7 +507,8 @@ export function createRepo(db: Db) {
     /**
      * Takes this account off the member. With other accounts still on it, the
      * member stays joined: the oldest of them becomes the first if this one
-     * was, and it is nwc_linked only while one of them has a wallet. With
+     * was, with the member's pay links, so they outlive this account, and it
+     * is nwc_linked only while one of them has a wallet. With
      * none, it is a ghost again (unclaimMember).
      */
     removeAccount(id: string, userId: string) {
@@ -518,6 +521,7 @@ export function createRepo(db: Db) {
         if (!next) return repo.unclaimMember(id);
         q.removeAccount.run(id, next);
         q.setFirstAccount.run(next, id);
+        q.handPayLinks.run(next, id, userId);
       }
       q.refreshLinked.run(id);
     },

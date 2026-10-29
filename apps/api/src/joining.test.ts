@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupLink, JoinView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
+import type {
+  Expense, Group, GroupGuestView, GroupLink, GuestView, JoinView, JoinRequest, Member, PendingJoin, User,
+} from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -850,6 +852,19 @@ describe('joining from another device', () => {
     expect((await t.call('DELETE', '/me', undefined, t.laptop.token)).status).toBe(200);
     expect(await kabirOf(t)).toMatchObject({ claimedByUserId: t.phone.user.id });
     expect((await kabirOf(t)).alsoHeldBy).toBeUndefined();
+  });
+
+  it('keeps the pay links made for him working once the first device has left and its account has gone', async () => {
+    const t = await twoDevices();
+    const toKabir = (await t.call<GroupGuestView>('GET', `/g/${t.token}`)).body.debts.find((d) => d.to === 'Kabir')!;
+    const made = await t.call<{ token: string }>('POST', `/g/${t.token}/debts/${toKabir.ref}/pay-link`);
+    expect(made.status).toBe(201);
+
+    expect((await t.call('POST', `${t.base}/leave`, undefined, t.phone.token)).status).toBe(200);
+    expect((await t.call('DELETE', '/me', undefined, t.phone.token)).status).toBe(200);
+    const opened = await t.call<GuestView>('POST', `/s/${made.body.token}/open`);
+    expect(opened.status).toBe(200);
+    expect(opened.body).toMatchObject({ payerName: 'Aman', payeeName: 'Kabir' });
   });
 
   it('takes only itself out when the second device leaves', async () => {
