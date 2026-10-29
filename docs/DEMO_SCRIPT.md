@@ -23,7 +23,7 @@ The story judges should take away, in order:
 - [ ] **Paying wallet** on your phone with about 5,000 sats: Phoenix, Wallet of Satoshi, Blink, or similar.
 
 **Screens**
-- [ ] Browser A (you, Yash): https://sattle.axiosiiitl.dev in a clean profile, so it's a fresh account.
+- [ ] Browser A (you, Yash): https://sattle.tech in a clean profile, so it's a fresh account.
 - [ ] Phone (Om, the guest): nothing installed, just the camera or wallet app to scan the QR.
 - [ ] If you show the Android app at all, it's v0.1.8 or later. v0.1.7 can't join a group or open Manage against the current server.
 - [ ] A terminal with the repo, font size 18+, prompt cleared.

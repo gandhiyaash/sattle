@@ -98,7 +98,7 @@ Nostr (nostr-tools), Nostr Wallet Connect (NIP-47), NIP-44 and NIP-04 encryption
 
 ## Links
 
-- Live app: https://sattle.axiosiiitl.dev
+- Live app: https://sattle.tech
 - Source: https://github.com/gandhiyaash/sattle
 - Android APK: https://github.com/gandhiyaash/sattle/releases/latest
 - Demo video: https://github.com/gandhiyaash/sattle/blob/main/docs/demo/sattle-demo.mp4 (1:43, narrated and captioned. It was recorded on a local server, so the payment in it is simulated; the live app takes real Lightning payments.)

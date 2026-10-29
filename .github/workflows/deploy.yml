@@ -10,9 +10,9 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
-# Both jobs ship the same commit to the same VM: the API to battle.axiosiiitl.dev and
-# the web app to sattle.axiosiiitl.dev. They don't depend on each other, so they run
-# side by side and one failing doesn't stop the other.
+# Both jobs ship the same commit to the same VM: the API, and the web app built for the
+# addresses in the EXPO_PUBLIC_* repository variables (or secrets). They don't depend on each other, so
+# they run side by side and one failing doesn't stop the other.
 jobs:
   api:
     # Only main is deployed. The api job would only fetch main, and the web job would
@@ -65,6 +65,25 @@ jobs:
           # The commit the api job deploys.
           ref: ${{ github.sha }}
 
+      - name: Check app config
+        env:
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
+        run: |
+          # The two addresses are repository variables, or secrets of the same name: nothing in
+          # this file names a host. First, so a run without them stops before the minutes of setup.
+          for pair in "EXPO_PUBLIC_API_URL=$API_URL" "EXPO_PUBLIC_APP_URL=$APP_URL"; do
+            name="${pair%%=*}"; value="${pair#*=}"
+            if [ -z "$value" ]; then
+              echo "::error::Set $name as a repository variable (or secret)"
+              exit 1
+            fi
+            if [[ ! "$value" =~ ^https://[^/]+$ ]]; then
+              echo "::error::$name must be https://<host>, with no path and no trailing slash"
+              exit 1
+            fi
+          done
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -75,16 +94,18 @@ jobs:
       - name: Build the web app
         working-directory: ./apps/mobile
         env:
-          # Inlined into the bundle at build time.
+          # Inlined into the bundle at build time. The two addresses were checked above.
           EXPO_PUBLIC_USE_MOCK: 'false'
-          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
-          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
         run: |
           # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
           export EXPO_PUBLIC_APP_VERSION="web-$(git rev-parse --short HEAD)"
           npx expo export --platform web --output-dir dist
           tar -czf "$GITHUB_WORKSPACE/sattle-web.tgz" -C dist .
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          # For the check at the end: the address the build was made for.
+          echo "APP_URL=$EXPO_PUBLIC_APP_URL" >> "$GITHUB_ENV"
 
       - name: Upload the build
         uses: appleboy/scp-action@v1
@@ -101,7 +122,7 @@ jobs:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          envs: SHA
+          envs: SHA,APP_URL
           script: |
             set -e
             R=/var/www/sattle-web
@@ -123,4 +144,5 @@ jobs:
             mv -Tf "$R/current.tmp" "$R/current"
             # Keep the five newest builds for a quick manual rollback.
             ls -1t "$R/releases" | tail -n +6 | xargs -r -I{} rm -rf "$R/releases/{}"
-            curl -fsS -m 5 -o /dev/null --resolve sattle.axiosiiitl.dev:443:127.0.0.1 https://sattle.axiosiiitl.dev/s/check
+            # The new build answers on the host the app was built for, asked of this machine directly.
+            curl -fsS -m 5 -o /dev/null --resolve "${APP_URL#https://}:443:127.0.0.1" "$APP_URL/s/check"

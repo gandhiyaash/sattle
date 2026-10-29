@@ -13,7 +13,7 @@
  * ANALYTICS_LIMITS is refused whole, with 400, or 413 for its size, so a bug
  * in the app can't fill the disk. The app keeps under them itself
  * (apps/mobile/src/analytics/tracker.ts). How often one address may post is
- * nginx's to limit (apps/api/deploy/nginx.conf). Neither stops a client that
+ * nginx's to limit (the API's site on the VM, /etc/nginx/sites-available/battle). Neither stops a client that
  * isn't the app posting from many addresses, and the table shares a disk with
  * every settlement, so the server also takes at most ANALYTICS_DAILY_BYTES a
  * day in all, and no one address more than ANALYTICS_ADDRESS_DAILY_BYTES of
@@ -79,7 +79,8 @@ export const ANALYTICS_DAILY_BYTES = 50 * 1024 * 1024;
  * The most of that one address may use in a day, so a single client can't
  * spend the day's room and leave every real phone turned away until
  * midnight. The address is nginx's X-Real-IP (Cloudflare's visitor address,
- * see deploy/nginx.conf); a request without it, as on a dev server, counts as
+ * which the API's nginx site on the VM takes from CF-Connecting-IP); a request
+ * without it, as on a dev server, counts as
  * one address, and an IPv6 one counts as its /64 (see sharer). The API takes
  * it as sent, so it trusts it only because in production it listens on
  * 127.0.0.1, behind nginx (server.ts). A whole campus behind one address is

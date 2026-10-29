@@ -2,7 +2,7 @@
 
 Split expenses with friends and settle up over Bitcoin Lightning or UPI. Nobody else needs to install anything.
 
-Try it at [sattle.axiosiiitl.dev](https://sattle.axiosiiitl.dev). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
+Try it at [sattle.tech](https://sattle.tech). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
 
 Watch the [1:43 demo video](docs/demo/sattle-demo.mp4): one person with the app, a friend paying from a plain browser, and the group rebuilt from Nostr. It was recorded on a local server, so the payment in it is simulated.
 
@@ -465,23 +465,23 @@ The route is public and the table shares a disk with every settlement, so beside
 
 Both halves run on one Oracle VM behind nginx:
 
-- **API** at `https://battle.axiosiiitl.dev`: the `sattle` systemd unit on port 3100. Site config in `apps/api/deploy/nginx.conf`.
-- **Web app** at `https://sattle.axiosiiitl.dev`: static files from `expo export --platform web`, served from `/var/www/sattle-web/current`. Every path falls back to `index.html`, so pay links (`/s/<token>`) open the guest page. Site config in `apps/mobile/deploy/nginx.conf`.
+- **API** at `https://api.sattle.tech`: the `sattle` systemd unit on port 3100, from `apps/api/deploy/sattle.service`. Its nginx site is `/etc/nginx/sites-available/battle` on the VM, not in git (`apps/*/deploy/nginx.conf` is ignored, for a local copy). It also answers as `battle.axiosiiitl.dev`, its address before the move, which the installs from then have baked in.
+- **Web app** at `https://sattle.tech`: static files from `expo export --platform web`, served from `/var/www/sattle-web/current`, and also as `sattle.axiosiiitl.dev` for the links shared before the move. Its nginx site is `/etc/nginx/sites-available/sattle` on the VM, not in git. Every path falls back to `index.html`, so pay links (`/s/<token>`) open the guest page.
 
 `.github/workflows/deploy.yml` deploys both, in two parallel jobs. Merging to `main` doesn't run it. [Publishing a release](#publishing-a-release) does, and so does running it by hand from the Actions tab, which ships a server fix without a new app. It deploys the commit the run started on, and only from `main`: on any other branch both jobs are skipped.
 
 - `api` SSHes in, fast-forwards to that commit, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails. If a later deploy already went past the commit, the fast-forward leaves it where it is.
 - `web` builds the web app in Actions against the API above, uploads it to `releases/<sha>` on the VM and repoints the `current` symlink, unless the live build already includes the commit. The five newest builds stay there; to roll back, point `current` at an older one.
 
-It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
+It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` are the two addresses the web and Android builds bake in, each `https://<host>` with no path, read from repository variables, or from secrets of the same name. Variables suit them better: the addresses are public, a secret is masked wherever it appears in a log, and a pull request from a fork gets no secrets at all. No workflow names a host; every build checks for both first and stops without them.
 
-The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `PAYMENTS=nwc` so settling up moves real money. The server refuses to start when `NODE_ENV=production`, which the systemd unit sets, if `SEED` or `DEMO_USER_ID` is set, and names the one to remove. Without `PAYMENTS=nwc` it starts but logs a warning, since settling up would move balances and no money. A public demo server that should simulate payments sets `ALLOW_SIMULATED_PAYMENTS=true` to say so. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
+The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `PAYMENTS=nwc` so settling up moves real money. The server refuses to start when `NODE_ENV=production`, which the systemd unit sets, if `SEED` or `DEMO_USER_ID` is set, and names the one to remove. Without `PAYMENTS=nwc` it starts but logs a warning, since settling up would move balances and no money. A public demo server that should simulate payments sets `ALLOW_SIMULATED_PAYMENTS=true` to say so. Set `CORS_ORIGIN=https://sattle.tech,https://sattle.axiosiiitl.dev` so only the web app, at either of its addresses, can call the API from a browser. The deploy jobs don't install the systemd units or the nginx sites. After changing the unit, `sudo cp apps/api/deploy/sattle.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart sattle` on the VM; after changing a site, copy it into `/etc/nginx/sites-available/` and `sudo nginx -t && sudo systemctl reload nginx`. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves; each covers the new name and the old one, and the command that made it is noted at the top of its site file on the VM. Cloudflare fronts `sattle.tech` and `api.sattle.tech` with its SSL/TLS mode on Full (strict), so it checks the origin's certificate too.
 
 ### Backups
 
 The whole database is one SQLite file, `apps/api/data/sattle.db`. `npm run db:backup -w @sattle/api` copies it into `apps/api/data/backups/` with `VACUUM INTO`, which gives a consistent copy while the server keeps running and writing. Copies are named `sattle-<time>-<kind>[-<note>].db`, and each kind keeps its newest few: 14 `daily`, 20 `deploy`, 10 `manual`. A server with no database yet has nothing to copy, and that isn't an error.
 
-Daily copies come from a systemd timer, which is installed once on the VM:
+Daily copies come from a systemd timer, `apps/api/deploy/sattle-backup.{service,timer}`, installed once on the VM:
 
 ```sh
 sudo cp apps/api/deploy/sattle-backup.{service,timer} /etc/systemd/system/
@@ -545,7 +545,7 @@ The run then does the whole release:
 
 `just android-release` builds the same signed APK and AAB on your own machine, into `dist-android/`, without bumping, tagging or uploading anything; `scripts/android-release.sh` lists its inputs.
 
-Every pull request gets a release build too, from the `android-build` workflow, so a change that breaks the release shows up before anything is tagged. It needs no secrets: the APK is signed with the debug key and kept on the run for 7 days as `sattle-pr-<number>.apk`. That APK installs on a phone, but not over a copy from Play.
+Every pull request gets a release build too, from the `android-build` workflow, so a change that breaks the release shows up before anything is tagged. It needs no secrets, only the two `EXPO_PUBLIC_*` addresses: the APK is signed with the debug key and kept on the run for 7 days as `sattle-pr-<number>.apk`. That APK installs on a phone, but not over a copy from Play.
 
 Send a release to `internal` first and install it from Play on a phone. Once it's checked, promote it to `production` in the Play Console, which ships the same file. An urgent fix is the exception: run the release straight to `production` with the priority set, because the priority is fixed at upload.
 
@@ -555,6 +555,7 @@ What it needs from the repository:
 | --- | --- | --- |
 | Secrets | `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | Signing. The run stops at the start without all four, rather than ship a build signed with the debug key. |
 | Secret | `PLAY_STORE_CREDENTIALS` | The Play upload: a service account's JSON key. Without it the run ends at the GitHub release. |
+| Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The API and the web app the build talks to and links to, each `https://<host>`. Every build checks for them first and stops without them. Variables, not secrets: the addresses are public, a secret is masked in every log line, and a fork's pull request gets no secrets. |
 | Variable | `EXPO_PUBLIC_USE_MOCK` | Leave unset. The run refuses to send a mock build to `production`. |
 
 ### Android updates
