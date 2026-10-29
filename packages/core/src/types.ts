@@ -389,17 +389,18 @@ export interface GuestView {
 // The group's link (GroupLink) is also how someone joins: they open
 // /join/<token> with the same token, pick which of the group's people they
 // are, or add themselves, and are in. Someone who has joined can be picked
-// too: whoever picks them joins as them on this device, alongside the ones
-// they already have. A group that has turned on approving joins
-// (Group.approveJoins) makes that a request instead, which someone already
-// in the group has to say yes to.
+// too: whoever picks them asks, and once someone in the group says yes, their
+// own other device included, is them on this device, alongside the ones they
+// already have. A group that has turned on approving joins
+// (Group.approveJoins) makes every pick a request, which someone already in
+// the group has to say yes to.
 
 /** Someone the join page offers to join as. */
 export interface JoinMember {
   /** What the page sends back to join as this person. Opaque, and only good with this link. */
   ref: string;
   name: string;
-  /** Someone has joined as them already. Picking them joins as them here too, alongside that device. */
+  /** Someone has joined as them already. Picking them asks (`askToJoin`) to be them here too, alongside that device. */
   joined?: true;
 }
 
@@ -409,7 +410,7 @@ export type JoinAs = { ref: string } | { displayName: string };
 /** Only what the join page may show before someone joins. Names, no ids. */
 export interface JoinView {
   groupName: string;
-  /** Group.approveJoins: whether picking a name joins (`join`) or asks (`askToJoin`). */
+  /** Group.approveJoins: whether picking a name joins (`join`) or asks (`askToJoin`). Someone who has joined is always asked for. */
   approveJoins: boolean;
   /** Everyone in the group, joined or not: who the person opening this could be. */
   members: JoinMember[];

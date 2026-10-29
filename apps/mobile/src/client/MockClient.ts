@@ -745,6 +745,12 @@ export class MockClient implements SattleClient {
       } else {
         const picked = members.find((m) => this.memberRef(token, m.id) === as.ref);
         if (!picked) throw new SattleError('not_found', 'That person is no longer in this group.');
+        if (picked.claimedByUserId) {
+          throw new SattleError(
+            'conflict',
+            `${picked.displayName} has already joined, so someone in ${g.name} has to let you in as them. Ask to join instead.`
+          );
+        }
         member = this.admit(picked, me.id);
       }
       // Their own request for this group is done with.
