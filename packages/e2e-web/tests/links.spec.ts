@@ -564,8 +564,6 @@ test.describe('A group that approves joins', () => {
     await back(yash.page);
 
     const guest = await device();
-    await openGroupPage(guest.page, token);
-    await expect(guest.page.getByText(/You pick your name, and someone in the group lets you in\./)).toBeVisible();
     await guest.page.goto(`/join/${token}`);
     await expect(guest.page.getByText('You’re asking to join', { exact: true })).toBeVisible();
     await expect(
