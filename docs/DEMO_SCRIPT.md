@@ -13,7 +13,7 @@ The story judges should take away, in order:
 ## Before you hit record
 
 **Server**
-- [ ] The deploy of the commit you're filming has finished (`ci` then `deploy` green on `main`). Each deploy backs up the database first.
+- [ ] The commit you're filming is deployed: its `publish` run is green, or a `deploy` run if only the server changed. Merging to `main` deploys nothing. Each deploy backs up the database first.
 - [ ] `/health` on the API answers `{"ok":true,"payments":"real"}`.
 - [ ] `LEDGER_RELAYS=wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net` is in the VM's `.env`, then `sudo systemctl restart sattle`. The log line should say `ledger mirrored to 3 relay(s) as npub1…`.
 - [ ] `PAYMENTS=nwc` is in the VM's `.env`. Without it, scene 4's payment is simulated, and you should say so on camera rather than imply it's real.

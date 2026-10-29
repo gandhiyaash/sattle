@@ -427,12 +427,12 @@ Both halves run on one Oracle VM behind nginx:
 - **API** at `https://battle.axiosiiitl.dev`: the `sattle` systemd unit on port 3100. Site config in `apps/api/deploy/nginx.conf`.
 - **Web app** at `https://sattle.axiosiiitl.dev`: static files from `expo export --platform web`, served from `/var/www/sattle-web/current`. Every path falls back to `index.html`, so pay links (`/s/<token>`) open the guest page. Site config in `apps/mobile/deploy/nginx.conf`.
 
-`.github/workflows/deploy.yml` redeploys both after every green `ci` run on a push to `main`, in two parallel jobs:
+`.github/workflows/deploy.yml` deploys both, in two parallel jobs. Merging to `main` doesn't run it. [Publishing a release](#publishing-a-release) does, and so does running it by hand from the Actions tab, which ships a server fix without a new app. It deploys the commit the run started on, and only from `main`: on any other branch both jobs are skipped.
 
-- `api` SSHes in, fast-forwards to the commit `ci` passed, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails.
-- `web` builds the web app in Actions against the API above, uploads it to `releases/<sha>` on the VM and repoints the `current` symlink. The five newest builds stay there; to roll back, point `current` at an older one.
+- `api` SSHes in, fast-forwards to that commit, runs `npm ci` for the API, restarts the unit and waits for `/health`, printing the unit's log if either step fails. If a later deploy already went past the commit, the fast-forward leaves it where it is.
+- `web` builds the web app in Actions against the API above, uploads it to `releases/<sha>` on the VM and repoints the `current` symlink, unless the live build already includes the commit. The five newest builds stay there; to roll back, point `current` at an older one.
 
-Both can be run by hand from the Actions tab, which deploys `main` as it is. They need the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
+It needs the `ORACLE_VM_HOST`, `ORACLE_VM_USER` and `ORACLE_VM_SSH_KEY` repository secrets. The `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_APP_URL` repository variables override the two URLs for the web and Android builds.
 
 The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For a live server, leave `SEED` and `DEMO_USER_ID` unset, so the database starts empty and every request needs a device account's token. Set `PAYMENTS=nwc` so settling up moves real money. The server refuses to start when `NODE_ENV=production`, which the systemd unit sets, if `SEED` or `DEMO_USER_ID` is set, and names the one to remove. Without `PAYMENTS=nwc` it starts but logs a warning, since settling up would move balances and no money. A public demo server that should simulate payments sets `ALLOW_SIMULATED_PAYMENTS=true` to say so. Set `CORS_ORIGIN=https://sattle.axiosiiitl.dev` so only the web app can call the API from a browser. The deploy jobs don't install the systemd unit or the nginx sites, so after changing one, copy it into place on the VM and reload. The unit sandboxes the server so the only place it can write is `apps/api/data/`. If `.env` moves `DATABASE_PATH`, update `ReadWritePaths` to match. Both TLS certificates come from certbot and renew themselves.
 
@@ -461,9 +461,28 @@ sudo systemctl start sattle
 
 The copies sit on the same disk as the database, so they cover a bad migration or a mistaken delete, not losing the VM. For that, copy `data/backups/` somewhere else too.
 
+### Publishing a release
+
+Merging to `main` ships nothing. A release is one run of the `publish` workflow (`.github/workflows/publish.yml`), started from the Actions tab or:
+
+```sh
+gh workflow run publish.yml -f bump_type=patch -f track=internal -f update_priority=0
+```
+
+It takes the three inputs of the [Android release](#releasing-the-android-app) and runs four jobs, each once the one before has succeeded:
+
+1. `ci`: typecheck and tests.
+2. `android`: the Android release, up to the Play upload.
+3. `wait`: until 30 minutes after the Android build started, to give Play's review a head start.
+4. `server`: [the deploy](#deploying) of the API and web app, from the commit the app was built from, even if `main` has moved on since.
+
+The wait lines the two up only roughly. Play reviews `internal` in minutes and can take hours over `production`, and installed copies update when their owners let them. So a server change still has to work with the previous app.
+
+To ship one half alone, run its workflow on its own: `deploy.yml` for a server fix, `android-release.yml` for an app-only release.
+
 ### Releasing the Android app
 
-A release is one run of the `Create Android Release (APK & AAB)` workflow (`.github/workflows/android-release.yml`). Merge what should ship into `main`, then start it from the Actions tab, or:
+The Android half of a publish is the `Create Android Release (APK & AAB)` workflow (`.github/workflows/android-release.yml`). Run on its own, from the Actions tab or like this, it releases the app without deploying the server:
 
 ```sh
 gh workflow run android-release.yml -f bump_type=patch -f track=internal -f update_priority=0
@@ -478,7 +497,7 @@ gh workflow run android-release.yml -f bump_type=patch -f track=internal -f upda
 The run then does the whole release:
 
 1. Works out the version from the newest `vX.Y.Z` tag. Releases are tags only: `main` takes changes only through pull requests, so nothing is committed back, and `apps/mobile/package.json` is just the starting point before the first tag. Runs from any branch but `main` are refused.
-2. Generates `android/` with `expo prebuild` and builds a signed APK and AAB. The version name is the bumped version. The version code is the workflow's run number, so it only ever goes up.
+2. Generates `android/` with `expo prebuild` and builds a signed APK and AAB. The version name is the bumped version. The version code is the minutes since 1970, so it goes up whichever workflow runs the build, where a run number would start again from 1 in each one. Play takes no code below one it already has, so the codes can't go back to small numbers.
 3. Tags the commit it built as `vX.Y.Z` and pushes only the tag, which the `main` ruleset doesn't cover. This comes after the build, so a failed build leaves no tag behind.
 4. Creates the GitHub release `vX.Y.Z`, with both files attached and the commits since the last tag as its notes.
 5. Uploads the AAB to the chosen Play track, rolled out to everyone on it.
@@ -487,7 +506,7 @@ The run then does the whole release:
 
 Every pull request gets a release build too, from the `android-build` workflow, so a change that breaks the release shows up before anything is tagged. It needs no secrets: the APK is signed with the debug key and kept on the run for 7 days as `sattle-pr-<number>.apk`. That APK installs on a phone, but not over a copy from Play.
 
-Send a release to `internal` first and install it from Play on a phone. Once it's checked, promote it to `production` in the Play Console, which ships the same file. An urgent fix is the exception: run the workflow straight to `production` with the priority set, because the priority is fixed at upload.
+Send a release to `internal` first and install it from Play on a phone. Once it's checked, promote it to `production` in the Play Console, which ships the same file. An urgent fix is the exception: run the release straight to `production` with the priority set, because the priority is fixed at upload.
 
 What it needs from the repository:
 
@@ -503,7 +522,7 @@ A copy installed from Google Play updates itself in place. On launch and on ever
 
 #### Update priority
 
-Every Play release carries an in-app update priority, a number from 0 to 5 that installed copies read when they find the release. It is the `update_priority` input of the release workflow, and the app sorts it into two bands:
+Every Play release carries an in-app update priority, a number from 0 to 5 that installed copies read when they find the release. It is the `update_priority` input of a publish or an Android release, and the app sorts it into two bands:
 
 | Priority | What an installed copy does | Use it for |
 | --- | --- | --- |

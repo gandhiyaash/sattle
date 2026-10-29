@@ -1,0 +1,88 @@
+name: publish
+
+# Ships a release: the Android app to Play, then the API and web app 30 minutes after the
+# Android build starts, to give Play's review of the upload a head start. That lines the
+# two up only roughly: review takes minutes on internal and can take hours on production,
+# and installed copies update when their owners let them. So the server still has to
+# work with the previous app.
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump from the latest vX.Y.Z tag (none rebuilds that version)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+      track:
+        description: 'Play Store Track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      update_priority:
+        description: 'In-app update priority (0-3: download in the background, 4-5: take over the screen)'
+        required: true
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+
+# A publish started during another waits for it rather than cutting into its deploy.
+# GitHub holds only one waiting run, though, so a third publish cancels the waiting one.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  android:
+    needs: ci
+    uses: ./.github/workflows/android-release.yml
+    # It pushes the release tag.
+    permissions:
+      contents: write
+    secrets: inherit
+    with:
+      bump_type: ${{ inputs.bump_type }}
+      track: ${{ inputs.track }}
+      update_priority: ${{ inputs.update_priority }}
+
+  # Waits on the build as well as the clock, so a failed build never ships the server.
+  # Re-running a failed build re-runs this too, and it counts from the new start.
+  wait:
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for 30 minutes after the Android build started
+        env:
+          STARTED_AT: ${{ needs.android.outputs.started_at }}
+        run: |
+          LEFT=$((STARTED_AT + 30 * 60 - $(date +%s)))
+          if [ "$LEFT" -gt 0 ]; then
+            echo "Deploying the server in $((LEFT / 60))m $((LEFT % 60))s"
+            sleep "$LEFT"
+          fi
+
+  server:
+    needs: wait
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit

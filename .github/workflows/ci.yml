@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # publish.yml runs it first, so a red build never ships.
+  workflow_call:
 
 jobs:
   check:

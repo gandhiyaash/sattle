@@ -1,11 +1,9 @@
 name: deploy
 
 on:
-  # Deploy main only after ci passes on it, so a red build never reaches the server.
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
+  # publish.yml runs this as part of a release, once ci passes and the Android build is
+  # in review. Run it alone to ship a server fix without a new app.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
@@ -17,19 +15,17 @@ concurrency:
 # side by side and one failing doesn't stop the other.
 jobs:
   api:
-    # A ci run on a pull request can report head_branch "main" too (a fork's
-    # main), so require that ci ran for a push.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    # Only main is deployed. The api job would only fetch main, and the web job would
+    # publish whatever branch the run is on.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: SSH in and redeploy
         uses: appleboy/ssh-action@v1
         env:
-          # The commit ci passed, not whatever main has moved on to since. A
-          # manual run takes main as it is.
-          SHA: ${{ github.event.workflow_run.head_sha || 'origin/main' }}
+          # The commit the run started on, which in a publish is the one the app was
+          # built from, not whatever main has moved on to in the 30 minutes since.
+          SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
@@ -61,15 +57,13 @@ jobs:
             exit 1
 
   web:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # The commit ci passed, as the api job deploys.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # The commit the api job deploys.
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -109,6 +103,16 @@ jobs:
           script: |
             set -e
             R=/var/www/sattle-web
+            # A later deploy may already be live, such as a server fix run by hand while
+            # a publish waited for Play. Like the api job, don't step back over it. If
+            # either commit is missing from ~/sattle, merge-base fails and this goes ahead.
+            LIVE=$(basename "$(readlink "$R/current" || true)")
+            if [ -n "$LIVE" ] && [ "$LIVE" != "$SHA" ] \
+               && git -C ~/sattle merge-base --is-ancestor "$SHA" "$LIVE" 2>/dev/null; then
+              echo "$LIVE is live and already includes $SHA; leaving it."
+              rm -rf /tmp/sattle-web
+              exit 0
+            fi
             mkdir -p "$R/releases/$SHA"
             tar -xzf /tmp/sattle-web/sattle-web.tgz -C "$R/releases/$SHA"
             rm -rf /tmp/sattle-web
