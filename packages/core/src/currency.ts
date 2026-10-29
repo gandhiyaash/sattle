@@ -46,8 +46,14 @@ export function formatAmount(minor: number, currency = 'INR'): string {
 /** How many of the smallest unit make one of what people type. Rupees are typed with paise after the point; sats as they are. */
 const minorPerTyped = (currency: string) => (isBitcoin(currency) ? 1 : 100);
 
-/** An amount as typed, in minor units; 0 for anything that isn't a clean number. */
+/**
+ * An amount as typed, in minor units; 0 for anything that isn't a clean
+ * number. Separators and a currency sign are let through ("1,250.50"), a minus
+ * is not: an expense can't be negative, and dropping the sign would save it as
+ * if it were.
+ */
 export function parseAmount(text: string, currency = 'INR'): number {
+  if (text.includes('-')) return 0;
   const n = Number(text.replace(/[^0-9.]/g, ''));
   return Number.isFinite(n) ? Math.round(n * minorPerTyped(currency)) : 0;
 }

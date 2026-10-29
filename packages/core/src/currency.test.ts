@@ -54,6 +54,13 @@ describe('parseAmount', () => {
     expect(parseAmount('1.2.3', 'INR')).toBe(0);
   });
 
+  it('refuses a minus rather than dropping it: a negative expense isn’t a positive one', () => {
+    expect(parseAmount('-50', 'INR')).toBe(0);
+    expect(parseAmount(' -50', 'INR')).toBe(0);
+    expect(parseAmount('₹-1,200', 'INR')).toBe(0);
+    expect(parseAmount('5-0', 'BTC')).toBe(0);
+  });
+
   it('reads back what amountAsTyped wrote, so an edit opens on the amount saved', () => {
     for (const [minor, currency] of [[120_075, 'INR'], [120_000, 'INR'], [15_000, 'BTC']] as const) {
       expect(parseAmount(amountAsTyped(minor, currency), currency)).toBe(minor);
