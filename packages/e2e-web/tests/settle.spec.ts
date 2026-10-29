@@ -247,7 +247,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(button(yash.page, 'Add their Lightning address')).toBeVisible();
     await expect(button(yash.page, 'Invite Aman')).toBeVisible();
     await expect(button(yash.page, 'Mark as settled')).toBeVisible();
-    await expect(yash.page.getByText('Paid in cash, or forgiven.')).toBeVisible();
+    await expect(yash.page.getByText(/Paid in cash/)).toHaveCount(0);
     await expect(button(yash.page, 'Close')).toBeVisible();
     await button(yash.page, 'Close').click();
     await expect(yash.page.getByText('You owe Aman ₹250')).toBeHidden();
@@ -292,7 +292,8 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(ancestor(address, 2).getByText('Paying an address needs the mobile wallet.')).toBeVisible();
     await expect(ancestor(address, 1)).toHaveCSS('opacity', '0.4');
     const manual = button(yash.page, 'Mark as settled');
-    await expect(ancestor(manual, 2).getByText('Paid in cash, UPI, or forgiven.')).toBeVisible();
+    await expect(manual).toBeVisible();
+    await expect(ancestor(manual, 2).getByText(/Paid in cash/)).toHaveCount(0);
     await expect(button(yash.page, 'Pay with Lightning')).toBeHidden();
     await address.click();
     await expect(yash.page.getByText('Pay Aman ₹250')).toBeVisible();

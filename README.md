@@ -248,7 +248,7 @@ Aman never installed anything, so there is nowhere to send his money. The wrong 
 `resolveSettlementOptions()` decides first. When the recipient cannot receive, it returns `blocked` with three remedies in place of rails:
 
 1. **Add their Lightning address.** The route most people miss. Any wallet gives Aman an address, and paying it needs nothing from him — no install, no signup, no device awake. `setMemberPayoutAddress` stores it and leaves his status as `ghost`, because he is payable, not joined.
-2. **Invite them.** Shares the group's link, where Aman taps **Join**, picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
+2. **Invite them.** Shares the group's link, where Aman taps **Join group**, picks his own row and takes it over; see [Joining a group](#joining-a-group). Best long-term, slowest right now.
 3. **Mark as settled.** Cash, UPI, forgiven. Present on every screen, never removable.
 
 Two rules the tests pin down: the blocked message names Aman rather than describing a system state, and `manual` survives into `rails` even when every other option is gone. A ledger app that cannot record "he paid me in cash" is punitive.
