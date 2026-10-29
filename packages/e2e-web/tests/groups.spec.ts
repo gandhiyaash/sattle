@@ -410,7 +410,7 @@ test.describe('Manage', () => {
     await expect(page.getByText('Whoever opens the group’s link picks their name and is in.')).toBeVisible();
     const joining = section(page, 'Joining');
     await button(joining, 'Learn more').click();
-    await expect(joining.getByText(/The link can be forwarded, and whoever holds it can take any name nobody has joined as/)).toBeVisible();
+    await expect(joining.getByText(/The link can be forwarded, and whoever holds it can join as anyone in the group/)).toBeVisible();
     await page.getByRole('switch', { name: 'Approve who joins' }).click();
     await expect(page.getByText('Someone here lets each person in, after checking a four-digit code.')).toBeVisible();
     await expect.poll(async () => (await yash.api.groups())[0].approveJoins).toBe(true);

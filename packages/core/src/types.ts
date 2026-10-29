@@ -4,7 +4,9 @@
  * Two distinctions carry most of the weight:
  *
  * - A Member is a row in a group; a User is a person with the app. A member
- *   may never become a user. `claimedByUserId` is the only link between them.
+ *   may never become a user. `claimedByUserId` and `alsoHeldBy` are the only
+ *   links between them: one person can join as the same member from more
+ *   than one device, each an account of its own (members.ts).
  * - Debt is in the group's currency, in its smallest unit: paise for a group
  *   kept in rupees, sats for one kept in bitcoin (currency.ts). A rupee debt
  *   becomes sats only inside a Quote, pinned at quote time.
@@ -36,7 +38,14 @@ export interface Member {
   groupId: string;
   displayName: string;
   status: MemberStatus;
+  /** The first account to join as them. Set once anyone has. */
   claimedByUserId?: string;
+  /**
+   * The accounts that joined as them after that one, on other phones or
+   * browsers. Each is them in the group as much as the first is, and they
+   * can be paid through whichever has a way set up. Absent when there are none.
+   */
+  alsoHeldBy?: string[];
   /** Payout address for a ghost. Stored without changing their status. */
   lightningAddress?: string;
   /**
@@ -59,10 +68,9 @@ export interface Group {
   memberIds: string[];
   /**
    * Whether someone in the group has to let each person in. Off from the
-   * start: whoever holds the link picks a name nobody has joined as and is in.
+   * start: whoever holds the link picks a name and is in, as that person.
    * On, picking a name asks, and someone already in the group says yes, with a
    * code to check it's them. Anyone in the group can change it under Manage.
-   * Taking over a name someone has joined as asks either way.
    */
   approveJoins: boolean;
   createdAt: string;
@@ -379,16 +387,20 @@ export interface GuestView {
 // -- joining ---------------------------------------------------------------
 //
 // The group's link (GroupLink) is also how someone joins: they open
-// /join/<token> with the same token, pick which of the group's ghosts they
-// are, or add themselves, and are in. A group that has turned on approving
-// joins (Group.approveJoins) makes that a request instead, which someone
-// already in the group has to say yes to.
+// /join/<token> with the same token, pick which of the group's people they
+// are, or add themselves, and are in. Someone who has joined can be picked
+// too: whoever picks them joins as them on this device, alongside the ones
+// they already have. A group that has turned on approving joins
+// (Group.approveJoins) makes that a request instead, which someone already
+// in the group has to say yes to.
 
 /** Someone the join page offers to join as. */
 export interface JoinMember {
   /** What the page sends back to join as this person. Opaque, and only good with this link. */
   ref: string;
   name: string;
+  /** Someone has joined as them already. Picking them joins as them here too, alongside that device. */
+  joined?: true;
 }
 
 /** Who someone joins as: one of the people the link offers, or a new member under that name. */
@@ -399,19 +411,8 @@ export interface JoinView {
   groupName: string;
   /** Group.approveJoins: whether picking a name joins (`join`) or asks (`askToJoin`). */
   approveJoins: boolean;
-  /** Everyone in the group who hasn't joined: who the person opening this could be. */
+  /** Everyone in the group, joined or not: who the person opening this could be. */
   members: JoinMember[];
-  /**
-   * The names of the people who have. The page shows them so the whole group is
-   * on it. Each belongs to an account already, so picking one isn't joining.
-   */
-  joined: string[];
-  /**
-   * The same people, to pick for taking a place back: someone who joined, then
-   * lost the phone or browser they joined with. Letting them in hands the
-   * name to the new account. Absent from servers older than this.
-   */
-  rejoin?: JoinMember[];
 }
 
 /**
@@ -433,24 +434,22 @@ export interface JoinRequest {
   code: string;
   status: 'pending' | 'declined';
   createdAt: string;
-  /** They asked for a name someone has joined as: their own, on a device they no longer have. */
-  takesOver?: boolean;
 }
 
 /** Someone waiting to be let into a group, as the people already in it see them. */
 export interface PendingJoin {
   id: string;
   name: string;
-  /** They picked a name already in the group, and take over its balance. Otherwise they're new. */
+  /** They picked a name already in the group, with its balance. Otherwise they're new. */
   existing: boolean;
+  /**
+   * Someone has joined as that name: letting this person in makes them that
+   * member too, on their device. 'you' when it's the name of whoever is
+   * looking. Absent for a ghost or someone new.
+   */
+  joined?: 'you' | 'someone';
   code: string;
   createdAt: string;
-  /**
-   * Someone has joined as that name, and letting this person in hands it to
-   * them: 'you' when it's the name of whoever is looking. Absent for a ghost
-   * or someone new.
-   */
-  replacing?: 'you' | 'someone';
 }
 
 // -- group links -----------------------------------------------------------

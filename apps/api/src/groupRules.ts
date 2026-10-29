@@ -52,16 +52,17 @@ export function checkMemberCanGo(repo: Repo, g: Group, member: Member) {
 }
 
 /**
- * The user's member becomes a ghost again, keeping its name, history and
- * balance; the group's link can hand it back. The last person with an account can't
- * leave, because nobody could reach the group afterwards.
+ * The user's account leaves the group. Their member stays with any other
+ * device they joined from; with none, it becomes a ghost again, keeping its
+ * name, history and balance, and the group's link can hand it back. The last
+ * account can't leave, because nobody could reach the group afterwards.
  */
 export function leaveGroup(repo: Repo, g: Group, userId: string) {
-  if (repo.claimedCount(g.id) === 1) {
+  if (repo.accountCount(g.id) === 1) {
     throw conflict('You’re the only one here with an account. Delete the group instead.');
   }
   checkNothingIncoming(repo, userId, g.id);
-  repo.unclaimMember(repo.memberForUser(g.id, userId)!.id);
+  repo.removeAccount(repo.memberForUser(g.id, userId)!.id, userId);
 }
 
 /** A group goes only once nothing is owed in it, so deleting it can't erase a debt. */
@@ -97,7 +98,7 @@ export function checkDebtsCanChange(repo: Repo, g: Group) {
 export function deleteAccount(repo: Repo, wallets: WalletStore, user: User) {
   checkNothingIncoming(repo, user.id);
   for (const g of repo.groupsForUser(user.id)) {
-    if (repo.claimedCount(g.id) > 1) continue;
+    if (repo.accountCount(g.id) > 1) continue;
     if (repo.settlements(g.id).some(isInProgress)) {
       throw conflict('A payment in one of your groups is still in progress. Wait for it to finish.');
     }

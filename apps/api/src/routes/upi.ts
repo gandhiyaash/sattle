@@ -34,6 +34,8 @@ import { z } from 'zod';
 import {
   SattleError,
   UPI_CURRENCY,
+  accountsOf,
+  isHeldBy,
   parseUpiId,
   parseUpiReference,
   type Group,
@@ -93,14 +95,29 @@ const PaymentBody = z.object({
     .transform((s) => s?.trim().slice(0, 64) || undefined),
 });
 
-/** Whether this member has given a UPI ID to be paid at. A ghost has no account to have put one on. */
-export const takesUpi = (wallets: WalletStore, member: Member) =>
-  Boolean(member.claimedByUserId && wallets.upiId(member.claimedByUserId));
+/**
+ * The account a member is paid through by UPI: the first of theirs, if they
+ * joined from more than one device, that has given a UPI ID.
+ */
+const upiAccountOf = (wallets: WalletStore, member: Member) => accountsOf(member).find((a) => wallets.upiId(a));
 
-/** What applies to this member's group: what they chose for it, or else what they chose for all their groups. */
+/** The UPI ID this member is paid at, if they've given one. A ghost has no account to have put one on. */
+export const upiIdFor = (wallets: WalletStore, member: Member) => {
+  const account = upiAccountOf(wallets, member);
+  return account ? wallets.upiId(account) : undefined;
+};
+
+/** Whether this member has given a UPI ID to be paid at. */
+export const takesUpi = (wallets: WalletStore, member: Member) => Boolean(upiIdFor(wallets, member));
+
+/**
+ * What applies to this member's group: what they chose for it, or else what
+ * the account they're paid through chose for all its groups. Before any of
+ * theirs has a UPI ID, the first account's.
+ */
 const upiOnLinkOf = (wallets: WalletStore, member: Member): UpiOnGroupLink => {
   const choice = wallets.upiOnLinkChoice(member.id);
-  return { on: choice ?? wallets.upiOnLinks(member.claimedByUserId!), choice };
+  return { on: choice ?? wallets.upiOnLinks(upiAccountOf(wallets, member) ?? member.claimedByUserId!), choice };
 };
 
 /** Whether this member can be paid by UPI from their group's shared link: they have an ID and haven't turned that off. */
@@ -124,7 +141,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
   /** The payee's UPI ID, or 409 member_cannot_receive when they have none. */
   const upiIdOf = (payee: Member) => {
-    const upiId = payee.claimedByUserId && wallets.upiId(payee.claimedByUserId);
+    const upiId = upiIdFor(wallets, payee);
     if (!upiId) throw new SattleError('member_cannot_receive', `${payee.displayName} hasn’t added a UPI ID.`);
     return upiId;
   };
@@ -329,7 +346,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
     const settlement = transaction(db, () => {
       const payee = repo.member(claim.toMemberId)!;
-      if (payee.claimedByUserId !== user.id) {
+      if (!isHeldBy(payee, user.id)) {
         throw new SattleError('invalid_input', `Only ${payee.displayName} can confirm this.`);
       }
       checkSettlement(repo, g, claim);
@@ -353,7 +370,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     const claim = findClaim(c.req.param('id'));
     repo.groupForUser(claim.groupId, user.id);
     const payee = repo.member(claim.toMemberId)!;
-    if (payee.claimedByUserId !== user.id) {
+    if (!isHeldBy(payee, user.id)) {
       throw new SattleError('invalid_input', `Only ${payee.displayName} can say whether this arrived.`);
     }
     return c.json(repo.setUpiClaimStatus(claim.id, 'declined'));
@@ -365,7 +382,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     const claim = findClaim(c.req.param('id'));
     repo.groupForUser(claim.groupId, user.id);
     const payer = repo.member(claim.fromMemberId)!;
-    if (payer.claimedByUserId !== user.id) {
+    if (!isHeldBy(payer, user.id)) {
       throw new SattleError('invalid_input', `Only ${payer.displayName} can take this back.`);
     }
     repo.deleteUpiClaim(claim.id);

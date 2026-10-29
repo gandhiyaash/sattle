@@ -158,7 +158,8 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
       question: 'How does joining a group work?',
       answer: [
         'From the group’s link, tap Join and pick your name, or give one if you’re not on the list. You’re in at once, as that name and with the balance on it.',
-        'A group can ask to look first, under Manage. Then picking a name is a request, not a place in the group: someone already in it has to let you in, and you both see the same four-digit code to check it’s really you. Until then you can do no more than anyone else holding the link. Taking over a name someone has already joined as needs that yes in every group.',
+        'You can pick your name again on another phone or browser, even once you’ve joined. Each one is you in the group, with the same balance, and they all stay in.',
+        'A group can ask to look first, under Manage. Then picking a name is a request, not a place in the group: someone already in it has to let you in, and you both see the same four-digit code to check it’s really you. Until then you can do no more than anyone else holding the link.',
         'Once in, you see and can add to everything, like everyone else.',
       ],
     },

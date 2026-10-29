@@ -13,7 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { computeBalances, SUPPORTED_CURRENCIES, type Group, type JoinRequest } from '@sattle/core';
+import { computeBalances, isHeldBy, SUPPORTED_CURRENCIES, type Group, type JoinRequest } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
@@ -70,7 +70,7 @@ export function GroupsListScreen({
           client.getExpenses(group.id),
           client.getSettlements(group.id),
         ]);
-        const mine = members.find((m) => m.claimedByUserId === user.id);
+        const mine = members.find((m) => isHeldBy(m, user.id));
         const balances = computeBalances(group.memberIds, expenses, settlements);
         return {
           group,
@@ -248,9 +248,7 @@ function WaitingToJoin({ request, onChanged }: { request: JoinRequest; onChanged
       ) : (
         <>
           <Text style={s.waitingBody}>
-            {request.takesOver
-              ? `Someone in ${request.groupName}, or the device you joined with, has to let you in. Then you’re ${request.name} here again, and the old device leaves the group. If they ask, tell them your code:`
-              : `Someone in ${request.groupName} has to let you in. If they ask, tell them your code:`}
+            {`Someone in ${request.groupName} has to let you in. If they ask, tell them your code:`}
           </Text>
           <Text style={s.code} selectable accessibilityLabel={`Code ${request.code.split('').join(' ')}`}>
             {request.code}

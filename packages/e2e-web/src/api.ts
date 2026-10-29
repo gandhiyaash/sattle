@@ -5,6 +5,7 @@
  */
 
 import { request, type APIRequestContext } from '@playwright/test';
+import { isHeldBy } from '@sattle/core';
 import type {
   Debt,
   Expense,
@@ -239,10 +240,10 @@ export class Api {
 
   // -- shortcuts ------------------------------------------------------------------
 
-  /** The member row this account holds in a group. */
+  /** The member row this account is in a group, whichever device joined as them first. */
   async myMember(groupId: string) {
     const [me, members] = await Promise.all([this.me(), this.members(groupId)]);
-    const mine = members.find((m) => m.claimedByUserId === me.id);
+    const mine = members.find((m) => isHeldBy(m, me.id));
     if (!mine) throw new Error(`${me.displayName} isn't in group ${groupId}`);
     return mine;
   }

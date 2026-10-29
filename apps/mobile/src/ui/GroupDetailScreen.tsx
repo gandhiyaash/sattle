@@ -43,6 +43,7 @@ import {
   formatAmount,
   groupDebts,
   isBitcoin,
+  isHeldBy,
   UPI_CURRENCY,
   type Debt,
   type Expense,
@@ -164,7 +165,7 @@ export function GroupDetailScreen({
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
     const debts = groupDebts(group, expenses, settlements);
-    const mine = members.find((m) => m.claimedByUserId === user.id) ?? null;
+    const mine = members.find((m) => isHeldBy(m, user.id)) ?? null;
     const named = new Set<string>();
     for (const e of expenses) {
       named.add(e.paidByMemberId);
@@ -578,10 +579,10 @@ function JoinRequestCard({
         <Avatar name={request.name} dim />
         <View style={{ flex: 1 }}>
           <Text style={s.debtText}>
-            {request.replacing === 'you'
-              ? 'Someone wants to take over your place'
-              : request.replacing
-                ? `Someone says they’re ${request.name}, on a new device`
+            {request.joined === 'you'
+              ? 'Someone says they’re you, on another device'
+              : request.joined
+                ? `Someone says they’re ${request.name}, on another device`
                 : request.existing
                   ? `Someone wants to join as ${request.name}`
                   : `${request.name} wants to join`}
@@ -607,11 +608,11 @@ function JoinRequestCard({
 /** What letting this person in would do, under who they are. */
 function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string): string {
   const { name } = request;
-  if (request.replacing === 'you') {
-    return `Only if it’s you on a new device. This one then leaves ${groupName}.`;
+  if (request.joined === 'you') {
+    return `Only if it’s you. They’d be you in ${groupName} too, alongside this device.`;
   }
-  if (request.replacing) {
-    return `Only if you’ve checked with ${name}: their old device leaves ${groupName}. Ask which code they see.`;
+  if (request.joined) {
+    return `Only if you’ve checked with ${name}: they’d be ${name} too, alongside their other device. Ask which code they see.`;
   }
   if (twin) {
     return `More than one person wants to be ${name}. Ask ${name} which code they see.`;

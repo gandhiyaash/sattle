@@ -51,7 +51,7 @@ import { idempotency } from '../middleware';
 import { applyProof, hashOfPreimage, ProofBody, readPreimage } from '../proof';
 import { newId, nowIso } from '../repo';
 import { debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
-import { upiOnLink } from './upi';
+import { upiIdFor, upiOnLink } from './upi';
 
 /** What the page sends once the payer has chosen Lightning over UPI. Nothing, until then. */
 const OpenBody = z.object({ rail: z.literal('lightning').optional() });
@@ -212,7 +212,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    */
   r.get('/s/:token/upi', (c) => {
     const { payee } = upiDebt(findLink(c.req.param('token')));
-    const body: UpiPayee = { upiId: wallets.upiId(payee.claimedByUserId!)!, name: payee.displayName };
+    const body: UpiPayee = { upiId: upiIdFor(wallets, payee)!, name: payee.displayName };
     return c.json(body);
   });
 

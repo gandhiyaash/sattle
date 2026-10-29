@@ -294,7 +294,7 @@ describe('DELETE /groups/:id/members/:memberId', () => {
 
     expect((await call('DELETE', `${base}/members/${mAman}`, undefined, kabir.token)).status).toBe(200);
     expect((await members()).map((m) => m.displayName)).toEqual(['Riya', 'Kabir']);
-    expect(await offered(token)).toEqual([]);
+    expect((await offered(token)).map((m) => m.name)).toEqual(['Riya', 'Kabir']);
     expect((await call('POST', '/join-requests', { token, ref: aman }, (await call<{ token: string }>('POST', '/accounts', { displayName: 'Aman' })).body.token)).status).toBe(404);
   });
 
