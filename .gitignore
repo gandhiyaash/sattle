@@ -58,3 +58,6 @@ apps/api/data/
 
 # Screenshots from local emulator runs, shown in PR descriptions and never committed
 /dev_ss/
+
+# Server config: the nginx sites and systemd units. They live on the VM; these are local working copies.
+apps/*/deploy/

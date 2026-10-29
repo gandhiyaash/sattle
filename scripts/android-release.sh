@@ -45,8 +45,9 @@ VERSION_NAME="${VERSION_NAME:-$(node -p "require('$MOBILE/package.json').version
 [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || die "VERSION_CODE must be a number, got '$VERSION_CODE'"
 
 export EXPO_PUBLIC_USE_MOCK=false
-export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://battle.axiosiiitl.dev}"
-export EXPO_PUBLIC_APP_URL="${EXPO_PUBLIC_APP_URL:-https://sattle.axiosiiitl.dev}"
+# The two addresses come from the environment, as they do in the workflows: nothing here names a host.
+export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:?set it to the API's address}"
+export EXPO_PUBLIC_APP_URL="${EXPO_PUBLIC_APP_URL:?set it to the web app's address}"
 # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
 export EXPO_PUBLIC_APP_VERSION="$VERSION_NAME"
 

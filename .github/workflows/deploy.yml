@@ -10,9 +10,9 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
-# Both jobs ship the same commit to the same VM: the API to battle.axiosiiitl.dev and
-# the web app to sattle.axiosiiitl.dev. They don't depend on each other, so they run
-# side by side and one failing doesn't stop the other.
+# Both jobs ship the same commit to the same VM: the API, and the web app built for the
+# addresses in the EXPO_PUBLIC_* repository variables. They don't depend on each other, so
+# they run side by side and one failing doesn't stop the other.
 jobs:
   api:
     # Only main is deployed. The api job would only fetch main, and the web job would
@@ -75,16 +75,23 @@ jobs:
       - name: Build the web app
         working-directory: ./apps/mobile
         env:
-          # Inlined into the bundle at build time.
+          # Inlined into the bundle at build time. The two addresses are repository variables:
+          # nothing in this file names a host.
           EXPO_PUBLIC_USE_MOCK: 'false'
-          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
-          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL }}
         run: |
+          if [ -z "$EXPO_PUBLIC_API_URL" ] || [ -z "$EXPO_PUBLIC_APP_URL" ]; then
+            echo "::error::Set the EXPO_PUBLIC_API_URL and EXPO_PUBLIC_APP_URL repository variables"
+            exit 1
+          fi
           # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
           export EXPO_PUBLIC_APP_VERSION="web-$(git rev-parse --short HEAD)"
           npx expo export --platform web --output-dir dist
           tar -czf "$GITHUB_WORKSPACE/sattle-web.tgz" -C dist .
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          # For the check at the end: the address the build was made for.
+          echo "APP_URL=$EXPO_PUBLIC_APP_URL" >> "$GITHUB_ENV"
 
       - name: Upload the build
         uses: appleboy/scp-action@v1
@@ -101,7 +108,7 @@ jobs:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          envs: SHA
+          envs: SHA,APP_URL
           script: |
             set -e
             R=/var/www/sattle-web
@@ -123,4 +130,5 @@ jobs:
             mv -Tf "$R/current.tmp" "$R/current"
             # Keep the five newest builds for a quick manual rollback.
             ls -1t "$R/releases" | tail -n +6 | xargs -r -I{} rm -rf "$R/releases/{}"
-            curl -fsS -m 5 -o /dev/null --resolve sattle.axiosiiitl.dev:443:127.0.0.1 https://sattle.axiosiiitl.dev/s/check
+            # The new build answers on the host the app was built for, asked of this machine directly.
+            curl -fsS -m 5 -o /dev/null --resolve "${APP_URL#https://}:443:127.0.0.1" "$APP_URL/s/check"

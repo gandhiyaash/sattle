@@ -23,6 +23,8 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
+            { "scheme": "https", "host": "sattle.tech", "pathPrefix": "/join/" },
+            { "scheme": "https", "host": "sattle.tech", "pathPrefix": "/g/" },
             { "scheme": "https", "host": "sattle.axiosiiitl.dev", "pathPrefix": "/join/" },
             { "scheme": "https", "host": "sattle.axiosiiitl.dev", "pathPrefix": "/g/" }
           ],
