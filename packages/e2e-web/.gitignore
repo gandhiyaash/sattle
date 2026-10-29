@@ -1,0 +1,4 @@
+# The web app exported for the tests, with the test servers' URLs baked in.
+.dist/
+playwright-report/
+test-results/
