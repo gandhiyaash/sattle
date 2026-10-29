@@ -78,11 +78,16 @@ describe('MockClient UPI', () => {
 });
 
 describe('MockClient: a pay link paid by UPI', () => {
-  /** Priya owes Yash ₹1,200 in Flat 4B. Not Om's debt: the seeded demo invoice is out for that one. */
+  /**
+   * Priya owes Yash ₹1,200 in Flat 4B. Not Om's debt: the seeded demo invoice
+   * is out for that one. The link is the one the group's page hands out for it.
+   */
   const linkToPriya = async (c: MockClient) => {
     const debt = (await c.getDebts('g-flat')).find((d) => d.fromMemberId === 'm-flat-priya' && d.toMemberId === 'm-flat-yash')!;
+    const ref = (await c.getGroupGuestView('demo-group')).debts.find((d) => d.from === 'Priya' && d.to === 'Yash')!.ref;
+    const { token } = await c.payFromGroupLink('demo-group', ref);
     const { groupId, fromMemberId, toMemberId, amount } = debt;
-    return c.createPayLink({ groupId, fromMemberId, toMemberId, amount });
+    return { token, groupId, fromMemberId, toMemberId, amount };
   };
 
   it('opens straight on an invoice while Lightning is the only way to pay it', async () => {

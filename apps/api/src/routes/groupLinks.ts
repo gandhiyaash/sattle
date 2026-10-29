@@ -32,7 +32,7 @@ import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
 import { debtsOf, inProgressFor } from '../settlementRules';
 import { newPayLinkToken } from './payLinks';
-import { upiOnLink } from './upi';
+import { upiIdFor, upiOnLink } from './upi';
 
 /** 16 random bytes, base64url: 22 characters, unguessable. */
 export const newGroupLinkToken = () => randomBytes(16).toString('base64url');
@@ -186,7 +186,7 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    */
   r.get('/g/:token/debts/:ref/upi', (c) => {
     const { payee } = upiPayee(findLink(c.req.param('token')), c.req.param('ref'));
-    const body: UpiPayee = { upiId: wallets.upiId(payee.claimedByUserId!)!, name: payee.displayName };
+    const body: UpiPayee = { upiId: upiIdFor(wallets, payee)!, name: payee.displayName };
     return c.json(body);
   });
 

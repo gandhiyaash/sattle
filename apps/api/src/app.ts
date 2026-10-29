@@ -6,7 +6,7 @@
  *   routes/accounts.ts     device accounts: a name in, a token out
  *   routes/groups.ts       groups, members, expenses, debts
  *   routes/settlements.ts  direct and manual settlement
- *   routes/payLinks.ts     /groups/:id/pay-links and the public /s/:token
+ *   routes/payLinks.ts     the public /s/:token: a pay link for one debt, handed out by the group's page
  *   routes/joining.ts      joining with the group link: the public /join/:token, /links/:token/group, POST /join, join requests
  *   routes/groupLinks.ts   /groups/:id/link and the public /g/:token
  *   routes/wallet.ts       the payee's NWC connection

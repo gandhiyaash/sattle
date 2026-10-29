@@ -35,7 +35,8 @@ import type { Member, Rail } from './types';
 export interface RailOption {
   rail: Rail;
   label: string;
-  detail: string;
+  /** Said under the button. Mark as settled has none: its label says it. */
+  detail?: string;
   /** 1 is the recommended option. Only available rails are ranked first. */
   rank: number;
   availability: { available: true } | { available: false; reason: string };
@@ -161,7 +162,6 @@ export function resolveSettlementOptions({
       : {
           rail: 'manual',
           label: 'Mark as settled',
-          detail: ways.upi ? 'Paid in cash, UPI, or forgiven.' : 'Paid in cash, or forgiven.',
           availability: { available: true },
         }
   );

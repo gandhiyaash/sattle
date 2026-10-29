@@ -1,9 +1,10 @@
 /**
  * Settling up inside the app: the Settle up tab, paying someone who has
  * joined over (simulated) Lightning, the blocked sheet and its remedies for
- * someone who hasn't, marking a debt settled from either side, pay links,
- * what a payer who uses only rupees is offered, simplifying debts, and a
- * group kept in bitcoin.
+ * someone who hasn't, marking a debt settled from either side, what a payer
+ * who uses only rupees is offered, simplifying debts, and a group kept in
+ * bitcoin. Pay links have their own file: nothing here sends one, since the
+ * group's link is what the person owed shares.
  *
  * Payments are simulated by the server (SIM_STEP_MS, SIM_SETTLE_MS in
  * src/env.ts), so every invoice confirms itself about three seconds after
@@ -53,14 +54,14 @@ test.describe('the Settle up tab', () => {
     const owe = debtCard(a.page, 'You owe Priya');
     await expect(owe.getByText('₹300')).toBeVisible();
     await expect(button(owe, 'Pay')).toBeVisible();
+    // Not theirs to mark: only the person owed can.
+    await expect(button(owe, 'Mark as settled')).toBeHidden();
     await expect(a.page.getByText('You owe', { exact: true })).toBeVisible();
 
     await intoGroup(b, groupName, 'Settle up');
     const owed = debtCard(b.page, 'Yash owes you');
     await expect(owed.getByText('₹300')).toBeVisible();
-    await expect(button(owed, 'Send pay link')).toBeVisible();
     await expect(button(owed, 'Mark as settled')).toBeVisible();
-    await expect(owed.getByText('Paid in cash, UPI, or forgiven.')).toBeVisible();
     await expect(button(owed, 'Pay')).toBeHidden();
     await expect(b.page.getByText('You are owed', { exact: true })).toBeVisible();
   });
@@ -206,14 +207,13 @@ test.describe('paying someone who has joined, over Lightning', () => {
     });
     await intoGroup(b, groupName, 'Settle up');
     const owed = debtCard(b.page, 'Yash owes you');
-    await button(owed, 'Mark as settled').click();
-    await expect(button(owed, 'Yes, Yash paid me')).toBeVisible();
+    await expect(button(owed, 'Mark as settled')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
     await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
     await expect(a.page.getByText('Waiting for payment').or(a.page.getByText('Pay Priya', { exact: true }))).toBeVisible();
 
-    await button(owed, 'Yes, Yash paid me').click();
+    await button(owed, 'Mark as settled').click();
     await expect(
       owed.getByText('A Lightning payment for this is under way. Wait for it to finish or its invoice to expire, then try again.')
     ).toBeVisible();
@@ -247,7 +247,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(button(yash.page, 'Add their Lightning address')).toBeVisible();
     await expect(button(yash.page, 'Invite Aman')).toBeVisible();
     await expect(button(yash.page, 'Mark as settled')).toBeVisible();
-    await expect(yash.page.getByText('Paid in cash, or forgiven.')).toBeVisible();
+    await expect(yash.page.getByText(/Paid in cash/)).toHaveCount(0);
     await expect(button(yash.page, 'Close')).toBeVisible();
     await button(yash.page, 'Close').click();
     await expect(yash.page.getByText('You owe Aman ₹250')).toBeHidden();
@@ -292,7 +292,8 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(ancestor(address, 2).getByText('Paying an address needs the mobile wallet.')).toBeVisible();
     await expect(ancestor(address, 1)).toHaveCSS('opacity', '0.4');
     const manual = button(yash.page, 'Mark as settled');
-    await expect(ancestor(manual, 2).getByText('Paid in cash, UPI, or forgiven.')).toBeVisible();
+    await expect(manual).toBeVisible();
+    await expect(ancestor(manual, 2).getByText(/Paid in cash/)).toHaveCount(0);
     await expect(button(yash.page, 'Pay with Lightning')).toBeHidden();
     await address.click();
     await expect(yash.page.getByText('Pay Aman ₹250')).toBeVisible();
@@ -354,7 +355,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
 });
 
 test.describe('the payee’s side', () => {
-  test('marks a debt settled in two taps, once, however many times the second is tapped', async ({ api, device }) => {
+  test('marks a debt settled in one tap, once, however many times it is tapped', async ({ api, device }) => {
     const { a, b, group, groupName } = await duo(api, device, {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
@@ -363,9 +364,7 @@ test.describe('the payee’s side', () => {
 
     await intoGroup(b, groupName, 'Settle up');
     const owed = debtCard(b.page, 'Yash owes you');
-    await button(owed, 'Mark as settled').click();
-    await expect(button(owed, 'Mark as settled')).toBeHidden();
-    await button(owed, 'Yes, Yash paid me').dblclick();
+    await button(owed, 'Mark as settled').dblclick();
     await expect(b.page.getByText('All settled.', { exact: true })).toBeVisible();
     await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible({ timeout: 15_000 });
 
@@ -380,31 +379,6 @@ test.describe('the payee’s side', () => {
     await expect(b.page.getByText('Marked by')).toBeVisible();
     await expect(b.page.getByText('Settled outside the app', { exact: true })).toBeVisible();
     await expect(b.page.getByText('No payment proof. This was settled outside the app, on Priya’s word.')).toBeVisible();
-  });
-
-  test('sends a pay link for a debt owed to them', async ({ api, device }) => {
-    const { b, group, groupName } = await duo(api, device, {
-      spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
-    });
-    await intoGroup(b, groupName, 'Settle up');
-    const owed = debtCard(b.page, 'Yash owes you');
-    await button(owed, 'Send pay link').click();
-    await expect(owed.getByText('Copied. Paste it in a chat.')).toBeVisible();
-    await expect(button(owed, 'Send again')).toBeVisible();
-    const url = owed.getByText(/^http:\/\/127\.0\.0\.1:8900\/s\/[A-Za-z0-9_-]+$/);
-    await expect(url).toBeVisible();
-    const link = (await url.textContent())!;
-    expect(await clipboard(b.page)).toBe(`Yash, you owe me ₹300 for Goa trip. Pay here, no app needed: ${link}`);
-    const view = await api.guestView(link.split('/').pop()!);
-    expect(view).toMatchObject({ payerName: 'Yash', payeeName: 'Priya', amount: 30_000, currency: 'INR', reason: groupName, payable: true });
-    expect(view).not.toHaveProperty('groupId');
-    expect(await b.api.settlements(group.id)).toHaveLength(0);
-
-    // Sending again makes a second link, which is harmless: only one can be paid.
-    await button(owed, 'Send again').click();
-    await expect(owed.getByText('Copied. Paste it in a chat.')).toBeVisible();
-    const second = (await url.textContent())!;
-    expect(second).not.toBe(link);
   });
 });
 

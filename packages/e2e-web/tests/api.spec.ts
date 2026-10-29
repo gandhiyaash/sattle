@@ -43,7 +43,7 @@ function keysOf(value: unknown, into = new Set<string>()): Set<string> {
 }
 
 /** The keys a page without a login must never be handed. */
-const ID_KEYS = ['id', 'memberId', 'groupId', 'claimedByUserId', 'fromMemberId', 'toMemberId', 'userId', 'paidByMemberId'];
+const ID_KEYS = ['id', 'memberId', 'groupId', 'claimedByUserId', 'alsoHeldBy', 'fromMemberId', 'toMemberId', 'userId', 'paidByMemberId'];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1039,8 +1039,8 @@ test.describe('Idempotency', () => {
   test('public routes share one guest’s keys: another link with the same key is refused', async ({ api }) => {
     const one = await yashOwesPriya(api);
     const two = await yashOwesPriya(api);
-    const linkOne = await one.B.createPayLink({ groupId: one.group.id, fromMemberId: one.aMember.id, toMemberId: one.bMember.id, amount: one.amount });
-    const linkTwo = await two.B.createPayLink({ groupId: two.group.id, fromMemberId: two.aMember.id, toMemberId: two.bMember.id, amount: two.amount });
+    const linkOne = await one.B.payLinkFor(one.group.id, 'Yash', 'Priya');
+    const linkTwo = await two.B.payLinkFor(two.group.id, 'Yash', 'Priya');
     const key = newKey();
     const first = await api.raw<{ settlement?: Settlement }>('POST', `/s/${linkOne.token}/open`, undefined, { token: null, key });
     expect(first.status).toBe(200);
@@ -1066,11 +1066,10 @@ test.describe('Joining', () => {
     expect(view).toEqual({
       groupName: 'Goa trip',
       approveJoins: false,
-      members: [{ ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Aman' }],
-      joined: ['Yash', 'Priya'],
-      rejoin: [
-        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Yash' },
-        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Priya' },
+      members: [
+        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Yash', joined: true },
+        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Priya', joined: true },
+        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Aman' },
       ],
     });
     for (const k of ID_KEYS) expect([...keysOf(view)], k).not.toContain(k);
@@ -1096,10 +1095,6 @@ test.describe('Joining', () => {
     expect(taken.status).toBe(409);
     expect(taken.message).toBe('Priya has already joined. If that’s you, pick Priya on the list. Otherwise give a name that tells you apart.');
     const view = await api.joinView(link.token);
-    const priyaRef = view.rejoin!.find((m) => m.name === 'Priya')!.ref;
-    const holder = await refused(C.join(link.token, { ref: priyaRef }));
-    expect(holder.status).toBe(409);
-    expect(holder.message).toBe('Priya has already joined. To take the name back, ask, and someone in the group lets you in.');
     const bogus = await refused(C.join(link.token, { ref: 'AAAAAAAAAAAAAAAA' }));
     expect(bogus.status).toBe(404);
     expect(bogus.message).toBe('That person is no longer in this group.');
@@ -1108,15 +1103,15 @@ test.describe('Joining', () => {
     const dead = await refused(C.join('no-such-link', { displayName: 'Chetan' }));
     expect(dead.status).toBe(404);
 
-    const asAman = await C.join(link.token, { ref: view.members[0].ref });
+    const asAman = await C.join(link.token, { ref: view.members.find((m) => m.name === 'Aman')!.ref });
     expect(asAman).toMatchObject({ displayName: 'Aman', status: 'joined', groupId: group.id });
     expect(asAman.claimedByUserId).toEqual(expect.any(String));
     const D = api.as((await api.account('Dev')).token);
     const asNew = await D.join(link.token, { displayName: 'Dev' });
     expect(asNew).toMatchObject({ displayName: 'Dev', status: 'joined' });
     expect((await A.members(group.id)).map((m) => m.displayName)).toEqual(['Yash', 'Priya', 'Aman', 'Dev']);
-    // The people who joined by the link can't vouch: the join view now offers nobody to claim.
-    expect((await api.joinView(link.token)).members).toEqual([]);
+    // Everyone is still on the page, all of them joined now.
+    expect((await api.joinView(link.token)).members.every((m) => m.joined)).toBe(true);
     expect(yash.user.id).toBe((await A.me()).id);
   });
 
@@ -1125,10 +1120,11 @@ test.describe('Joining', () => {
     const C = api.as((await api.account('Chetan')).token);
     const view = await api.joinView(link.token);
     expect(view.approveJoins).toBe(true);
-    const r = await refused(C.join(link.token, { ref: view.members[0].ref }));
+    const aman = view.members.find((m) => m.name === 'Aman')!;
+    const r = await refused(C.join(link.token, { ref: aman.ref }));
     expect(r.status).toBe(409);
     expect(r.message).toBe('Someone in Goa trip has to let you in. Ask to join instead.');
-    const req = await C.askToJoin(link.token, { ref: view.members[0].ref });
+    const req = await C.askToJoin(link.token, { ref: aman.ref });
     expect(req).toEqual({
       id: expect.stringMatching(/^jr/),
       groupName: 'Goa trip',
@@ -1155,7 +1151,7 @@ test.describe('Joining', () => {
     const { A, B, link, group } = await pair(api, { people: ['Priya', 'Aman'], approveJoins: true });
     const C = api.as((await api.account('Chetan')).token);
     const view = await api.joinView(link.token);
-    const first = await C.askToJoin(link.token, { ref: view.members[0].ref });
+    const first = await C.askToJoin(link.token, { ref: view.members.find((m) => m.name === 'Aman')!.ref });
     const second = await C.askToJoin(link.token, { displayName: 'Chetan' });
     expect(second.id).not.toBe(first.id);
     expect(second.name).toBe('Chetan');
@@ -1185,7 +1181,7 @@ test.describe('Joining', () => {
     const D = api.as((await api.account('Dev')).token);
     const stranger = api.as((await api.account('Stranger')).token);
     const view = await api.joinView(link.token);
-    const req = await C.askToJoin(link.token, { ref: view.members[0].ref });
+    const req = await C.askToJoin(link.token, { ref: view.members.find((m) => m.name === 'Aman')!.ref });
 
     const notIn = await refused(stranger.approveJoin(req.id));
     expect(notIn.status).toBe(404);
@@ -1210,20 +1206,20 @@ test.describe('Joining', () => {
     expect(missing.message).toBe('Nobody is waiting to join with that request.');
   });
 
-  test('someone joining as a ghost turns down everyone else asking to be them', async ({ api }) => {
+  test('someone joining as a ghost leaves anyone else asking to be them waiting, to be let in beside them', async ({ api }) => {
     const { A, link, group } = await pair(api, { people: ['Priya', 'Aman'] });
     const C = api.as((await api.account('Chetan')).token);
     const D = api.as((await api.account('Dev')).token);
     const view = await api.joinView(link.token);
-    const amanRef = view.members[0].ref;
+    const amanRef = view.members.find((m) => m.name === 'Aman')!.ref;
     // Asking is allowed even where joining is open.
     const req = await C.askToJoin(link.token, { ref: amanRef });
     expect((await A.pendingJoins(group.id)).map((p) => p.id)).toEqual([req.id]);
     await D.join(link.token, { ref: amanRef });
-    expect((await C.myJoinRequests())[0].status).toBe('declined');
-    const r = await refused(A.approveJoin(req.id));
-    expect(r.status).toBe(409);
-    expect(r.message).toBe('Aman was already turned down.');
+    expect((await C.myJoinRequests())[0].status).toBe('pending');
+    expect(await A.pendingJoins(group.id)).toEqual([expect.objectContaining({ id: req.id, joined: 'someone' })]);
+    const aman = await A.approveJoin(req.id);
+    expect(aman).toMatchObject({ claimedByUserId: (await D.me()).id, alsoHeldBy: [(await C.me()).id] });
   });
 
   test('a request from someone who has since joined is refused as already in', async ({ api }) => {
@@ -1239,57 +1235,43 @@ test.describe('Joining', () => {
     expect((await A.members(group.id)).find((m) => m.displayName === 'Aman')!.claimedByUserId).toBeUndefined();
   });
 
-  test('taking a name back: only the holder or someone who can vouch may say yes, and the old account leaves', async ({ api }) => {
-    const { A, B, link, group, bMember } = await pair(api, { people: ['Priya', 'Aman'] });
-    // Dev joins by the link alone, as Aman: no yes behind them, so they can't vouch.
-    const D = api.as((await api.account('Dev')).token);
-    const view = await api.joinView(link.token);
-    await D.join(link.token, { ref: view.members[0].ref });
-    // Priya lost her phone: a new account asks to be Priya again.
-    const C = api.as((await api.account('Priya on a new phone')).token);
-    const priyaRef = (await api.joinView(link.token)).rejoin!.find((m) => m.name === 'Priya')!.ref;
-    const req = await C.askToJoin(link.token, { ref: priyaRef });
-    expect(req).toMatchObject({ name: 'Priya', takesOver: true, status: 'pending' });
-
-    // Who sees it: the holder as a takeover of their place, the maker as someone's, Dev not at all.
-    expect(await B.pendingJoins(group.id)).toEqual([expect.objectContaining({ id: req.id, name: 'Priya', existing: true, replacing: 'you' })]);
-    expect(await A.pendingJoins(group.id)).toEqual([expect.objectContaining({ id: req.id, replacing: 'someone' })]);
-    expect(await D.pendingJoins(group.id)).toEqual([]);
-
-    const linkOnly = await refused(D.approveJoin(req.id));
-    expect(linkOnly.status).toBe(400);
-    expect(linkOnly.message).toBe('You joined by the link alone, so you can’t hand over Priya’s place. Someone who made the group or was let in with a yes can.');
-
-    const moved = await A.approveJoin(req.id);
-    expect(moved.id).toBe(bMember.id);
-    expect(moved.claimedByUserId).toBe((await C.me()).id);
-    const lost = await refused(B.group(group.id));
-    expect(lost.status).toBe(404);
-    expect(await B.groups()).toEqual([]);
-    expect((await C.groups()).map((g) => g.id)).toEqual([group.id]);
-    expect((await A.members(group.id)).filter((m) => m.displayName === 'Priya')).toHaveLength(1);
-  });
-
-  test('the holder can hand their own place to a new device', async ({ api }) => {
-    const { B, link, group, bMember } = await pair(api);
-    const C = api.as((await api.account('Priya 2')).token);
-    const priyaRef = (await api.joinView(link.token)).rejoin!.find((m) => m.name === 'Priya')!.ref;
-    const req = await C.askToJoin(link.token, { ref: priyaRef });
-    const moved = await B.approveJoin(req.id);
-    expect(moved.id).toBe(bMember.id);
-    expect(await B.groups()).toEqual([]);
-    expect((await C.myMember(group.id)).id).toBe(bMember.id);
-  });
-
-  test('a takeover waits while a payment to the holder is on its way', async ({ api }) => {
-    const { A, B, aMember, bMember, group, link, amount } = await yashOwesPriya(api);
-    const C = api.as((await api.account('Priya 2')).token);
-    const priyaRef = (await api.joinView(link.token)).rejoin!.find((m) => m.name === 'Priya')!.ref;
-    const req = await C.askToJoin(link.token, { ref: priyaRef });
-    await A.post(`/groups/${group.id}/settlements`, { fromMemberId: aMember.id, toMemberId: bMember.id, amount, rail: 'invoice' });
-    const r = await refused(B.approveJoin(req.id));
+  test('being someone who has joined is asked for even where joining is open, and adds this device to them once let in', async ({ api }) => {
+    const { A, B, link, group, bMember } = await pair(api, { people: ['Priya'] });
+    const C = api.as((await api.account('Priya laptop')).token);
+    const priyaRef = (await api.joinView(link.token)).members.find((m) => m.name === 'Priya')!.ref;
+    const r = await refused(C.join(link.token, { ref: priyaRef }));
     expect(r.status).toBe(409);
-    expect(r.message).toBe('A payment to Priya is still in progress. Wait for it to finish.');
+    expect(r.message).toBe('Priya has already joined, so someone in Goa trip has to let you in as them. Ask to join instead.');
+    const req = await C.askToJoin(link.token, { ref: priyaRef });
+    // Priya's own device can say yes.
+    const joined = await B.approveJoin(req.id);
+    expect(joined).toMatchObject({ id: bMember.id, claimedByUserId: (await B.me()).id, alsoHeldBy: [(await C.me()).id] });
+    expect((await B.groups()).map((g) => g.id)).toEqual([group.id]);
+    expect((await C.groups()).map((g) => g.id)).toEqual([group.id]);
+    expect((await C.myMember(group.id)).id).toBe(bMember.id);
+    expect((await A.members(group.id)).filter((m) => m.displayName === 'Priya')).toHaveLength(1);
+
+    // Leaving from one device leaves Priya with the other.
+    await B.post(`/groups/${group.id}/leave`);
+    expect((await A.members(group.id)).find((m) => m.id === bMember.id)).toMatchObject({ claimedByUserId: (await C.me()).id });
+    expect(await B.groups()).toEqual([]);
+  });
+
+  test('in a group that approves joins, another device asks like anyone, and the group sees whose name it is', async ({ api }) => {
+    const { A, B, link, group, bMember } = await pair(api, { people: ['Priya', 'Aman'], approveJoins: true });
+    const C = api.as((await api.account('Priya 2')).token);
+    const priyaRef = (await api.joinView(link.token)).members.find((m) => m.name === 'Priya')!.ref;
+    const req = await C.askToJoin(link.token, { ref: priyaRef });
+    expect(req).toMatchObject({ name: 'Priya', status: 'pending' });
+    expect(await B.pendingJoins(group.id)).toEqual([
+      expect.objectContaining({ id: req.id, name: 'Priya', existing: true, joined: 'you' }),
+    ]);
+    expect(await A.pendingJoins(group.id)).toEqual([expect.objectContaining({ id: req.id, joined: 'someone' })]);
+
+    const member = await A.approveJoin(req.id);
+    expect(member).toMatchObject({ id: bMember.id, alsoHeldBy: [(await C.me()).id] });
+    expect((await B.groups()).map((g) => g.id)).toEqual([group.id]);
+    expect((await C.groups()).map((g) => g.id)).toEqual([group.id]);
   });
 
   test('the link’s group is given only to someone in it', async ({ api }) => {
@@ -1459,34 +1441,11 @@ test.describe('Group links', () => {
 });
 
 test.describe('Pay links', () => {
-  test('only the person owed makes one, for at most what is owed, and only with a way to be paid', async ({ api }) => {
-    const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api, 10_000, { people: ['Priya', 'Aman'] });
-    const aman = await A.memberNamed(group.id, 'Aman');
-    await spend(A, group, { description: 'Cab', amount: 600, paidBy: aman, between: [aMember, aman] });
-    const payer = await refused(A.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount }));
-    expect(payer.status).toBe(400);
-    expect(payer.message).toBe('Only Priya can send a link for this.');
-    const tooMuch = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: amount + 1 }));
-    expect(tooMuch.status).toBe(409);
-    expect(tooMuch.message).toBe('That’s more than is owed. Refresh and try again.');
-    const forGhost = await refused(A.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: aman.id, amount: 300 }));
-    expect(forGhost.status).toBe(400);
-    expect(forGhost.message).toBe('Only Aman can send a link for this.');
-    const outsider = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: 'm-nope', amount: 1 }));
-    expect(outsider.status).toBe(404);
-    expect(outsider.message).toBe('That member isn’t in this group.');
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 4000 });
-    expect(link).toEqual({ token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 4000, createdAt: expect.any(String) });
-    // Several for one debt are allowed.
-    const another = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
-    expect(another.token).not.toBe(link.token);
-  });
-
   test('under simulated payments anyone who joined can be paid, so a link in sats is made like any other', async ({ api }) => {
-    // The refusal for a payee nobody could pay (member_cannot_receive, with what to add) needs
-    // real payments, where receiving takes a wallet or an address: the simulator pays anyone joined.
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api, 1000, { currency: 'BTC' });
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    // The page's refusal for a payee nobody could pay (member_cannot_receive) needs real payments,
+    // where receiving takes a wallet or an address: the simulator pays anyone joined.
+    const { B, group, amount } = await yashOwesPriya(api, 1000, { currency: 'BTC' });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const view = await api.guestView(link.token);
     expect(view).toMatchObject({ currency: 'BTC', amount, payable: true });
     expect(view.upi).toBeUndefined();
@@ -1497,8 +1456,8 @@ test.describe('Pay links', () => {
   });
 
   test('the guest view carries names and amounts only, and opening mints one invoice at a time', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const { B, group, amount } = await yashOwesPriya(api);
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const before = await api.guestView(link.token);
     expect(before).toEqual({ payerName: 'Yash', payeeName: 'Priya', reason: 'Goa trip', amount, currency: 'INR', payable: true });
     const opened = await api.call<{ settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
@@ -1513,43 +1472,33 @@ test.describe('Pay links', () => {
     const paid = await api.call<{ settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
     expect(paid.settlement).toMatchObject({ id: opened.settlement!.id, status: 'confirmed', preimage: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect((await api.guestView(link.token)).settlement?.status).toBe('confirmed');
-    // A second link for the same, now settled, debt has nothing left to pay.
-    const second = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount }));
-    expect(second.message).toBe('Nothing is owed here any more.');
   });
 
-  test('a link whose debt shrank is 410; a smaller one is settled by the cash that shrank it', async ({ api }) => {
+  test('a link whose debt shrank is 410, and the page hands out a new one for the rest', async ({ api }) => {
     const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
-    const smaller = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1000 });
-    // Part of it paid in cash: the link for all of it no longer fits what is owed…
-    const cash = await B.markSettled({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1500 });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
+    // Part of it paid in cash: the link for all of it no longer fits what is owed.
+    await B.markSettled({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1500 });
     const shrunk = await refused(api.call('POST', `/s/${link.token}/open`, undefined, { token: null }));
     expect(shrunk.status).toBe(410);
     expect(shrunk.code).toBe('link_expired');
     expect(shrunk.message).toBe('This has already been settled.');
     expect((await api.guestView(link.token)).settlement).toBeUndefined();
-    // …and the smaller one was covered by it, so it shows that settlement rather than asking to be paid.
-    const covered = await api.call<{ settlement?: Settlement }>('POST', `/s/${smaller.token}/open`, undefined, { token: null });
-    expect(covered.settlement).toMatchObject({ id: cash.id, status: 'manually_confirmed' });
-    // Without the invoice and proof it never had: those are for whoever paid through a link.
-    expect(covered.settlement!.destination).toBeUndefined();
-    expect(covered.settlement!.preimage).toBeUndefined();
     expect(await B.settlements(group.id)).toHaveLength(1);
-    // A link for the rest can still be made and paid.
-    const rest = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: amount - 1500 });
+    // The page now hands out a link for the rest, which can be paid.
+    const rest = await B.payLinkFor(group.id, 'Yash', 'Priya');
+    expect(rest.token).not.toBe(link.token);
+    expect(rest.amount).toBe(amount - 1500);
     const opened = await api.call<{ settlement?: Settlement }>('POST', `/s/${rest.token}/open`, undefined, { token: null });
-    expect(opened.settlement?.status).toBe('created');
+    expect(opened.settlement).toMatchObject({ status: 'created', amount: amount - 1500 });
     await untilStatus(A, opened.settlement!.id, 'confirmed');
     expect(await A.debts(group.id)).toEqual([]);
-    const nothing = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1 }));
-    expect(nothing.message).toBe('Nothing is owed here any more.');
   });
 
   test('with UPI on offer nothing is minted until Lightning is chosen, and a claim holds it', async ({ api }) => {
-    const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api);
+    const { A, B, group, amount } = await yashOwesPriya(api);
     await B.setUpiId('priya@okhdfcbank');
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const asked = await api.call<{ upi?: boolean; settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
     expect(asked.upi).toBe(true);
     expect(asked.settlement).toBeUndefined();
@@ -1577,10 +1526,10 @@ test.describe('Pay links', () => {
   });
 
   test('choosing Lightning mints, and the UPI ID is withheld when shared links may not show it', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
+    const { B, group } = await yashOwesPriya(api);
     await B.setUpiId('priya@okhdfcbank');
     await B.setUpiOnGroupLinks(false);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const view = await api.guestView(link.token);
     expect(view.upi).toBeUndefined();
     const off = await refused(api.call('GET', `/s/${link.token}/upi`, undefined, { token: null }));
@@ -1595,8 +1544,8 @@ test.describe('Pay links', () => {
   });
 
   test('a proof on the pay link has to be for one of its invoices', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const { B, group } = await yashOwesPriya(api);
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     await api.call('POST', `/s/${link.token}/open`, undefined, { token: null });
     const shape = await refused(api.call('POST', `/s/${link.token}/proof`, { preimage: 'zz' }, { token: null }));
     expect(shape.status).toBe(400);

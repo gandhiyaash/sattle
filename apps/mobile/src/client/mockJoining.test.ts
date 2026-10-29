@@ -5,17 +5,16 @@ import { MockClient } from './MockClient';
 const client = () => new MockClient({ latencyMs: 0 });
 
 describe('MockClient joining, with the group’s link', () => {
-  it('offers everyone who hasn’t joined, on the join page the group’s link opens', async () => {
+  it('offers everyone in the group on the join page the group’s link opens, and says who has joined', async () => {
     const c = client();
     const link = await c.createGroupLink('g-goa');
 
-    const ghosts = (await c.getMembers('g-goa')).filter((m) => !m.claimedByUserId).map((m) => m.displayName);
+    const members = await c.getMembers('g-goa');
     const view = await c.getJoinView(link.token);
     expect(view.groupName).toBe('Goa trip');
-    expect(view.members.map((m) => m.name)).toEqual(ghosts);
-    expect(view.members.map((m) => m.name)).toContain('Aman');
-    // The ones who have joined are named too, with nothing to pick them by.
-    expect(view.joined).toEqual(['Yash', 'Om', 'Priya']);
+    expect(view.members.map((m) => m.name)).toEqual(members.map((m) => m.displayName));
+    expect(view.members.filter((m) => m.joined).map((m) => m.name)).toEqual(['Yash', 'Om', 'Priya']);
+    expect(view.members.find((m) => m.name === 'Aman')?.joined).toBeUndefined();
     // Names and refs only: nothing on the page is a member id.
     for (const m of view.members) expect(m.ref).not.toMatch(/^m-/);
   });
@@ -145,14 +144,20 @@ describe('MockClient joining, with the group’s link', () => {
     expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-yash')?.status).toBe('ghost');
   });
 
-  it('never hands over a joined name at once: that is asked for', async () => {
+  it('asks to be someone who has joined, as another device of theirs, even where joining is open', async () => {
     const c = client();
     await c.setApproveJoins('g-goa', false);
     const link = await c.createGroupLink('g-goa');
     await c.leaveGroup('g-goa');
-    const om = (await c.getJoinView(link.token)).rejoin!.find((m) => m.name === 'Om')!;
-    await expect(c.join(link.token, { ref: om.ref })).rejects.toMatchObject({ code: 'conflict' });
-    expect(await c.askToJoin(link.token, { ref: om.ref })).toMatchObject({ name: 'Om', takesOver: true });
+    const om = (await c.getJoinView(link.token)).members.find((m) => m.name === 'Om')!;
+    expect(om.joined).toBe(true);
+    await expect(c.join(link.token, { ref: om.ref })).rejects.toMatchObject({
+      code: 'conflict',
+      message: 'Om has already joined, so someone in Goa trip has to let you in as them. Ask to join instead.',
+    });
+    expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-om')?.alsoHeldBy).toBeUndefined();
+    expect(await c.askToJoin(link.token, { ref: om.ref })).toMatchObject({ groupName: 'Goa trip', name: 'Om', status: 'pending' });
+    expect(await c.getJoinedGroup(link.token)).toBeNull();
   });
 
   it('lets anyone in the group choose whether its link lets people in or lets them ask', async () => {

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { Debt, Expense, Group, GroupLink, JoinView, Member, User, WalletConnection } from '@sattle/core';
+import type { Debt, Expense, Group, GroupGuestView, GroupLink, JoinView, Member, User, WalletConnection } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -294,7 +294,7 @@ describe('DELETE /groups/:id/members/:memberId', () => {
 
     expect((await call('DELETE', `${base}/members/${mAman}`, undefined, kabir.token)).status).toBe(200);
     expect((await members()).map((m) => m.displayName)).toEqual(['Riya', 'Kabir']);
-    expect(await offered(token)).toEqual([]);
+    expect((await offered(token)).map((m) => m.name)).toEqual(['Riya', 'Kabir']);
     expect((await call('POST', '/join-requests', { token, ref: aman }, (await call<{ token: string }>('POST', '/accounts', { displayName: 'Aman' })).body.token)).status).toBe(404);
   });
 
@@ -442,20 +442,23 @@ describe('DELETE /me', () => {
     expect(count('expense_groups')).toBe(1);
   });
 
-  it('removes the pay links they made, without losing the payments made through them', async () => {
-    const { db, call, group, riya, kabir, mRiya, mKabir, mAman, addExpense, count } = await setup();
+  it('removes the pay links handed out for debts to them, without losing the payments made through them', async () => {
+    const { db, call, group, riya, kabir, mRiya, mKabir, mAman, link, addExpense, count } = await setup();
     await addExpense(mKabir, 3000, kabir.token);
-    const link = await call<{ token: string }>('POST', `/groups/${group.id}/pay-links`, { fromMemberId: mAman, toMemberId: mKabir, amount: 1000 }, kabir.token);
-    expect(link.status).toBe(201);
+    // The link the group's page hands out for Aman's debt to Kabir belongs to Kabir's account.
+    const page = await link();
+    const ref = (await call<GroupGuestView>('GET', `/g/${page}`)).body.debts.find((d) => d.from === 'Aman' && d.to === 'Kabir')!.ref;
+    const made = await call<{ token: string }>('POST', `/g/${page}/debts/${ref}/pay-link`);
+    expect(made.status).toBe(201);
     const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO settlements (id, group_id, from_member_id, to_member_id, amount, currency, rail, status, pay_link_token, created_at, updated_at)
        VALUES ('s-paid', ?, ?, ?, 1000, 'INR', 'invoice', 'confirmed', ?, ?, ?)`
-    ).run(group.id, mAman, mKabir, link.body.token, now, now);
+    ).run(group.id, mAman, mKabir, made.body.token, now, now);
 
     expect((await call('DELETE', '/me', undefined, kabir.token)).status).toBe(200);
     expect(count('pay_links')).toBe(0);
-    expect((await call('GET', `/s/${link.body.token}`)).status).toBe(404);
+    expect((await call('GET', `/s/${made.body.token}`)).status).toBe(404);
     const kept = await call<{ id: string }[]>('GET', `/groups/${group.id}/settlements`, undefined, riya.token);
     expect(kept.body.map((s) => s.id)).toEqual(['s-paid']);
     expect(mRiya).toBeTruthy();

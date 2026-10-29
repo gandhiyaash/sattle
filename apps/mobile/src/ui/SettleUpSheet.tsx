@@ -417,7 +417,6 @@ export function SettleUpSheet({
         {remedies.includes('mark_settled') && (
           <Button
             label="Mark as settled"
-            hint="Paid in cash, or forgiven."
             busy={flow.busy}
             onPress={() => flow.markManual('Settled outside the app')}
           />

@@ -682,7 +682,7 @@ export function TrustModel({ ways }: { ways: PayWays }) {
         <Divider />
         <Row
           title="Joining"
-          body="Whoever holds a group’s link can join it as any name nobody has joined as yet, and takes over that name’s balance. A group can change that under Manage, so that picking a name asks instead: someone already in the group has to let them in, and both see the same four-digit code to check it’s really them. Taking over a name someone has joined as always needs that yes."
+          body="Whoever holds a group’s link can join it as anyone in it, even someone who has joined, and is then that person, with their balance. A group can change that under Manage, so that picking a name asks instead: someone already in the group has to let them in, and both see the same four-digit code to check it’s really them."
         />
         {lightning && (
           <>

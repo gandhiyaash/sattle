@@ -171,15 +171,11 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('Yash paid', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Yash ₹300 · Om ₹300')).toBeVisible();
 
-    await expect(guest.page.getByText('In this group?')).toBeVisible();
-    await expect(
-      guest.page.getByText(
-        'Join it to add what you’ve spent and settle up in the app. You pick your name and you’re in. Already joined? This opens the group.'
-      )
-    ).toBeVisible();
+    // The way in is at the top, beside the group's name, and nothing else on the page is about joining.
     const join = guest.page.locator(`a[href="/join/${token}"]`);
     await expect(join).toBeVisible();
-    await expect(join).toContainText('Join Goa trip');
+    await expect(join).toContainText('Join group');
+    await expect(guest.page.getByText('In this group?')).toHaveCount(0);
     await expect(
       guest.page.getByText(
         'You’re seeing this group through its shared link. You can pay what you owe from here, but only the people in the group can change it.'
@@ -190,10 +186,9 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('Groups', { exact: true })).toBeHidden();
   });
 
-  test('says when nothing has been added and nobody owes anything, and that someone lets you in', async ({ api, device }) => {
+  test('says when nothing has been added and nobody owes anything', async ({ api, device }) => {
     const yash = api.as((await api.account('Yash')).token);
     const { group } = await yash.seedGroup({ name: 'Flat 4B', people: ['Om'] });
-    await yash.setApproveJoins(group.id, true);
     const token = await groupLinkToken(yash, group.id);
 
     const guest = await device();
@@ -201,7 +196,6 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('0 spends · shared by link')).toBeVisible();
     await expect(guest.page.getByText('All settled. Nobody owes anything.')).toBeVisible();
     await expect(guest.page.getByText('Nothing has been added yet.')).toBeVisible();
-    await expect(guest.page.getByText(/You pick your name, and someone in the group lets you in\./)).toBeVisible();
   });
 
   test('a debt owed to someone who never joined can’t be paid here', async ({ api, device }) => {
@@ -339,9 +333,9 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(guest.page.getByText('Who are you?')).toBeVisible();
     await expect(who(guest.page, 'Priya')).toBeVisible();
     await expect(who(guest.page, 'Om')).toBeVisible();
-    // Yash has joined: shown, but not a choice here.
-    await expect(guest.page.getByText('Yash', { exact: true })).toBeVisible();
-    await expect(guest.page.getByText('Joined', { exact: true })).toBeVisible();
+    // Yash has joined, and is a choice like anyone: picking him asks to be him on this device too.
+    await expect(who(guest.page, 'Yash')).toBeVisible();
+    await expect(guest.page.getByText('Joined', { exact: true })).toHaveCount(0);
     await expect(guest.page.getByText('I’m not on this list')).toBeVisible();
     await expect(guest.page.getByText('Pick who you are in this group.')).toBeVisible();
     await expect(
@@ -354,8 +348,19 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(join).toBeVisible();
     await expect(ancestor(join, 1)).toHaveCSS('opacity', '0.4');
 
+    await who(guest.page, 'Yash').click();
+    await expect(
+      guest.page.getByText(
+        'Yash has already joined on another device, which can let you in. You’ll be Yash here too, with the same balance, and both devices stay in.'
+      )
+    ).toBeVisible();
+    await expect(guest.page.getByText('You’re asking to join', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText(/^Someone in the group lets you in\. Then you can see everything in it and add to it\./)).toBeVisible();
+    await expect(button(guest.page, 'Ask to join as Yash')).toBeVisible();
+
     await who(guest.page, 'Priya').click();
     await expect(guest.page.getByText('You’ll take over that name as it is, with the balance already on it.')).toBeVisible();
+    await expect(guest.page.getByText('You’re joining', { exact: true })).toBeVisible();
     await expect(button(guest.page, 'Join as Priya')).toBeVisible();
 
     await guest.page.getByText('I’m not on this list').click();
@@ -443,7 +448,7 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(guest.page.getByText(/Join as Yash$/)).toBeVisible();
   });
 
-  test('two guests racing for the same name: the second is told, and sees the name taken', async ({ api, device }) => {
+  test('two guests picking the same name: the first is in, and the second is told to ask', async ({ api, device }) => {
     test.slow();
     const yash = api.as((await api.account('Yash')).token);
     const { group } = await yash.seedGroup({ name: 'Goa trip', people: ['Priya'] });
@@ -457,18 +462,19 @@ test.describe('Joining through the link on a brand-new device', () => {
     await button(first.page, 'Join as Priya').click();
     await expect(first.page.getByText('Goa trip', { exact: true })).toBeVisible();
 
+    // The page still reads Priya as nobody's, from before the first joined. She has joined now, so
+    // being her too is asked for, and the page, read again, offers that.
     await button(second.page, 'Join as Priya').click();
     await expect(
-      second.page.getByText('Priya has already joined. To take the name back, ask, and someone in the group lets you in.')
+      second.page.getByText('Priya has already joined, so someone in Goa trip has to let you in as them. Ask to join instead.')
     ).toBeVisible();
-    // The list is read again: Priya is under the joined now, still picked, so the page offers to ask for the name back.
-    await expect(second.page.getByText('Joined', { exact: true })).toHaveCount(2);
-    await expect(who(second.page, 'Priya')).toBeVisible();
-    await expect(button(second.page, 'Ask to be Priya again')).toBeVisible();
-    await expect(second.page.getByText('I’m not on this list')).toBeVisible();
-    // The account made for the join that failed is gone from this device.
-    expect(await second.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
-    expect((await yash.members(group.id)).filter((m) => m.displayName === 'Priya')).toHaveLength(1);
+    await button(second.page, 'Ask to join as Priya').click();
+    await expect(second.page.getByText('Asked to join')).toBeVisible();
+    const priyas = (await yash.members(group.id)).filter((m) => m.displayName === 'Priya');
+    expect(priyas).toHaveLength(1);
+    expect(priyas[0].claimedByUserId).toEqual(expect.any(String));
+    expect(priyas[0].alsoHeldBy).toBeUndefined();
+    expect(await yash.pendingJoins(group.id)).toEqual([expect.objectContaining({ name: 'Priya', joined: 'someone' })]);
   });
 
   test('a dead link on the join page says so and offers a way on', async ({ device }) => {
@@ -567,8 +573,6 @@ test.describe('A group that approves joins', () => {
     await back(yash.page);
 
     const guest = await device();
-    await openGroupPage(guest.page, token);
-    await expect(guest.page.getByText(/You pick your name, and someone in the group lets you in\./)).toBeVisible();
     await guest.page.goto(`/join/${token}`);
     await expect(guest.page.getByText('You’re asking to join', { exact: true })).toBeVisible();
     await expect(
@@ -671,7 +675,7 @@ test.describe('A group that approves joins', () => {
     await expect(yash.page.getByText('Someone wants to join as Priya')).toBeHidden();
   });
 
-  test('two people asking to be one name are told apart by their codes, and one yes turns the other down', async ({
+  test('two people asking to be one name are told apart by their codes, and each gets their own answer', async ({
     person,
     device,
   }) => {
@@ -698,106 +702,101 @@ test.describe('A group that approves joins', () => {
     await expect(yash.page.getByText(`Code ${firstCode} · just now`)).toBeVisible();
     await expect(yash.page.getByText(`Code ${secondCode} · just now`)).toBeVisible();
 
-    // Let the first one in, by their code.
+    // Let the first one in, by their code. The other is still asking, now to be Priya on another device.
     await ancestor(yash.page.getByText(`Code ${firstCode} · just now`), 3).getByText('Let in', { exact: true }).click();
-    await expect(yash.page.getByText('Asking to join')).toBeHidden();
-
+    await expect(yash.page.getByText('Someone says they’re Priya, on another device')).toBeVisible();
+    await expect(
+      yash.page.getByText('Only if you’ve checked with Priya: they’d be Priya too, alongside their other device. Ask which code they see.')
+    ).toBeVisible();
+    await expect(yash.page.getByText(`Code ${secondCode} · just now`)).toBeVisible();
     await expect(first.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
     await expect(first.page.getByText('Goa trip', { exact: true })).toBeVisible();
+
+    await button(yash.page, 'Not them').click();
+    await expect(yash.page.getByText('Asking to join')).toBeHidden();
     await expect(second.page.getByText(/^Nobody let you in as Priya\./)).toBeVisible({ timeout: 15_000 });
   });
 });
 
-test.describe('Taking a name back from a lost device', () => {
-  test('the old device sees the request as its own, the maker vouches, and the name moves', async ({ person, device }) => {
+test.describe('Joining from another device', () => {
+  test('picking a joined name asks, the device that is already them lets it in, and both stay in', async ({ person, device }) => {
     test.slow();
     const yash = await person('Yash');
     const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Priya' });
     const token = await groupLinkToken(yash.api, group.id);
 
-    const oldPhone = await device();
-    await oldPhone.page.goto(`/join/${token}`);
-    await who(oldPhone.page, 'Priya').click();
-    await button(oldPhone.page, 'Join as Priya').click();
-    await openGroup(oldPhone.page, 'Goa trip');
+    const phone = await device();
+    await phone.page.goto(`/join/${token}`);
+    await who(phone.page, 'Priya').click();
+    await button(phone.page, 'Join as Priya').click();
+    await openGroup(phone.page, 'Goa trip');
 
-    const newPhone = await device();
-    await newPhone.page.goto(`/join/${token}`);
-    const priya = who(newPhone.page, 'Priya');
-    await expect(priya.getByText('Joined', { exact: true })).toBeVisible();
-    await priya.click();
+    const laptop = await device();
+    await laptop.page.goto(`/join/${token}`);
+    await who(laptop.page, 'Priya').click();
     await expect(
-      newPhone.page.getByText(
-        /^Priya has already joined\. Pick this only if it’s you, on a new phone or browser\. Someone in the group, or your old device, has to let you in; then you take over Priya as it is, and the old device leaves the group\./
+      laptop.page.getByText(
+        'Priya has already joined on another device, which can let you in. You’ll be Priya here too, with the same balance, and both devices stay in.'
       )
     ).toBeVisible();
-    await button(newPhone.page, 'Ask to be Priya again').click();
-    await expect(newPhone.page.getByText('as Priya')).toBeVisible();
-    await expect(
-      newPhone.page.getByText(
-        'Someone in Goa trip, or the device you joined with, has to let you in. Then you’re Priya here again, and the old device leaves the group. If they ask, tell them your code:'
-      )
-    ).toBeVisible();
-    const code = (await newPhone.page.getByText(JOIN_CODE).textContent())!;
+    // The group doesn't approve joins, but nobody becomes someone who has joined without a yes.
+    await button(laptop.page, 'Ask to join as Priya').click();
+    await expect(laptop.page.getByText('as Priya')).toBeVisible();
+    const code = (await laptop.page.getByText(JOIN_CODE).textContent())!;
 
-    // The device that has the name is asked whether it's them.
-    await expect(oldPhone.page.getByText('Someone wants to take over your place')).toBeVisible({ timeout: 15_000 });
-    await expect(oldPhone.page.getByText('Only if it’s you on a new device. This one then leaves Goa trip.')).toBeVisible();
-    await expect(oldPhone.page.getByText(`Code ${code} · just now`)).toBeVisible();
+    await expect(phone.page.getByText('Someone says they’re you, on another device')).toBeVisible({ timeout: 15_000 });
+    await expect(phone.page.getByText(`Code ${code} · just now`)).toBeVisible();
+    await button(phone.page, 'Let in').click();
+    await expect(phone.page.getByText('Asking to join')).toBeHidden();
 
-    // Whoever made the group can vouch instead.
-    await openGroup(yash.page, 'Goa trip', { reload: true });
-    await expect(yash.page.getByText('Someone says they’re Priya, on a new device')).toBeVisible({ timeout: 15_000 });
-    await expect(
-      yash.page.getByText('Only if you’ve checked with Priya: their old device leaves Goa trip. Ask which code they see.')
-    ).toBeVisible();
-    await button(yash.page, 'Let in').click();
-    await expect(yash.page.getByText('Asking to join')).toBeHidden();
+    await expect(laptop.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
+    await expect(laptop.page.getByText('You owe', { exact: true })).toBeVisible();
+    await openGroup(laptop.page, 'Goa trip');
+    await groupTab(laptop.page, 'Members');
+    await expect(laptop.page.getByText('Priya (you)')).toBeVisible();
 
-    await expect(newPhone.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
-    await openGroup(newPhone.page, 'Goa trip');
-    await groupTab(newPhone.page, 'Members');
-    await expect(newPhone.page.getByText('Priya (you)')).toBeVisible();
-    await expect(newPhone.page.getByText('You owe', { exact: true })).toBeVisible();
-    await tab(newPhone.page, 'Account');
-    await expect(newPhone.page.getByText('Priya', { exact: true })).toBeVisible();
-
-    // The old device: its open group screen keeps what it last read (see the test below), and the group is gone once it looks again.
-    await back(oldPhone.page);
-    await expect(oldPhone.page.getByText('No groups yet')).toBeVisible();
-    const members = await yash.api.members(group.id);
-    expect(members.filter((m) => m.displayName === 'Priya')).toHaveLength(1);
+    // The phone is still Priya too.
+    await openGroup(phone.page, 'Goa trip', { reload: true });
+    await groupTab(phone.page, 'Members');
+    await expect(phone.page.getByText('Priya (you)')).toBeVisible();
+    const priyas = (await yash.api.members(group.id)).filter((m) => m.displayName === 'Priya');
+    expect(priyas).toHaveLength(1);
+    expect(priyas[0].alsoHeldBy).toHaveLength(1);
   });
 
-  test('the device whose place was taken is told it has left the group', async ({ person, device }) => {
+  test('in a group that approves joins, the device that is already that person can let the other in', async ({ person, device }) => {
     test.slow();
-    test.fail(
-      true,
-      'BUG: a group screen left open on the old device keeps its last reading for good, request card and Let in button included. Its 4 s refresh gets 404 (not a member any more) and useAsync.refresh swallows the failure, so nothing says the group is gone until Back is tapped. GroupDetailScreen.tsx refresh(), SattleProvider.tsx useAsync refresh().'
-    );
     const yash = await person('Yash');
-    const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya'] });
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Priya' });
     const token = await groupLinkToken(yash.api, group.id);
-    const oldPhone = await device();
-    await oldPhone.page.goto(`/join/${token}`);
-    await who(oldPhone.page, 'Priya').click();
-    await button(oldPhone.page, 'Join as Priya').click();
-    await openGroup(oldPhone.page, 'Goa trip');
 
-    const newPhone = await device();
-    await newPhone.page.goto(`/join/${token}`);
-    await who(newPhone.page, 'Priya').click();
-    await button(newPhone.page, 'Ask to be Priya again').click();
-    await expect(newPhone.page.getByText('as Priya')).toBeVisible();
-    await expect(oldPhone.page.getByText('Someone wants to take over your place')).toBeVisible({ timeout: 15_000 });
+    const phone = await device();
+    await phone.page.goto(`/join/${token}`);
+    await who(phone.page, 'Priya').click();
+    await button(phone.page, 'Join as Priya').click();
+    await openGroup(phone.page, 'Goa trip');
+    await yash.api.setApproveJoins(group.id, true);
 
-    await openGroup(yash.page, 'Goa trip', { reload: true });
-    await button(yash.page, 'Let in').click();
-    await expect(yash.page.getByText('Asking to join')).toBeHidden();
-    await expect(newPhone.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
+    const laptop = await device();
+    await laptop.page.goto(`/join/${token}`);
+    await who(laptop.page, 'Priya').click();
+    await button(laptop.page, 'Ask to join as Priya').click();
+    await expect(laptop.page.getByText('as Priya')).toBeVisible();
+    await expect(laptop.page.getByText('Someone in Goa trip has to let you in. If they ask, tell them your code:')).toBeVisible();
+    const code = (await laptop.page.getByText(JOIN_CODE).textContent())!;
 
-    // The old device has left the group. Within a couple of its own refreshes it should say so, or at least stop offering to let someone in.
-    await expect(oldPhone.page.getByText('Someone wants to take over your place')).toBeHidden({ timeout: 12_000 });
+    await expect(phone.page.getByText('Someone says they’re you, on another device')).toBeVisible({ timeout: 15_000 });
+    await expect(phone.page.getByText('Only if it’s you. They’d be you in Goa trip too, alongside this device.')).toBeVisible();
+    await expect(phone.page.getByText(`Code ${code} · just now`)).toBeVisible();
+    await button(phone.page, 'Let in').click();
+    await expect(phone.page.getByText('Asking to join')).toBeHidden();
+
+    await expect(laptop.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
+    await openGroup(laptop.page, 'Goa trip');
+    await groupTab(laptop.page, 'Members');
+    await expect(laptop.page.getByText('Priya (you)')).toBeVisible();
+    // Both devices are still in.
+    expect((await yash.api.members(group.id)).find((m) => m.displayName === 'Priya')!.alsoHeldBy).toHaveLength(1);
   });
 });
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, parseLightningAddress, resolveParts, sameExpense, type Expense, type Group } from '@sattle/core';
+import { SattleError, isHeldBy, parseLightningAddress, resolveParts, sameExpense, type Expense, type Group } from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -262,7 +262,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     // sets their own, or a groupmate could redirect what they're paid. Joining
     // clears the address a groupmate typed, so a joined member's address is
     // always one they chose. A payment proven to it is a payment to them.
-    if (member.claimedByUserId && member.claimedByUserId !== user.id) {
+    if (member.claimedByUserId && !isHeldBy(member, user.id)) {
       throw new SattleError('invalid_input', `Only ${member.displayName} can change where they get paid.`);
     }
 

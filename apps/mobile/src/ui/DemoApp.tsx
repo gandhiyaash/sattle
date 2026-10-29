@@ -497,9 +497,10 @@ function DemoBar({
 
 /**
  * Demo only: jump the guest page into each state it can be in. Links are for
- * Priya's debt in Flat 4B, since the seeded demo link already covers Om's.
- * A fresh link takes a ₹100 slice, so several runs fit before the debt is
- * used up. Set EXPO_PUBLIC_MOCK_ALWAYS_FAIL=true to see a fresh link fail.
+ * Priya's debt in Flat 4B, since the seeded demo link already covers Om's,
+ * and come from the group's page as every pay link does, so Fresh link is
+ * the same link until it's paid. Set EXPO_PUBLIC_MOCK_ALWAYS_FAIL=true to
+ * see a fresh link fail.
  */
 function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   const sheet = useSheet();
@@ -507,14 +508,15 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  /** A link for up to `slice` of what Priya still owes, or null once it's all paid. */
-  const linkFor = async (slice: number) => {
+  /** The page's link for what Priya still owes, with the debt, or null once it's all paid. */
+  const linkFor = async () => {
     const debt = (await client.getDebts('g-flat')).find(
       (d) => d.fromMemberId === 'm-flat-priya' && d.toMemberId === 'm-flat-yash'
     );
     if (!debt) return null;
-    const { groupId, fromMemberId, toMemberId } = debt;
-    return client.createPayLink({ groupId, fromMemberId, toMemberId, amount: Math.min(slice, debt.amount) });
+    const onPage = (await client.getGroupGuestView('demo-group')).debts.find((d) => d.from === 'Priya' && d.to === 'Yash')!;
+    const { token } = await client.payFromGroupLink('demo-group', onPage.ref);
+    return { token, debt };
   };
 
   const run = (make: () => Promise<string | null>) => async () => {
@@ -533,13 +535,13 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
 
   const scenarios: Array<{ label: string; make: () => Promise<string | null> }> = [
     { label: 'Demo link', make: async () => 'demo' },
-    { label: 'Fresh link', make: async () => (await linkFor(10_000))?.token ?? null },
+    { label: 'Fresh link', make: async () => (await linkFor())?.token ?? null },
     {
       label: 'Already settled',
       make: async () => {
-        const link = await linkFor(Infinity);
+        const link = await linkFor();
         if (!link) return null;
-        const { groupId, fromMemberId, toMemberId, amount } = link;
+        const { groupId, fromMemberId, toMemberId, amount } = link.debt;
         await client.markSettledManually({ groupId, fromMemberId, toMemberId, amount, note: 'cash' });
         return link.token;
       },

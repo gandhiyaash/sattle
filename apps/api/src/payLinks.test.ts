@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fixtures, type Debt, type GuestView, type PayLink } from '@sattle/core';
+import { fixtures, type Debt, type GroupGuestView, type GroupLink, type GuestView } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -43,15 +43,18 @@ function setup(payments: Payments = 'simulated') {
    */
   const priyaOwesYash = () => debt('g-flat', 'm-flat-priya', 'm-flat-yash');
 
-  const createLink = async (amount?: number) => {
+  /**
+   * A pay link for that debt, had the one way there is: from the group's
+   * page, as whoever opens the group's link does when they choose a debt to
+   * pay. Flat 4B's link is the seeded one, or a fresh one if that's gone.
+   */
+  const createLink = async () => {
     const d = await priyaOwesYash();
-    const res = await call<PayLink>('POST', '/groups/g-flat/pay-links', {
-      fromMemberId: d.fromMemberId,
-      toMemberId: d.toMemberId,
-      amount: amount ?? d.amount,
-    });
+    const group = ((await call<GroupLink | null>('GET', '/groups/g-flat/link')).body ?? (await call<GroupLink>('POST', '/groups/g-flat/link')).body).token;
+    const ref = (await call<GroupGuestView>('GET', `/g/${group}`)).body.debts.find((x) => x.from === 'Priya' && x.to === 'Yash')!.ref;
+    const res = await call<{ token: string }>('POST', `/g/${group}/debts/${ref}/pay-link`);
     expect(res.status).toBe(201);
-    return res.body;
+    return { token: res.body.token, amount: d.amount };
   };
 
   const settlementCount = () =>
@@ -68,63 +71,6 @@ function setup(payments: Payments = 'simulated') {
 
   return { db, call, debt, priyaOwesYash, createLink, settlementCount, waitForGuest };
 }
-
-describe('POST /groups/:id/pay-links', () => {
-  it('lets the payee create a link with an unguessable token', async () => {
-    const { createLink, priyaOwesYash } = setup();
-    const d = await priyaOwesYash();
-    const link = await createLink();
-    expect(link).toMatchObject({ groupId: 'g-flat', fromMemberId: 'm-flat-priya', toMemberId: 'm-flat-yash', amount: d.amount });
-    expect(link.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
-  });
-
-  it('refuses anyone but the person owed', async () => {
-    const { call, debt } = setup();
-    // In Goa, Yash owes Om: Yash can't send a link asking himself to pay.
-    const d = await debt('g-goa', 'm-goa-yash', 'm-goa-om');
-    const { status, body } = await call<{ code: string }>('POST', '/groups/g-goa/pay-links', {
-      fromMemberId: d.fromMemberId,
-      toMemberId: d.toMemberId,
-      amount: d.amount,
-    });
-    expect(status).toBe(400);
-    expect(body.code).toBe('invalid_input');
-  });
-
-  it('caps the amount at what is owed', async () => {
-    const { call, priyaOwesYash } = setup();
-    const d = await priyaOwesYash();
-    const { status, body } = await call<{ code: string }>('POST', '/groups/g-flat/pay-links', {
-      fromMemberId: d.fromMemberId,
-      toMemberId: d.toMemberId,
-      amount: d.amount + 1,
-    });
-    expect(status).toBe(409);
-    expect(body.code).toBe('conflict');
-  });
-
-  it('refuses a member from another group', async () => {
-    const { call } = setup();
-    const { status } = await call('POST', '/groups/g-flat/pay-links', {
-      fromMemberId: 'm-goa-om',
-      toMemberId: 'm-goa-yash',
-      amount: 100,
-    });
-    expect(status).toBe(404);
-  });
-
-  it('refuses a payer from another group', async () => {
-    const { call } = setup();
-    // The payee is fine; only the payer is foreign, so checkSettlement is what refuses it.
-    const { status, body } = await call<{ code: string }>('POST', '/groups/g-flat/pay-links', {
-      fromMemberId: 'm-goa-aman',
-      toMemberId: 'm-flat-yash',
-      amount: 100,
-    });
-    expect(status).toBe(404);
-    expect(body.code).toBe('not_found');
-  });
-});
 
 describe('POST /s/:token/open', () => {
   it('404s an unknown token', async () => {
@@ -218,7 +164,7 @@ describe('POST /s/:token/open', () => {
 
   it('refuses a payee with nowhere to receive', async () => {
     const { db, call, debt } = setup();
-    // Links are only made by the payee, who is always joined; force a ghost to reach this branch.
+    // The page hands out a link only for someone who can receive, so force one for a ghost to reach this branch.
     const d = await debt('g-goa', 'm-goa-yash', 'm-goa-aman');
     db.prepare(
       `INSERT INTO pay_links (token, group_id, from_member_id, to_member_id, amount, created_by_user_id, created_at)
@@ -258,23 +204,32 @@ describe('POST /s/:token/open', () => {
     expect(res.body.code).toBe('conflict');
   });
 
-  it('never lets two links for the same debt both collect', async () => {
+  it('never lets two links for the same debt both collect, nor shows one the other’s receipt', async () => {
     const { call, createLink, waitForGuest } = setup();
-    const a = await createLink();
-    const b = await createLink();
-    expect(b.token).not.toBe(a.token);
+    const first = await createLink();
+    // Priya then owes more, so the group's page hands out a second link, for the new amount.
+    await call('POST', '/groups/g-flat/expenses', {
+      description: 'Groceries',
+      amount: first.amount * 4,
+      paidByMemberId: 'm-flat-yash',
+      splitMode: 'equal',
+      parts: [{ memberId: 'm-flat-yash' }, { memberId: 'm-flat-priya' }],
+    });
+    const second = await createLink();
+    expect(second.token).not.toBe(first.token);
+    expect(second.amount).toBeGreaterThan(first.amount);
 
-    await call('POST', `/s/${a.token}/open`);
-    const busy = await call<{ code: string }>('POST', `/s/${b.token}/open`);
+    await call('POST', `/s/${second.token}/open`);
+    const busy = await call<{ code: string }>('POST', `/s/${first.token}/open`);
     expect(busy.status).toBe(409);
     expect(busy.body.code).toBe('conflict');
 
-    const paid = await waitForGuest(a.token, (v) => v.settlement?.status === 'confirmed');
-    // The other link shows the payment that settled it, and starts none of its own.
-    const after = await call<GuestView>('POST', `/s/${b.token}/open`);
+    const paid = await waitForGuest(second.token, (v) => v.settlement?.status === 'confirmed');
+    // The first link shows the payment that settled it, and starts none of its own.
+    const after = await call<GuestView>('POST', `/s/${first.token}/open`);
     expect(after.status).toBe(200);
     expect(after.body.settlement?.id).toBe(paid.settlement!.id);
-    // But not its invoice or proof: those are the receipt of whoever paid through the first link.
+    // But not its invoice or proof: those are the receipt of whoever paid through the second link.
     expect(paid.settlement!.destination).toBeDefined();
     expect(after.body.settlement?.destination).toBeUndefined();
     expect(after.body.settlement?.preimage).toBeUndefined();

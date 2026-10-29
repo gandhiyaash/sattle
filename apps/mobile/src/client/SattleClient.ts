@@ -13,7 +13,6 @@
 
 import type {
   CreateGroupInput,
-  CreatePayLinkInput,
   CreateSettlementInput,
   CreateUpiClaimInput,
   Debt,
@@ -99,14 +98,8 @@ export interface SattleClient {
   getHistory(groupId: string): Promise<HistoryEntry[]>;
 
   // -- pay links ------------------------------------------------------------
+  // One debt at /s/<token>, handed out by the group's page (payFromGroupLink).
 
-  /**
-   * Only the person owed can create one. Share `${APP_URL}${payLinkPath(token)}`.
-   * It is paid whichever way they can be paid: over Lightning, or in a rupee
-   * group by UPI. Throws `member_cannot_receive` when there is no way at all,
-   * so a link nobody could pay is never sent.
-   */
-  createPayLink(input: CreatePayLinkInput, idempotencyKey?: string): Promise<PayLink>;
   /**
    * Public. Call once when the guest page loads. The view says how the link
    * can be paid (`payable`, `upi`). With Lightning the only way, it mints a
@@ -144,8 +137,8 @@ export interface SattleClient {
   // own name, and are in (`join`). A group that approves joins
   // (Group.approveJoins, `setApproveJoins`) makes that a request instead
   // (`askToJoin`), which someone already in the group lets in, so a forwarded
-  // link can't be used to become someone. Taking a name back from the account
-  // that has it is always asked for.
+  // link can't be used to become someone. Being someone who has joined, on
+  // another device, is always asked for.
 
   /** Public. Who the group's link offers to join as, and whether picking one joins or asks. Throws `not_found` for a link that was replaced or turned off. */
   getJoinView(token: string): Promise<JoinView>;
@@ -167,10 +160,9 @@ export interface SattleClient {
   getJoinedGroup(token: string): Promise<Group | null>;
   /**
    * The signed-in user asks to join the link's group, and is in once someone
-   * there says yes: the way in to a group that approves joins, and the only
-   * way to take back a name someone has joined as. With a `ref`, one of
-   * `getJoinView`'s, they ask to be that member; throws `conflict` if someone
-   * has joined as that person since.
+   * there says yes: the way in to a group that approves joins, and to being
+   * someone who has joined, on another device. With a `ref`, one of
+   * `getJoinView`'s, they ask to be that member.
    * With a `displayName`, they ask to be added as a new member; throws
    * `conflict` if that name is a member still waiting to be picked. Asking
    * again replaces their last request for the group.

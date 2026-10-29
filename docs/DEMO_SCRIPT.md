@@ -77,7 +77,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 
 ## Scene 5: Cash still counts (1:55–2:10)
 
-**Screen:** under **Settle up**, on "Aman owes you", tap **Mark as settled**, then **Yes, Aman paid me**. The row clears.
+**Screen:** under **Settle up**, on "Aman owes you", tap **Mark as settled**. The row clears.
 
 **Say:**
 > Aman paid me in UPI. Only the person who's owed can mark that, because it's their word, and the app keeps it separate from Lightning payments that come with proof.

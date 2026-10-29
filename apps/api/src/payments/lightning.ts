@@ -38,7 +38,7 @@
  *                       groupmate, so a payment to it proves nothing
  */
 
-import { buildQuote, buildSatsQuote, isBitcoin, type Member, type Quote, type Settlement } from '@sattle/core';
+import { accountsOf, buildQuote, buildSatsQuote, isBitcoin, type Member, type Quote, type Settlement } from '@sattle/core';
 
 import { transaction, type Db } from '../db';
 import { LnurlError, type AddressInvoice, type LnurlClient } from '../lnurl';
@@ -434,21 +434,31 @@ export class LightningPayments implements PaymentBackend {
     return Boolean(this.uriFor(member.id) ?? this.addressFor(member.id));
   }
 
+  /** The wallet of the first of the payee's accounts that has one connected: they may have joined from more than one device. */
   private uriFor(memberId: string) {
     const payee = this.deps.repo.member(memberId);
-    return payee?.claimedByUserId ? this.deps.wallets.nwcUriFor(payee.claimedByUserId) : undefined;
+    if (!payee) return undefined;
+    for (const account of accountsOf(payee)) {
+      const uri = this.deps.wallets.nwcUriFor(account);
+      if (uri) return uri;
+    }
+    return undefined;
   }
 
   /**
-   * The payee's own address: the one they set for receiving everywhere, else
-   * one they set in this group. A ghost's was typed by someone else, so it
-   * doesn't count.
+   * The payee's own address: the one set for receiving everywhere on the
+   * first of their accounts that has one, else one they set in this group. A
+   * ghost's was typed by someone else, so it doesn't count.
    */
   private addressFor(memberId: string) {
     if (!this.deps.lnurl) return undefined;
     const payee = this.deps.repo.member(memberId);
     if (!payee?.claimedByUserId) return undefined;
-    return this.deps.wallets.receiveAddress(payee.claimedByUserId) ?? payee.lightningAddress;
+    for (const account of accountsOf(payee)) {
+      const address = this.deps.wallets.receiveAddress(account);
+      if (address) return address;
+    }
+    return payee.lightningAddress;
   }
 
   private client(uri: string) {

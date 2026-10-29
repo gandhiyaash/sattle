@@ -11,18 +11,18 @@
  * button.
  *
  * Nobody on the list types who they are. The group already has a row for each
- * person, so the page lists them all and the person picks one that nobody has
- * joined as yet. The ones who have joined are there too, marked, so the list
- * is the whole group and never comes up empty. Someone the group hasn't listed
- * taps + and gives their name, and joins as a new member.
+ * person, so the page lists them all and the person picks one. Someone who
+ * has joined can be picked like anyone else: that is how one person is in the
+ * group from a second phone or browser, and how someone gets back in after
+ * losing the one they joined with. Both devices are then that member, so
+ * picking them always asks, whatever the group chose: the link can be
+ * forwarded, and whoever is them is paid what the group owes them. Their own
+ * other device can say yes. The screen says so when such a name is picked.
+ * Someone the group hasn't listed taps + and gives their name, and joins as a
+ * new member.
  *
- * A joined name can be picked as well, by someone who joined and then lost
- * the phone or browser they joined with. That is always an ask, whatever the
- * group chose: being let in hands them that name, and the account that had
- * it leaves the group. The screen says so when one is picked.
- *
- * Someone already in the group has nobody left to be. For them the link just
- * opens the group.
+ * Someone already in the group is one of these people on this device already.
+ * For them the link just opens the group.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -221,13 +221,12 @@ function PasteLink({ onToken }: { onToken: (token: string) => void }) {
 const NEW = '+';
 
 /**
- * Which group it is, the people in it, and Join. The ones nobody
- * has joined as can be picked; the rest are shown as joined, and can be
- * picked to take a place back. Someone who isn't any of them taps + and gives
- * their own name. `join` does the joining and
- * leaves the screen; if it throws, the message is shown and the list is read
- * again, since the name may just have been taken, or the group may have
- * started approving joins.
+ * Which group it is, the people in it, and Join. Anyone on the list can be
+ * picked, whether or not someone has joined as them. Someone who isn't any of
+ * them taps + and gives their own name. `join` does the joining and leaves
+ * the screen; if it throws, the message is shown and the list is read again,
+ * since the group may have started approving joins, or the person may have
+ * been removed.
  */
 function WhoAreYou({
   token,
@@ -244,8 +243,8 @@ function WhoAreYou({
   /**
    * `name` is what they will be called in the group: the member's, or the one
    * they typed. `atOnce`: the tap makes them a member, with nobody to say yes;
-   * otherwise it asks. Off for a group that approves joins, and for a name
-   * someone has joined as, which is only ever asked for.
+   * otherwise it asks. Off for a group that approves joins, and for someone
+   * who has joined.
    */
   join: (as: JoinAs, name: string, atOnce: boolean) => Promise<void>;
   /** The way on when this link can't be used. */
@@ -274,15 +273,11 @@ function WhoAreYou({
     );
   }
 
-  // A server older than taking places back sends names only, and those can't be picked.
-  const joined = data.rejoin ?? data.joined.map((name) => ({ ref: null, name }));
-  const listed = data.members.length + joined.length;
+  const listed = data.members.length;
   // With nobody on the list at all, adding yourself is the only thing to do.
   const adding = picked === NEW || listed === 0;
-  const ghost = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
-  const returning = adding ? null : (data.rejoin?.find((m) => m.ref === picked) ?? null);
-  const member = ghost ?? returning;
-  const atOnce = !data.approveJoins && !returning;
+  const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
+  const atOnce = !data.approveJoins && !member?.joined;
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
 
@@ -295,9 +290,8 @@ function WhoAreYou({
     } catch (e) {
       // The choice stays. After a dropped connection the retry is one tap, with the name still
       // in the field, and it sends the same request again, so one that went through is answered
-      // as it was. Reading the list again would be wrong then: a join that went through moves the
-      // name to the joined ones, and the retry would ask to take it over instead. Anything else
-      // reads it again: the name may just have been taken, or the group may now approve joins.
+      // as it was. Anything else reads the list again: the group may now approve joins, or the
+      // person picked may have been removed.
       setFailed(e instanceof Error ? e.message : 'Couldn’t join. Try again.');
       setBusy(false);
       if (!(e instanceof SattleError && e.code === 'network')) refresh();
@@ -321,7 +315,7 @@ function WhoAreYou({
                 {i > 0 && <Divider />}
                 <Pressable
                   onPress={() => {
-                    analytics.tap('Pick name', { control: 'radio', joined: false });
+                    analytics.tap('Pick name', { control: 'radio', joined: Boolean(m.joined) });
                     setPicked(m.ref);
                   }}
                   disabled={busy}
@@ -333,43 +327,6 @@ function WhoAreYou({
                   <Text style={s.name}>{m.name}</Text>
                   <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
                 </Pressable>
-              </View>
-            );
-          })}
-          {joined.map((m, i) => {
-            // Someone's account already. Picking it asks to take the place back from that account.
-            const on = m.ref !== null && m.ref === member?.ref;
-            const row = (
-              <>
-                <Avatar name={m.name} dim={!on} />
-                <Text style={[s.name, !on && { color: color.inkFaint }]}>{m.name}</Text>
-                <Text style={s.joined}>Joined</Text>
-                {m.ref !== null && <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>}
-              </>
-            );
-            return (
-              <View key={m.ref ?? `joined-${i}`}>
-                {(i > 0 || data.members.length > 0) && <Divider />}
-                {m.ref === null ? (
-                  <View style={s.row}>{row}</View>
-                ) : (
-                  <Pressable
-                    onPress={() => {
-                      analytics.tap('Pick name', { control: 'radio', joined: true });
-                      setPicked(m.ref);
-                    }}
-                    disabled={busy}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    style={({ pressed }) => [
-                      s.row,
-                      i === 0 && data.members.length === 0 && s.rowFirst,
-                      (on || pressed) && s.rowOn,
-                    ]}
-                  >
-                    {row}
-                  </Pressable>
-                )}
               </View>
             );
           })}
@@ -415,15 +372,11 @@ function WhoAreYou({
         <Text style={s.hint}>
           {adding
             ? 'You’ll be added to the group as a new member, with nothing owed either way.'
-            : returning
-              ? `${returning.name} has already joined. Pick this only if it’s you, on a new phone or browser. Someone in the group, or your old device, has to let you in; then you take over ${returning.name} as it is, and the old device leaves the group. If you linked a Nostr key, Sign in with Nostr on the welcome screen gets you back in without asking anyone.`
-              : ghost
+            : member?.joined
+              ? `${member.name} has already joined on another device, which can let you in. You’ll be ${member.name} here too, with the same balance, and both devices stay in.`
+              : member
                 ? 'You’ll take over that name as it is, with the balance already on it.'
-                : data.members.length === 0
-                  ? data.rejoin
-                    ? 'Everyone on the list has already joined. If one of them is you, on a new phone or browser, pick your name. Otherwise add yourself.'
-                    : 'Everyone on the list has already joined. If one of them is you, open the group on the phone or browser you joined with. Otherwise add yourself.'
-                  : 'Pick who you are in this group.'}
+                : 'Pick who you are in this group.'}
         </Text>
       </View>
 
@@ -435,19 +388,9 @@ function WhoAreYou({
       </Text>
       {failed && <ErrorState message={failed} />}
       <Button
-        label={
-          returning
-            ? `Ask to be ${name} again`
-            : atOnce
-              ? name
-                ? `Join as ${name}`
-                : 'Join'
-              : name
-                ? `Ask to join as ${name}`
-                : 'Ask to join'
-        }
+        label={atOnce ? (name ? `Join as ${name}` : 'Join') : name ? `Ask to join as ${name}` : 'Ask to join'}
         // Only pressable once there's a name.
-        track={returning ? 'Ask to be them again' : atOnce ? 'Join as them' : 'Ask to join as them'}
+        track={atOnce ? 'Join as them' : 'Ask to join as them'}
         variant="primary"
         busy={busy}
         disabled={!name}
@@ -480,7 +423,6 @@ const useStyles = makeStyles((color) => ({
   plusText: { ...type.heading, color: color.accent },
   adding: { backgroundColor: color.accentWash, paddingHorizontal: space.lg, paddingBottom: space.lg },
   name: { ...type.body, flex: 1, fontWeight: '500', color: color.ink },
-  joined: { ...type.caption, color: color.inkFaint },
   radio: {
     width: 20,
     height: 20,

@@ -27,6 +27,7 @@ import {
   canChangeExpense,
   formatAmount,
   isBitcoin,
+  isHeldBy,
   parseAmount,
   resolveParts,
   type Expense,
@@ -94,7 +95,7 @@ export function AddExpenseScreen({
 
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
-  const me = userId ? members.find((m) => m.claimedByUserId === userId) : undefined;
+  const me = userId ? members.find((m) => isHeldBy(m, userId)) : undefined;
   const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? me?.id ?? members[0]?.id ?? '');
   // An uneven split comes back as the amounts it resolved to, which saving keeps.
   const [mode, setMode] = useState<SplitMode>(expense && expense.splitMode !== 'equal' ? 'exact' : 'equal');

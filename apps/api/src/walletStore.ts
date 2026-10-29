@@ -32,7 +32,11 @@ export function createWalletStore(db: Db) {
        ON CONFLICT (user_id) DO UPDATE SET nwc_uri = excluded.nwc_uri, wallet_pubkey = excluded.wallet_pubkey,
          methods = excluded.methods, alias = excluded.alias, connected_at = excluded.connected_at`
     ),
-    linkMembers: db.prepare(`UPDATE members SET status = 'nwc_linked' WHERE claimed_by_user_id = ?`),
+    // Every member the user is, as the first account to join as them or on another device since.
+    linkMembers: db.prepare(
+      `UPDATE members SET status = 'nwc_linked'
+       WHERE claimed_by_user_id = ? OR id IN (SELECT member_id FROM member_accounts WHERE user_id = ?)`
+    ),
     receiveAddress: db.prepare('SELECT receive_address FROM users WHERE id = ?'),
     setReceiveAddress: db.prepare('UPDATE users SET receive_address = ? WHERE id = ?'),
     upiId: db.prepare('SELECT upi_id FROM users WHERE id = ?'),
@@ -42,7 +46,17 @@ export function createWalletStore(db: Db) {
     upiOnLinkChoice: db.prepare('SELECT upi_on_link FROM members WHERE id = ?'),
     setUpiOnLinkChoice: db.prepare('UPDATE members SET upi_on_link = ? WHERE id = ?'),
     remove: db.prepare('DELETE FROM wallet_connections WHERE user_id = ?'),
-    unlinkMembers: db.prepare(`UPDATE members SET status = 'joined' WHERE claimed_by_user_id = ? AND status = 'nwc_linked'`),
+    // The same members, back to joined, unless another account that is them still has a wallet connected.
+    unlinkMembers: db.prepare(
+      `UPDATE members SET status = 'joined'
+       WHERE status = 'nwc_linked'
+         AND (claimed_by_user_id = ? OR id IN (SELECT member_id FROM member_accounts WHERE user_id = ?))
+         AND NOT EXISTS (
+           SELECT 1 FROM wallet_connections w
+           WHERE w.user_id = members.claimed_by_user_id
+              OR w.user_id IN (SELECT a.user_id FROM member_accounts a WHERE a.member_id = members.id)
+         )`
+    ),
   };
 
   const toConnection = (r: Row): WalletConnection => {
@@ -62,20 +76,20 @@ export function createWalletStore(db: Db) {
       return r ? toConnection(r) : { connected: false, methods: [], excessMethods: [] };
     },
 
-    /** Replaces any earlier connection, and marks every member the user has claimed as nwc_linked. */
+    /** Replaces any earlier connection, and marks every member the user is as nwc_linked. */
     save(
       userId: string,
       c: { nwcUri: string; walletPubkey: string; methods: string[]; alias?: string; connectedAt: string }
     ): WalletConnection {
       q.upsert.run(userId, c.nwcUri, c.walletPubkey, JSON.stringify(c.methods), c.alias ?? null, c.connectedAt);
-      q.linkMembers.run(userId);
+      q.linkMembers.run(userId, userId);
       return toConnection(q.byUser.get(userId) as unknown as Row);
     },
 
-    /** Forgets the connection string, and puts the user's members back to `joined`. */
+    /** Forgets the connection string, and puts the user's members back to `joined`, unless another of their accounts has a wallet. */
     remove(userId: string): WalletConnection {
       q.remove.run(userId);
-      q.unlinkMembers.run(userId);
+      q.unlinkMembers.run(userId, userId);
       return { connected: false, methods: [], excessMethods: [] };
     },
 

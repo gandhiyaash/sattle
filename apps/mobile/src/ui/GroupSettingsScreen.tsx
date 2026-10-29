@@ -15,6 +15,7 @@ import React, { useEffect, useState } from 'react';
 import { Linking, Platform, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import {
+  accountsOf,
   groupDebts,
   groupLinkPath,
   isInProgress,
@@ -88,7 +89,8 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
     return {
       name: group.name,
       simplifyDebts: group.simplifyDebts,
-      accounts: members.filter((m) => m.claimedByUserId).length,
+      // One account for each device anyone has joined from.
+      accounts: members.reduce((n, m) => n + accountsOf(m).length, 0),
       settled: groupDebts(group, expenses, settlements).length === 0,
       paying: settlements.some(isInProgress),
       link,
@@ -345,10 +347,9 @@ function GroupLinkSection({
 
 /**
  * Whether someone here lets each person in (Group.approveJoins). Off from the
- * start: whoever opens the group's link picks a name nobody has joined as and
- * is in. On, picking a name asks, and the request waits at the top of the
- * group with a four-digit code. Anyone in the group can change it. Taking over
- * a name someone has joined as asks either way.
+ * start: whoever opens the group's link picks a name and is in, as that
+ * person. On, picking a name asks, and the request waits at the top of the
+ * group with a four-digit code. Anyone in the group can change it.
  */
 function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJoins: boolean }) {
   const color = useColors();
@@ -401,9 +402,9 @@ function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJo
           />
         </View>
         <LearnMore>
-          The link can be forwarded, and whoever holds it can take any name nobody has joined as, with the balance on
-          it. Turn this on if the link has gone further than people you know: picking a name then asks to join, and
-          the request waits at the top of the group. Taking over a name someone has joined as always needs a yes.
+          The link can be forwarded, and whoever holds it can join as anyone in the group, with the balance on it,
+          even someone who has joined. Turn this on if the link has gone further than people you know: picking a
+          name then asks to join, and the request waits at the top of the group.
         </LearnMore>
         {error && <Text style={s.error}>{error}</Text>}
       </Card>

@@ -16,10 +16,11 @@
  * and the page can't tell who is looking, so every debt gets the same
  * buttons: paying someone else's is allowed and harmless.
  *
- * It is also the way in. Join opens /join/<token>, with the same token,
- * where someone says which of the people in the group they are and is in,
- * or asks to be, if the group approves joins (JoinScreen). For someone who
- * has joined, that opens the group.
+ * It is also the way in. Join group, at the top beside the group's name,
+ * opens /join/<token>, with the same token, where someone says which of the
+ * people in the group they are and is in, or asks to be, if the group
+ * approves joins (JoinScreen). For someone who has joined, that opens the
+ * group.
  *
  * Mostly this is a page in a browser. On an Android phone with the app, the
  * link opens the app instead, and someone who isn't in the group gets this
@@ -196,6 +197,16 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
       title={data.groupName}
       subtitle={`${spends.length} ${spends.length === 1 ? 'spend' : 'spends'} · shared by link`}
       onBack={onBack}
+      right={
+        // The way in, for the people who belong here. Inside the app, its own join screen; in a
+        // browser, a real link and not a change of screen: Back returns here, and a phone with the
+        // app installed can hand /join/ links to it.
+        onJoin ? (
+          <Button label="Join group" track="Join the group" variant="primary" onPress={onJoin} />
+        ) : (
+          <Button label="Join group" track="Join the group" variant="primary" href={joinPath(token)} />
+        )
+      }
     >
       <View>
         <SectionLabel>Who owes what</SectionLabel>
@@ -225,23 +236,6 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
           </View>
         )}
       </View>
-
-      <Card style={s.joinCard}>
-        <Text style={s.joinTitle}>In this group?</Text>
-        <Text style={s.body}>
-          {`Join it to add what you’ve spent and settle up in the app. ${
-            data.approveJoins ? 'You pick your name, and someone in the group lets you in.' : 'You pick your name and you’re in.'
-          } Already joined? This opens the group.`}
-        </Text>
-        {onJoin ? (
-          // Inside the app, which has a join screen of its own to go to.
-          <Button label={`Join ${data.groupName}`} track="Join the group" variant="primary" onPress={onJoin} />
-        ) : (
-          // In a browser, a real link and not a change of screen: Back returns here, and a phone
-          // with the app installed can hand /join/ links to it.
-          <Button label={`Join ${data.groupName}`} track="Join the group" variant="primary" href={joinPath(token)} />
-        )}
-      </Card>
 
       <View>
         <SectionLabel>Spends</SectionLabel>
@@ -417,9 +411,6 @@ const useStyles = makeStyles((color) => ({
   caption: { ...type.caption, color: color.inkMuted },
   asked: { gap: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: color.accentWash },
   askedTitle: { ...type.body, fontWeight: '600', color: color.ink },
-  // The other thing the page is for, after paying: set apart, so it isn't read as one more debt.
-  joinCard: { gap: space.sm, backgroundColor: color.accentWash, borderColor: color.accent },
-  joinTitle: { ...type.body, fontWeight: '600', color: color.ink },
   spend: { padding: space.lg, gap: space.sm },
   spendTop: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   spendName: { ...type.body, fontWeight: '500', color: color.ink },

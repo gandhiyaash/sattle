@@ -70,6 +70,8 @@ describe('resolveSettlementOptions with real payments', () => {
       (r) => r.rail === 'manual'
     );
     expect(manual?.availability.available).toBe(true);
+    // Its label says it all: no line under it about cash or forgiving.
+    expect(manual?.detail).toBeUndefined();
   });
 });
 

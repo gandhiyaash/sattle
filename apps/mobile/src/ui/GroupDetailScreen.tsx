@@ -38,13 +38,12 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
-  SattleError,
   canReceive,
   computeBalances,
   formatAmount,
   groupDebts,
   isBitcoin,
-  payLinkPath,
+  isHeldBy,
   UPI_CURRENCY,
   type Debt,
   type Expense,
@@ -60,7 +59,7 @@ import { useScreenView } from '../analytics/useScreenView';
 import { toggleCurrency } from '../prefs/currencyPrefs';
 import { chooseCurrencies, useCurrencyPrefs, usePayWays } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
-import { APP_URL, groupLinkToShare } from '../react/useSettleFlow';
+import { groupLinkToShare } from '../react/useSettleFlow';
 import {
   Amount,
   Avatar,
@@ -166,7 +165,7 @@ export function GroupDetailScreen({
 
     const balances = computeBalances(group.memberIds, expenses, settlements);
     const debts = groupDebts(group, expenses, settlements);
-    const mine = members.find((m) => m.claimedByUserId === user.id) ?? null;
+    const mine = members.find((m) => isHeldBy(m, user.id)) ?? null;
     const named = new Set<string>();
     for (const e of expenses) {
       named.add(e.paidByMemberId);
@@ -471,21 +470,8 @@ export function GroupDetailScreen({
                         onChanged={refresh}
                       />
                     )}
-                    {/* The link offers whichever ways the user can be paid, so it is here whichever they use.
-                        With none, sending it says what to add. */}
-                    {!owedByMe && (
-                      <SendPayLink
-                        debt={debt}
-                        payerName={nameOf(other)}
-                        groupName={data.name}
-                        currency={data.currency}
-                        nothingToPayWith={nothingToPayWith(ways, Boolean(data.upi.upiId))}
-                        onSetUp={setUpGettingPaid}
-                      />
-                    )}
-                    {!owedByMe && (
-                      <MarkSettled debt={debt} payerName={nameOf(other)} upi={ways.upi} onSettled={refresh} />
-                    )}
+                    {/* Nothing to send from here: they pay from the group's link, under Invite. */}
+                    {!owedByMe && <MarkSettled debt={debt} onSettled={refresh} />}
                     {cannotReceive && otherMember && (
                       <Text style={s.blockedNote}>{cannotReceiveNote(otherMember, mode, ways)}</Text>
                     )}
@@ -593,10 +579,10 @@ function JoinRequestCard({
         <Avatar name={request.name} dim />
         <View style={{ flex: 1 }}>
           <Text style={s.debtText}>
-            {request.replacing === 'you'
-              ? 'Someone wants to take over your place'
-              : request.replacing
-                ? `Someone says they’re ${request.name}, on a new device`
+            {request.joined === 'you'
+              ? 'Someone says they’re you, on another device'
+              : request.joined
+                ? `Someone says they’re ${request.name}, on another device`
                 : request.existing
                   ? `Someone wants to join as ${request.name}`
                   : `${request.name} wants to join`}
@@ -622,11 +608,11 @@ function JoinRequestCard({
 /** What letting this person in would do, under who they are. */
 function joinRequestNote(request: PendingJoin, twin: boolean, groupName: string): string {
   const { name } = request;
-  if (request.replacing === 'you') {
-    return `Only if it’s you on a new device. This one then leaves ${groupName}.`;
+  if (request.joined === 'you') {
+    return `Only if it’s you. They’d be you in ${groupName} too, alongside this device.`;
   }
-  if (request.replacing) {
-    return `Only if you’ve checked with ${name}: their old device leaves ${groupName}. Ask which code they see.`;
+  if (request.joined) {
+    return `Only if you’ve checked with ${name}: they’d be ${name} too, alongside their other device. Ask which code they see.`;
   }
   if (twin) {
     return `More than one person wants to be ${name}. Ask ${name} which code they see.`;
@@ -686,14 +672,6 @@ type GroupShare =
   /** `note` is what the last send did, said under the button; null until one. */
   | { kind: 'open'; url: string; message: string; sentNote: string; note: string | null }
   | { kind: 'failed'; message: string };
-
-type LinkState =
-  | { kind: 'idle' }
-  | { kind: 'busy' }
-  | { kind: 'sent'; url: string; note: string }
-  | { kind: 'failed'; message: string }
-  /** The user has no way to be paid, so there was no link to make. */
-  | { kind: 'no_way' };
 
 /**
  * One member, with their state, in terms of the ways to pay the user is shown,
@@ -799,125 +777,18 @@ function AddMember({ groupId, onAdded }: { groupId: string; onAdded: () => void 
 }
 
 /**
- * What Send pay link says to someone with no way to be paid by one, in terms
- * of the ways they're shown, like the card at the top of the tab. The server
- * is what refuses the link; these are the app's words for why.
- */
-function nothingToPayWith(ways: PayWays, hasUpiId: boolean): string {
-  // They've given a UPI ID and still can't be paid by link, so shared links aren't allowed to show it.
-  if (ways.upi && hasUpiId) {
-    return ways.lightning
-      ? 'Your UPI ID is off for shared links. Turn it on in Wallet, or add a wallet.'
-      : 'Your UPI ID is off for shared links. Turn it on in Wallet.';
-  }
-  if (!ways.lightning) return 'Add your UPI ID first.';
-  return ways.upi
-    ? 'Add a way to get paid first.'
-    : 'Add a way to get paid first.';
-}
-
-/**
- * Only on debts owed to you: mints a pay link and hands it to the share
- * sheet. The URL stays on screen afterwards, so it can be copied by hand.
- * Whoever opens the link is offered the ways the user can be paid. With no
- * way at all there is no link to send: it says what to add, with a button
- * that goes there.
- */
-function SendPayLink({
-  debt,
-  payerName,
-  groupName,
-  currency,
-  nothingToPayWith,
-  onSetUp,
-}: {
-  debt: Debt;
-  payerName: string;
-  groupName: string;
-  currency: string;
-  /** What to say when the user has no way to be paid by a link. */
-  nothingToPayWith: string;
-  /** Opens Wallet, where a way to get paid is added. */
-  onSetUp: () => void;
-}) {
-  const s = useStyles();
-  const client = useClient();
-  const keys = useActionKeys();
-  const [state, setState] = useState<LinkState>({ kind: 'idle' });
-
-  const send = async () => {
-    setState({ kind: 'busy' });
-    let url: string;
-    try {
-      const input = {
-        groupId: debt.groupId,
-        fromMemberId: debt.fromMemberId,
-        toMemberId: debt.toMemberId,
-        amount: debt.amount,
-      };
-      const link = await keys.run('pay-link', input, (k) => client.createPayLink(input, k));
-      url = `${APP_URL}${payLinkPath(link.token)}`;
-    } catch (e) {
-      setState(
-        e instanceof SattleError && e.code === 'member_cannot_receive'
-          ? { kind: 'no_way' }
-          : { kind: 'failed', message: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' }
-      );
-      return;
-    }
-    const message = `${payerName}, you owe me ${formatAmount(debt.amount, currency)} for ${groupName}. Pay here, no app needed: ${url}`;
-    setState({ kind: 'sent', url, note: await share(message, 'Sent. It works until it’s paid.') });
-  };
-
-  return (
-    <View style={s.linkBlock}>
-      <Button
-        label={state.kind === 'sent' ? 'Send again' : 'Send pay link'}
-        busy={state.kind === 'busy'}
-        onPress={send}
-      />
-      {state.kind === 'sent' && (
-        <>
-          <Text style={s.linkNote}>{state.note}</Text>
-          <Text style={s.linkUrl} selectable numberOfLines={1}>
-            {state.url}
-          </Text>
-        </>
-      )}
-      {state.kind === 'failed' && <Text style={s.linkError}>{state.message}</Text>}
-      {state.kind === 'no_way' && (
-        <>
-          <Text style={s.linkError}>{nothingToPayWith}</Text>
-          <Button label="Set up getting paid" variant="primary" onPress={onSetUp} />
-        </>
-      )}
-    </View>
-  );
-}
-
-/**
  * The payee's side of "paid in cash". Only they can record it for someone
  * who has joined, so this is where it lives; the payer's sheet tells them to
- * ask. Two taps, since nothing undoes it.
+ * ask. One tap: it is their money, so it is their word to give, and the
+ * history says whose it was.
  */
-function MarkSettled({
-  debt,
-  payerName,
-  upi,
-  onSettled,
-}: {
-  debt: Debt;
-  payerName: string;
-  /** Whether UPI is something the user is shown here, and so worth naming as a way it may have been paid. */
-  upi: boolean;
-  onSettled: () => void;
-}) {
+function MarkSettled({ debt, onSettled }: { debt: Debt; onSettled: () => void }) {
   const s = useStyles();
   const client = useClient();
   const keys = useActionKeys();
-  const [state, setState] = useState<'idle' | 'confirming' | 'busy' | { failed: string }>('idle');
+  const [state, setState] = useState<'idle' | 'busy' | { failed: string }>('idle');
 
-  const confirm = async () => {
+  const settle = async () => {
     setState('busy');
     const input = {
       groupId: debt.groupId,
@@ -936,16 +807,7 @@ function MarkSettled({
 
   return (
     <View style={s.linkBlock}>
-      {state === 'confirming' || state === 'busy' ? (
-        <Button label={`Yes, ${payerName} paid me`} track="Yes, they paid me" busy={state === 'busy'} onPress={confirm} />
-      ) : (
-        <Button
-          label="Mark as settled"
-          variant="quiet"
-          hint={upi ? 'Paid in cash, UPI, or forgiven.' : 'Paid in cash, or forgiven.'}
-          onPress={() => setState('confirming')}
-        />
-      )}
+      <Button label="Mark as settled" variant="quiet" busy={state === 'busy'} onPress={settle} />
       {typeof state === 'object' && <Text style={s.linkError}>{state.failed}</Text>}
     </View>
   );
@@ -1063,7 +925,6 @@ const useStyles = makeStyles((color) => ({
   getPaidTitle: { ...type.body, fontWeight: '600', color: color.ink },
   linkNote: { ...type.caption, color: color.inkMuted },
   linkIntro: { ...type.body, color: color.inkMuted },
-  linkUrl: { ...type.amountSm, color: color.inkFaint },
   linkError: { ...type.caption, color: color.danger },
   memberRow: {
     flexDirection: 'row',

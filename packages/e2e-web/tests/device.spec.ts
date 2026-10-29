@@ -98,8 +98,7 @@ test.describe('links on a device that is signed in', () => {
     await expect(page.getByText('Weekend', { exact: true })).toBeVisible();
     await expect(page.getByText('1 spend · shared by link')).toBeVisible();
     await expect(page.getByText('Riya owes Yash')).toBeVisible();
-    await expect(page.getByText('In this group?')).toBeVisible();
-    const join = page.getByRole('link', { name: 'Join Weekend' });
+    const join = page.getByRole('link', { name: 'Join group' });
     await expect(join).toHaveAttribute('href', `/join/${link.token}`);
     await expect(page.getByText('Manage', { exact: true })).toHaveCount(0);
   });
