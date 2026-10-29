@@ -144,21 +144,20 @@ describe('MockClient joining, with the group’s link', () => {
     expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-yash')?.status).toBe('ghost');
   });
 
-  it('joins as someone who has joined, as another device of theirs', async () => {
+  it('asks to be someone who has joined, as another device of theirs, even where joining is open', async () => {
     const c = client();
     await c.setApproveJoins('g-goa', false);
     const link = await c.createGroupLink('g-goa');
     await c.leaveGroup('g-goa');
     const om = (await c.getJoinView(link.token)).members.find((m) => m.name === 'Om')!;
     expect(om.joined).toBe(true);
-    const joined = await c.join(link.token, { ref: om.ref });
-    expect(joined).toMatchObject({ id: 'm-goa-om', claimedByUserId: 'u-om', alsoHeldBy: ['u-yash'] });
-    expect((await c.getJoinedGroup(link.token))?.id).toBe('g-goa');
-
-    // Leaving from this device leaves Om with his own.
-    await c.leaveGroup('g-goa');
-    expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-om')).toMatchObject({ claimedByUserId: 'u-om' });
+    await expect(c.join(link.token, { ref: om.ref })).rejects.toMatchObject({
+      code: 'conflict',
+      message: 'Om has already joined, so someone in Goa trip has to let you in as them. Ask to join instead.',
+    });
     expect((await c.getMembers('g-goa')).find((m) => m.id === 'm-goa-om')?.alsoHeldBy).toBeUndefined();
+    expect(await c.askToJoin(link.token, { ref: om.ref })).toMatchObject({ groupName: 'Goa trip', name: 'Om', status: 'pending' });
+    expect(await c.getJoinedGroup(link.token)).toBeNull();
   });
 
   it('lets anyone in the group choose whether its link lets people in or lets them ask', async () => {

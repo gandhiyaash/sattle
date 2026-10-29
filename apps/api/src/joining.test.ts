@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupLink, JoinView, JoinRequest, Member, PendingJoin, User } from '@sattle/core';
+import type {
+  Expense, Group, GroupGuestView, GroupLink, GuestView, JoinView, JoinRequest, Member, PendingJoin, User,
+} from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb } from './db';
@@ -247,15 +249,25 @@ describe('POST /join', () => {
     expect((await joinNow(token, { ref: await refOf(token, 'Aman') }, a.token)).status).toBe(201);
   });
 
-  it('joins as someone who has joined, as another device of theirs, with nobody to say yes', async () => {
-    const { call, signUp, link, refOf, joinAs, joinNow, members, group, kabir } = await setup();
+  it('won’t make anyone someone who has joined with nobody to say yes, since they’d be paid what he’s owed', async () => {
+    const { call, signUp, link, refOf, joinAs, joinNow, ask, approve, members, group, kabir } = await setup();
     const { token } = (await link()).body;
     const k = await signUp('Kabir');
     await joinAs('Kabir', token, k.token);
     const laptop = await signUp('Kabir laptop');
 
-    const joined = await joinNow(token, { ref: await refOf(token, 'Kabir') }, laptop.token);
-    expect(joined.status).toBe(201);
+    const refused = await joinNow(token, { ref: await refOf(token, 'Kabir') }, laptop.token);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      message: 'Kabir has already joined, so someone in Manali has to let you in as them. Ask to join instead.',
+    });
+    expect((await members()).find((m) => m.id === kabir)?.alsoHeldBy).toBeUndefined();
+
+    // Asking is the way, and his own phone can say yes.
+    const asked = await ask(token, await refOf(token, 'Kabir'), laptop.token);
+    expect(asked.status).toBe(201);
+    const joined = await approve(asked.body.id, k.token);
+    expect(joined.status).toBe(200);
     expect(joined.body).toMatchObject({ id: kabir, displayName: 'Kabir', claimedByUserId: k.user.id, alsoHeldBy: [laptop.user.id] });
     // Still one Kabir, on two devices, and both have the group.
     expect((await members()).filter((m) => m.displayName === 'Kabir')).toHaveLength(1);
@@ -282,8 +294,8 @@ describe('POST /join', () => {
     expect((await members()).find((m) => m.id === kabir)).toMatchObject({ claimedByUserId: k.user.id, alsoHeldBy: [other.user.id] });
   });
 
-  it('won’t give one account two members of the same group, and lets a second account be the same person', async () => {
-    const { signUp, link, refOf, joinNow, members, aman } = await setup();
+  it('won’t give one account two members of the same group, and lets a second account be the same person once let in', async () => {
+    const { signUp, link, refOf, joinNow, join, members, aman } = await setup();
     const { token } = (await link()).body;
     const k = await signUp('Kabir S');
     expect((await joinNow(token, { ref: await refOf(token, 'Kabir') }, k.token)).status).toBe(201);
@@ -296,7 +308,8 @@ describe('POST /join', () => {
     const a = await signUp('Aman');
     const also = await signUp('Also Aman');
     expect((await joinNow(token, { ref: amanRef }, a.token)).status).toBe(201);
-    expect((await joinNow(token, { ref: amanRef }, also.token)).status).toBe(201);
+    expect((await joinNow(token, { ref: amanRef }, also.token)).status).toBe(409);
+    expect((await join(token, amanRef, also.token)).status).toBe(200);
     expect((await members()).filter((m) => m.id === aman)).toEqual([
       expect.objectContaining({ claimedByUserId: a.user.id, alsoHeldBy: [also.user.id] }),
     ]);
@@ -769,7 +782,8 @@ describe('joining from another device', () => {
     );
     expect(fuel.status).toBe(201);
     const laptop = await t.signUp('Kabir');
-    expect((await t.joinNow(token, { ref: await t.refOf(token, 'Kabir') }, laptop.token)).status).toBe(201);
+    const asked = await t.ask(token, await t.refOf(token, 'Kabir'), laptop.token);
+    expect((await t.approve(asked.body.id, phone.token)).status).toBe(200);
     return { ...t, token, phone, laptop, fuel: fuel.body };
   }
 
@@ -834,7 +848,7 @@ describe('joining from another device', () => {
          VALUES (?, 'nostr+walletconnect://x', 'x', '[]', NULL, '2026-10-01')`
       )
       .run(laptop.user.id);
-    expect((await t.joinNow(token, { ref: await t.refOf(token, 'Kabir') }, laptop.token)).body.status).toBe('nwc_linked');
+    expect((await t.joinAs('Kabir', token, laptop.token)).body.status).toBe('nwc_linked');
   });
 
   it('leaves the member with the other device when the first one leaves, or its account goes', async () => {
@@ -845,11 +859,25 @@ describe('joining from another device', () => {
     expect((await t.call<Group[]>('GET', '/groups', undefined, t.phone.token)).body).toEqual([]);
     expect((await t.call<Group[]>('GET', '/groups', undefined, t.laptop.token)).body.map((g) => g.id)).toEqual([t.group.id]);
 
-    // The phone comes back the same way it can always come back: by the link.
-    expect((await t.joinNow(t.token, { ref: await t.refOf(t.token, 'Kabir') }, t.phone.token)).status).toBe(201);
+    // The phone comes back the way any device does: by the link, and the laptop lets it in.
+    const back = await t.ask(t.token, await t.refOf(t.token, 'Kabir'), t.phone.token);
+    expect((await t.approve(back.body.id, t.laptop.token)).status).toBe(200);
     expect((await t.call('DELETE', '/me', undefined, t.laptop.token)).status).toBe(200);
     expect(await kabirOf(t)).toMatchObject({ claimedByUserId: t.phone.user.id });
     expect((await kabirOf(t)).alsoHeldBy).toBeUndefined();
+  });
+
+  it('keeps the pay links made for him working once the first device has left and its account has gone', async () => {
+    const t = await twoDevices();
+    const toKabir = (await t.call<GroupGuestView>('GET', `/g/${t.token}`)).body.debts.find((d) => d.to === 'Kabir')!;
+    const made = await t.call<{ token: string }>('POST', `/g/${t.token}/debts/${toKabir.ref}/pay-link`);
+    expect(made.status).toBe(201);
+
+    expect((await t.call('POST', `${t.base}/leave`, undefined, t.phone.token)).status).toBe(200);
+    expect((await t.call('DELETE', '/me', undefined, t.phone.token)).status).toBe(200);
+    const opened = await t.call<GuestView>('POST', `/s/${made.body.token}/open`);
+    expect(opened.status).toBe(200);
+    expect(opened.body).toMatchObject({ payerName: 'Aman', payeeName: 'Kabir' });
   });
 
   it('takes only itself out when the second device leaves', async () => {
@@ -861,10 +889,10 @@ describe('joining from another device', () => {
   });
 
   it('counts each device as an account, so the one person in a group can leave it from one of two', async () => {
-    const { call, signUp, link, refOf, joinNow, members, base, riya, group } = await setup();
+    const { call, signUp, link, joinAs, members, base, riya, group } = await setup();
     const { token } = (await link()).body;
     const laptop = await signUp('Riya');
-    expect((await joinNow(token, { ref: await refOf(token, 'Riya') }, laptop.token)).status).toBe(201);
+    expect((await joinAs('Riya', token, laptop.token)).status).toBe(200);
 
     expect((await call('POST', `${base}/leave`, undefined, riya.token)).status).toBe(200);
     expect((await members(laptop.token)).find((m) => m.id === group.memberIds[0])).toMatchObject({ claimedByUserId: laptop.user.id });

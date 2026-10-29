@@ -14,9 +14,12 @@
  * person, so the page lists them all and the person picks one. Someone who
  * has joined can be picked like anyone else: that is how one person is in the
  * group from a second phone or browser, and how someone gets back in after
- * losing the one they joined with. Both devices are then that member. The
- * screen says so when such a name is picked. Someone the group hasn't listed
- * taps + and gives their name, and joins as a new member.
+ * losing the one they joined with. Both devices are then that member, so
+ * picking them always asks, whatever the group chose: the link can be
+ * forwarded, and whoever is them is paid what the group owes them. Their own
+ * other device can say yes. The screen says so when such a name is picked.
+ * Someone the group hasn't listed taps + and gives their name, and joins as a
+ * new member.
  *
  * Someone already in the group is one of these people on this device already.
  * For them the link just opens the group.
@@ -240,7 +243,8 @@ function WhoAreYou({
   /**
    * `name` is what they will be called in the group: the member's, or the one
    * they typed. `atOnce`: the tap makes them a member, with nobody to say yes;
-   * otherwise it asks. Off for a group that approves joins.
+   * otherwise it asks. Off for a group that approves joins, and for someone
+   * who has joined.
    */
   join: (as: JoinAs, name: string, atOnce: boolean) => Promise<void>;
   /** The way on when this link can't be used. */
@@ -273,7 +277,7 @@ function WhoAreYou({
   // With nobody on the list at all, adding yourself is the only thing to do.
   const adding = picked === NEW || listed === 0;
   const member = adding ? null : (data.members.find((m) => m.ref === picked) ?? null);
-  const atOnce = !data.approveJoins;
+  const atOnce = !data.approveJoins && !member?.joined;
   const draft = typed ?? suggestedName ?? '';
   const name = adding ? draft.trim() : (member?.name ?? '');
 
@@ -369,7 +373,7 @@ function WhoAreYou({
           {adding
             ? 'You’ll be added to the group as a new member, with nothing owed either way.'
             : member?.joined
-              ? `${member.name} has already joined on another device. You’ll be ${member.name} here too, with the same balance, and both devices stay in.`
+              ? `${member.name} has already joined on another device, which can let you in. You’ll be ${member.name} here too, with the same balance, and both devices stay in.`
               : member
                 ? 'You’ll take over that name as it is, with the balance already on it.'
                 : 'Pick who you are in this group.'}
