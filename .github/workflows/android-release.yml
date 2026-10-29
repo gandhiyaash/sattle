@@ -102,8 +102,8 @@ jobs:
       - name: Check app config
         env:
           USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
-          API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
-          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL }}
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
           TRACK: ${{ inputs.track }}
         run: |
           # Both of these build fine and only show up once someone opens the app.
@@ -111,9 +111,9 @@ jobs:
             echo "::error::EXPO_PUBLIC_USE_MOCK is 'true'; refusing to ship the mock client to production"
             exit 1
           fi
-          # The two addresses are repository variables: nothing in this file names a host.
+          # The two addresses are repository variables, or secrets of the same name: nothing in this file names a host.
           if [ "$USE_MOCK" != "true" ] && { [ -z "$API_URL" ] || [ -z "$APP_URL" ]; }; then
-            echo "::error::Set the EXPO_PUBLIC_API_URL and EXPO_PUBLIC_APP_URL repository variables, or the app talks to localhost"
+            echo "::error::Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_APP_URL as repository variables (or secrets), or the app talks to localhost"
             exit 1
           fi
 
@@ -193,9 +193,9 @@ jobs:
           # EXPO_PUBLIC_* values are inlined into the JS bundle at build time. They are
           # public, so they live in repository variables rather than secrets.
           EXPO_PUBLIC_USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
-          # The API and the web app, from the repository variables checked above.
-          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
-          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL }}
+          # The API and the web app, from the variables or secrets checked above.
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
           # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
           EXPO_PUBLIC_APP_VERSION: ${{ env.NEW_VERSION }}
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
