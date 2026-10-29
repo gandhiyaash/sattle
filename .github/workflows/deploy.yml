@@ -65,6 +65,25 @@ jobs:
           # The commit the api job deploys.
           ref: ${{ github.sha }}
 
+      - name: Check app config
+        env:
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
+        run: |
+          # The two addresses are repository variables, or secrets of the same name: nothing in
+          # this file names a host. First, so a run without them stops before the minutes of setup.
+          for pair in "EXPO_PUBLIC_API_URL=$API_URL" "EXPO_PUBLIC_APP_URL=$APP_URL"; do
+            name="${pair%%=*}"; value="${pair#*=}"
+            if [ -z "$value" ]; then
+              echo "::error::Set $name as a repository variable (or secret)"
+              exit 1
+            fi
+            if [[ ! "$value" =~ ^https://[^/]+$ ]]; then
+              echo "::error::$name must be https://<host>, with no path and no trailing slash"
+              exit 1
+            fi
+          done
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -75,17 +94,11 @@ jobs:
       - name: Build the web app
         working-directory: ./apps/mobile
         env:
-          # Inlined into the bundle at build time. The two addresses are repository variables, or
-          # secrets of the same name (variables suit them better: they're public, and a secret is
-          # masked in every log line it appears in). Nothing in this file names a host.
+          # Inlined into the bundle at build time. The two addresses were checked above.
           EXPO_PUBLIC_USE_MOCK: 'false'
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
           EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
         run: |
-          if [ -z "$EXPO_PUBLIC_API_URL" ] || [ -z "$EXPO_PUBLIC_APP_URL" ]; then
-            echo "::error::Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_APP_URL as repository variables (or secrets)"
-            exit 1
-          fi
           # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
           export EXPO_PUBLIC_APP_VERSION="web-$(git rev-parse --short HEAD)"
           npx expo export --platform web --output-dir dist

@@ -17,6 +17,24 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Check app config
+        env:
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
+        run: |
+          # The two addresses are repository variables, or secrets of the same name: nothing in
+          # this file names a host. First, so a run without them stops before the minutes of setup.
+          for pair in "EXPO_PUBLIC_API_URL=$API_URL" "EXPO_PUBLIC_APP_URL=$APP_URL"; do
+            name="${pair%%=*}"; value="${pair#*=}"
+            if [ -z "$value" ]; then
+              echo "::error::Set $name as a repository variable (or secret)"
+              exit 1
+            fi
+            if [[ ! "$value" =~ ^https://[^/]+$ ]]; then
+              echo "::error::$name must be https://<host>, with no path and no trailing slash"
+              exit 1
+            fi
+          done
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -42,17 +60,6 @@ jobs:
       # SATTLE_UPLOAD_* properties, plugins/withAndroidReleaseSigning signs with the debug
       # key. So it needs nothing but the two EXPO_PUBLIC_* addresses (variables, or secrets). The APK installs
       # on a phone, but not over a copy from Play, which is signed with a different key.
-      - name: Check app config
-        env:
-          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
-          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
-        run: |
-          # The two addresses are repository variables, or secrets of the same name: nothing in this file names a host.
-          if [ -z "$API_URL" ] || [ -z "$APP_URL" ]; then
-            echo "::error::Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_APP_URL as repository variables (or secrets)"
-            exit 1
-          fi
-
       - name: Build release APK
         working-directory: ./apps/mobile/android
         env:

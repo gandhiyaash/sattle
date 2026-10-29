@@ -10,7 +10,7 @@
 #   KEY_PASSWORD   key password                         (default: the keystore password)
 #   VERSION_CODE   Play build number, must keep rising  (default: 1)
 #   VERSION_NAME   shown to users                       (default: the newest vX.Y.Z tag, else package.json)
-#   EXPO_PUBLIC_API_URL / EXPO_PUBLIC_APP_URL           (default: the deployed hosts)
+#   EXPO_PUBLIC_API_URL / EXPO_PUBLIC_APP_URL           required, as https://<host>, no path
 #
 # Output lands in dist-android/.
 set -euo pipefail
@@ -22,6 +22,14 @@ OUT="$ROOT/dist-android"
 die() { echo "error: $*" >&2; exit 1; }
 
 # --- inputs -------------------------------------------------------------------------------
+
+# The two addresses come from the environment, as they do in the workflows: nothing here names a
+# host. Checked before anything is asked for, so a missing one doesn't cost a pasted keystore first.
+for name in EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL; do
+  [ -n "${!name:-}" ] || die "set $name to https://<host>"
+  [[ "${!name}" =~ ^https://[^/]+$ ]] || die "$name must be https://<host>, with no path and no trailing slash, got '${!name}'"
+done
+export EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL
 
 if [ -z "${KEYSTORE_BASE64:-}" ]; then
   # A terminal truncates pasted lines at 1024 bytes on macOS, so a keystore can't be typed in.
@@ -45,9 +53,6 @@ VERSION_NAME="${VERSION_NAME:-$(node -p "require('$MOBILE/package.json').version
 [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || die "VERSION_CODE must be a number, got '$VERSION_CODE'"
 
 export EXPO_PUBLIC_USE_MOCK=false
-# The two addresses come from the environment, as they do in the workflows: nothing here names a host.
-export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:?set it to the API's address}"
-export EXPO_PUBLIC_APP_URL="${EXPO_PUBLIC_APP_URL:?set it to the web app's address}"
 # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
 export EXPO_PUBLIC_APP_VERSION="$VERSION_NAME"
 
