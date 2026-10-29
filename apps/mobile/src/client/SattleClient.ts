@@ -13,7 +13,6 @@
 
 import type {
   CreateGroupInput,
-  CreatePayLinkInput,
   CreateSettlementInput,
   CreateUpiClaimInput,
   Debt,
@@ -99,14 +98,8 @@ export interface SattleClient {
   getHistory(groupId: string): Promise<HistoryEntry[]>;
 
   // -- pay links ------------------------------------------------------------
+  // One debt at /s/<token>, handed out by the group's page (payFromGroupLink).
 
-  /**
-   * Only the person owed can create one. Share `${APP_URL}${payLinkPath(token)}`.
-   * It is paid whichever way they can be paid: over Lightning, or in a rupee
-   * group by UPI. Throws `member_cannot_receive` when there is no way at all,
-   * so a link nobody could pay is never sent.
-   */
-  createPayLink(input: CreatePayLinkInput, idempotencyKey?: string): Promise<PayLink>;
   /**
    * Public. Call once when the guest page loads. The view says how the link
    * can be paid (`payable`, `upi`). With Lightning the only way, it mints a

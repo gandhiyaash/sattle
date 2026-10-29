@@ -171,15 +171,11 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('Yash paid', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Yash ₹300 · Om ₹300')).toBeVisible();
 
-    await expect(guest.page.getByText('In this group?')).toBeVisible();
-    await expect(
-      guest.page.getByText(
-        'Join it to add what you’ve spent and settle up in the app. You pick your name and you’re in. Already joined? This opens the group.'
-      )
-    ).toBeVisible();
+    // The way in is at the top, beside the group's name, and nothing else on the page is about joining.
     const join = guest.page.locator(`a[href="/join/${token}"]`);
     await expect(join).toBeVisible();
-    await expect(join).toContainText('Join Goa trip');
+    await expect(join).toContainText('Join group');
+    await expect(guest.page.getByText('In this group?')).toHaveCount(0);
     await expect(
       guest.page.getByText(
         'You’re seeing this group through its shared link. You can pay what you owe from here, but only the people in the group can change it.'
@@ -190,10 +186,9 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('Groups', { exact: true })).toBeHidden();
   });
 
-  test('says when nothing has been added and nobody owes anything, and that someone lets you in', async ({ api, device }) => {
+  test('says when nothing has been added and nobody owes anything', async ({ api, device }) => {
     const yash = api.as((await api.account('Yash')).token);
     const { group } = await yash.seedGroup({ name: 'Flat 4B', people: ['Om'] });
-    await yash.setApproveJoins(group.id, true);
     const token = await groupLinkToken(yash, group.id);
 
     const guest = await device();
@@ -201,7 +196,6 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('0 spends · shared by link')).toBeVisible();
     await expect(guest.page.getByText('All settled. Nobody owes anything.')).toBeVisible();
     await expect(guest.page.getByText('Nothing has been added yet.')).toBeVisible();
-    await expect(guest.page.getByText(/You pick your name, and someone in the group lets you in\./)).toBeVisible();
   });
 
   test('a debt owed to someone who never joined can’t be paid here', async ({ api, device }) => {

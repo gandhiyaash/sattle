@@ -1039,8 +1039,8 @@ test.describe('Idempotency', () => {
   test('public routes share one guest’s keys: another link with the same key is refused', async ({ api }) => {
     const one = await yashOwesPriya(api);
     const two = await yashOwesPriya(api);
-    const linkOne = await one.B.createPayLink({ groupId: one.group.id, fromMemberId: one.aMember.id, toMemberId: one.bMember.id, amount: one.amount });
-    const linkTwo = await two.B.createPayLink({ groupId: two.group.id, fromMemberId: two.aMember.id, toMemberId: two.bMember.id, amount: two.amount });
+    const linkOne = await one.B.payLinkFor(one.group.id, 'Yash', 'Priya');
+    const linkTwo = await two.B.payLinkFor(two.group.id, 'Yash', 'Priya');
     const key = newKey();
     const first = await api.raw<{ settlement?: Settlement }>('POST', `/s/${linkOne.token}/open`, undefined, { token: null, key });
     expect(first.status).toBe(200);
@@ -1459,34 +1459,11 @@ test.describe('Group links', () => {
 });
 
 test.describe('Pay links', () => {
-  test('only the person owed makes one, for at most what is owed, and only with a way to be paid', async ({ api }) => {
-    const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api, 10_000, { people: ['Priya', 'Aman'] });
-    const aman = await A.memberNamed(group.id, 'Aman');
-    await spend(A, group, { description: 'Cab', amount: 600, paidBy: aman, between: [aMember, aman] });
-    const payer = await refused(A.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount }));
-    expect(payer.status).toBe(400);
-    expect(payer.message).toBe('Only Priya can send a link for this.');
-    const tooMuch = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: amount + 1 }));
-    expect(tooMuch.status).toBe(409);
-    expect(tooMuch.message).toBe('That’s more than is owed. Refresh and try again.');
-    const forGhost = await refused(A.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: aman.id, amount: 300 }));
-    expect(forGhost.status).toBe(400);
-    expect(forGhost.message).toBe('Only Aman can send a link for this.');
-    const outsider = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: 'm-nope', amount: 1 }));
-    expect(outsider.status).toBe(404);
-    expect(outsider.message).toBe('That member isn’t in this group.');
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 4000 });
-    expect(link).toEqual({ token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 4000, createdAt: expect.any(String) });
-    // Several for one debt are allowed.
-    const another = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
-    expect(another.token).not.toBe(link.token);
-  });
-
   test('under simulated payments anyone who joined can be paid, so a link in sats is made like any other', async ({ api }) => {
-    // The refusal for a payee nobody could pay (member_cannot_receive, with what to add) needs
-    // real payments, where receiving takes a wallet or an address: the simulator pays anyone joined.
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api, 1000, { currency: 'BTC' });
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    // The page's refusal for a payee nobody could pay (member_cannot_receive) needs real payments,
+    // where receiving takes a wallet or an address: the simulator pays anyone joined.
+    const { B, group, amount } = await yashOwesPriya(api, 1000, { currency: 'BTC' });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const view = await api.guestView(link.token);
     expect(view).toMatchObject({ currency: 'BTC', amount, payable: true });
     expect(view.upi).toBeUndefined();
@@ -1497,8 +1474,8 @@ test.describe('Pay links', () => {
   });
 
   test('the guest view carries names and amounts only, and opening mints one invoice at a time', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const { B, group, amount } = await yashOwesPriya(api);
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const before = await api.guestView(link.token);
     expect(before).toEqual({ payerName: 'Yash', payeeName: 'Priya', reason: 'Goa trip', amount, currency: 'INR', payable: true });
     const opened = await api.call<{ settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
@@ -1513,43 +1490,33 @@ test.describe('Pay links', () => {
     const paid = await api.call<{ settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
     expect(paid.settlement).toMatchObject({ id: opened.settlement!.id, status: 'confirmed', preimage: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect((await api.guestView(link.token)).settlement?.status).toBe('confirmed');
-    // A second link for the same, now settled, debt has nothing left to pay.
-    const second = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount }));
-    expect(second.message).toBe('Nothing is owed here any more.');
   });
 
-  test('a link whose debt shrank is 410; a smaller one is settled by the cash that shrank it', async ({ api }) => {
+  test('a link whose debt shrank is 410, and the page hands out a new one for the rest', async ({ api }) => {
     const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
-    const smaller = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1000 });
-    // Part of it paid in cash: the link for all of it no longer fits what is owed…
-    const cash = await B.markSettled({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1500 });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
+    // Part of it paid in cash: the link for all of it no longer fits what is owed.
+    await B.markSettled({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1500 });
     const shrunk = await refused(api.call('POST', `/s/${link.token}/open`, undefined, { token: null }));
     expect(shrunk.status).toBe(410);
     expect(shrunk.code).toBe('link_expired');
     expect(shrunk.message).toBe('This has already been settled.');
     expect((await api.guestView(link.token)).settlement).toBeUndefined();
-    // …and the smaller one was covered by it, so it shows that settlement rather than asking to be paid.
-    const covered = await api.call<{ settlement?: Settlement }>('POST', `/s/${smaller.token}/open`, undefined, { token: null });
-    expect(covered.settlement).toMatchObject({ id: cash.id, status: 'manually_confirmed' });
-    // Without the invoice and proof it never had: those are for whoever paid through a link.
-    expect(covered.settlement!.destination).toBeUndefined();
-    expect(covered.settlement!.preimage).toBeUndefined();
     expect(await B.settlements(group.id)).toHaveLength(1);
-    // A link for the rest can still be made and paid.
-    const rest = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: amount - 1500 });
+    // The page now hands out a link for the rest, which can be paid.
+    const rest = await B.payLinkFor(group.id, 'Yash', 'Priya');
+    expect(rest.token).not.toBe(link.token);
+    expect(rest.amount).toBe(amount - 1500);
     const opened = await api.call<{ settlement?: Settlement }>('POST', `/s/${rest.token}/open`, undefined, { token: null });
-    expect(opened.settlement?.status).toBe('created');
+    expect(opened.settlement).toMatchObject({ status: 'created', amount: amount - 1500 });
     await untilStatus(A, opened.settlement!.id, 'confirmed');
     expect(await A.debts(group.id)).toEqual([]);
-    const nothing = await refused(B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount: 1 }));
-    expect(nothing.message).toBe('Nothing is owed here any more.');
   });
 
   test('with UPI on offer nothing is minted until Lightning is chosen, and a claim holds it', async ({ api }) => {
-    const { A, B, aMember, bMember, group, amount } = await yashOwesPriya(api);
+    const { A, B, group, amount } = await yashOwesPriya(api);
     await B.setUpiId('priya@okhdfcbank');
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const asked = await api.call<{ upi?: boolean; settlement?: Settlement }>('POST', `/s/${link.token}/open`, undefined, { token: null });
     expect(asked.upi).toBe(true);
     expect(asked.settlement).toBeUndefined();
@@ -1577,10 +1544,10 @@ test.describe('Pay links', () => {
   });
 
   test('choosing Lightning mints, and the UPI ID is withheld when shared links may not show it', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
+    const { B, group } = await yashOwesPriya(api);
     await B.setUpiId('priya@okhdfcbank');
     await B.setUpiOnGroupLinks(false);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     const view = await api.guestView(link.token);
     expect(view.upi).toBeUndefined();
     const off = await refused(api.call('GET', `/s/${link.token}/upi`, undefined, { token: null }));
@@ -1595,8 +1562,8 @@ test.describe('Pay links', () => {
   });
 
   test('a proof on the pay link has to be for one of its invoices', async ({ api }) => {
-    const { B, aMember, bMember, group, amount } = await yashOwesPriya(api);
-    const link = await B.createPayLink({ groupId: group.id, fromMemberId: aMember.id, toMemberId: bMember.id, amount });
+    const { B, group } = await yashOwesPriya(api);
+    const link = await B.payLinkFor(group.id, 'Yash', 'Priya');
     await api.call('POST', `/s/${link.token}/open`, undefined, { token: null });
     const shape = await refused(api.call('POST', `/s/${link.token}/proof`, { preimage: 'zz' }, { token: null }));
     expect(shape.status).toBe(400);

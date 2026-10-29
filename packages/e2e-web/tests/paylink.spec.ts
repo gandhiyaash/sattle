@@ -1,19 +1,18 @@
 /**
- * Pay links: one debt, sent by the person owed, paid by whoever opens
- * /s/<token> with no app and no account. Making one from Settle up, the pay
- * page in every state it can be in (a fresh invoice, the proof box, paid,
- * settled some other way, nothing left to pay, a dead link), two devices on
- * one link, paying it by UPI, and a link in a group kept in bitcoin.
+ * Pay links: one debt, paid by whoever opens /s/<token> with no app and no
+ * account. Nobody sends one by hand: the group's page hands one out for a
+ * debt on it, and that is how each of these is had (Api.payLinkFor). The
+ * pay page in every state it can be in (a fresh invoice, the proof box,
+ * paid, settled some other way, nothing left to pay, a dead link), two
+ * devices on one link, paying it by UPI, and a link in a group kept in
+ * bitcoin.
  */
 
 import type { Page } from '@playwright/test';
 
-import { ancestor, button, clipboard, debtCard, groupTab, openGroup, tokenOf } from '../src/actions';
+import { ancestor, button, clipboard, groupTab, openGroup, tokenOf } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 import { groupWhereGhostOwesMe, openPayPage } from '../src/links.helpers';
-
-/** The pay link's URL as Settle up shows it after Send pay link. */
-const PAY_URL = /\/s\/[A-Za-z0-9_-]+$/;
 
 /**
  * Keeps the page from hearing that the payment went through, so a state
@@ -31,51 +30,6 @@ async function holdPolling(page: Page, token: string) {
   };
 }
 
-test.describe('Making a pay link', () => {
-  test('Send pay link copies a message with the link, Send again makes another, and only the person owed can', async ({
-    person,
-  }) => {
-    const yash = await person('Yash');
-    // Simplifying off, so the two debts stay as they were paid: Om owes Yash, Yash owes Priya.
-    const { group, idOf } = await yash.api.seedGroup({
-      name: 'Goa trip',
-      people: ['Om', 'Priya'],
-      simplifyDebts: false,
-      spends: [
-        { description: 'Dinner', amount: 60_000, paidBy: 'Yash', between: ['Yash', 'Om'] },
-        { description: 'Cab', amount: 20_000, paidBy: 'Priya', between: ['Yash', 'Priya'] },
-      ],
-    });
-    void idOf;
-    await openGroup(yash.page, 'Goa trip', { reload: true });
-    await groupTab(yash.page, 'Settle up');
-
-    const owedToMe = debtCard(yash.page, 'Om owes you');
-    await button(owedToMe, 'Send pay link').click();
-    await expect(owedToMe.getByText('Copied. Paste it in a chat.')).toBeVisible();
-    const first = (await owedToMe.getByText(PAY_URL).textContent())!.trim();
-    expect(first).toMatch(/^http:\/\/127\.0\.0\.1:8900\/s\/[A-Za-z0-9_-]{22}$/);
-    const copied = await clipboard(yash.page);
-    expect(copied).toBe(`Om, you owe me ₹300 for Goa trip. Pay here, no app needed: ${first}`);
-
-    await button(owedToMe, 'Send again').click();
-    await expect(owedToMe.getByText('Copied. Paste it in a chat.')).toBeVisible();
-    await expect(owedToMe.getByText(PAY_URL)).not.toHaveText(first);
-    const second = (await owedToMe.getByText(PAY_URL).textContent())!.trim();
-    expect(second).not.toBe(first);
-
-    // The debt the other way has no link to send: it isn't theirs to be paid.
-    const iOwe = debtCard(yash.page, 'You owe Priya');
-    await expect(iOwe.getByText('Options', { exact: true })).toBeVisible();
-    await expect(iOwe.getByText('Send pay link')).toHaveCount(0);
-    await expect(iOwe.getByText('Mark as settled')).toHaveCount(0);
-
-    // Both links are for the same debt and amount.
-    const links = await yash.api.raw<unknown[]>('GET', `/groups/${group.id}/settlements`);
-    expect(links.status).toBe(200);
-  });
-});
-
 test.describe('The pay page', () => {
   test('shows who owes whom, mints a fresh invoice, takes a proof, and shows the payment once it lands', async ({
     person,
@@ -83,8 +37,8 @@ test.describe('The pay page', () => {
   }) => {
     test.slow();
     const yash = await person('Yash');
-    const { group, idOf } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
-    const link = await yash.api.createPayLink({ groupId: group.id, fromMemberId: idOf('Om'), toMemberId: idOf('Yash'), amount: 30_000 });
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const link = await yash.api.payLinkFor(group.id, 'Om', 'Yash');
 
     const guest = await device({ toured: false });
     await guest.page.goto(`/s/${link.token}`);
@@ -160,8 +114,8 @@ test.describe('The pay page', () => {
   test('two devices on one link see one payment', async ({ api, device }) => {
     test.slow();
     const yash = api.as((await api.account('Yash')).token);
-    const { group, idOf } = await groupWhereGhostOwesMe(yash, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
-    const link = await yash.createPayLink({ groupId: group.id, fromMemberId: idOf('Om'), toMemberId: idOf('Yash'), amount: 30_000 });
+    const { group } = await groupWhereGhostOwesMe(yash, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const link = await yash.payLinkFor(group.id, 'Om', 'Yash');
     const phone = await device();
     const laptop = await device();
     await openPayPage(phone.page, link.token);
@@ -175,7 +129,7 @@ test.describe('The pay page', () => {
     expect(settlements[0]).toMatchObject({ status: 'confirmed', rail: 'invoice', amount: 30_000 });
   });
 
-  test('a link nobody made, a debt settled meanwhile, a debt that shrank, and a debt paid through another link', async ({
+  test('a link nobody made, a debt settled meanwhile, a debt that is gone, and a debt paid through another link', async ({
     api,
     device,
   }) => {
@@ -189,12 +143,7 @@ test.describe('The pay page', () => {
 
     // Marked settled in the app before the link was opened.
     const settled = await groupWhereGhostOwesMe(yash, { name: 'Settled trip', me: 'Yash', debtor: 'Om' });
-    const forSettled = await yash.createPayLink({
-      groupId: settled.group.id,
-      fromMemberId: settled.idOf('Om'),
-      toMemberId: settled.idOf('Yash'),
-      amount: 30_000,
-    });
+    const forSettled = await yash.payLinkFor(settled.group.id, 'Om', 'Yash');
     await yash.markSettled({ groupId: settled.group.id, fromMemberId: settled.idOf('Om'), toMemberId: settled.idOf('Yash'), amount: 30_000 });
     await openPayPage(guest.page, forSettled.token);
     await expect(guest.page.getByText('Settled', { exact: true })).toBeVisible();
@@ -204,21 +153,30 @@ test.describe('The pay page', () => {
 
     // The expense behind the debt was removed: nothing is owed, so there's nothing to pay.
     const gone = await groupWhereGhostOwesMe(yash, { name: 'Gone trip', me: 'Yash', debtor: 'Om' });
-    const forGone = await yash.createPayLink({ groupId: gone.group.id, fromMemberId: gone.idOf('Om'), toMemberId: gone.idOf('Yash'), amount: 30_000 });
+    const forGone = await yash.payLinkFor(gone.group.id, 'Om', 'Yash');
     await yash.del(`/groups/${gone.group.id}/expenses/${gone.expenses[0].id}`);
     await openPayPage(guest.page, forGone.token);
     await expect(guest.page.getByText('Nothing to pay')).toBeVisible();
     await expect(guest.page.getByText('You can close this.')).toBeVisible();
 
-    // Paid through another link for the same debt: this one shows the payment, without the other link's receipt.
+    // Paid through a second link, handed out once Om owed more: the first shows that payment,
+    // without the second link's receipt.
     const twice = await groupWhereGhostOwesMe(yash, { name: 'Twice trip', me: 'Yash', debtor: 'Om' });
-    const pair = { groupId: twice.group.id, fromMemberId: twice.idOf('Om'), toMemberId: twice.idOf('Yash'), amount: 30_000 };
-    const first = await yash.createPayLink(pair);
-    const second = await yash.createPayLink(pair);
+    const first = await yash.payLinkFor(twice.group.id, 'Om', 'Yash');
+    await yash.addExpense({
+      groupId: twice.group.id,
+      description: 'Cab',
+      amount: 20_000,
+      paidByMemberId: twice.idOf('Yash'),
+      splitMode: 'equal',
+      parts: [{ memberId: twice.idOf('Yash') }, { memberId: twice.idOf('Om') }],
+    });
+    const second = await yash.payLinkFor(twice.group.id, 'Om', 'Yash');
+    expect(second.token).not.toBe(first.token);
     const payer = await device();
-    await openPayPage(payer.page, first.token);
+    await openPayPage(payer.page, second.token);
     await expect(payer.page.getByText('Paid', { exact: true })).toBeVisible({ timeout: 20_000 });
-    await openPayPage(guest.page, second.token);
+    await openPayPage(guest.page, first.token);
     await expect(guest.page.getByText('Paid', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Yash has been paid. Nothing else to do — you can close this.')).toBeVisible();
     await expect(guest.page.getByText('Sent', { exact: true })).toBeVisible();
@@ -231,9 +189,9 @@ test.describe('A pay link paid by UPI', () => {
   test('asks which way, mints nothing until told, and waits for the person owed to confirm', async ({ person, device, api }) => {
     test.slow();
     const yash = await person('Yash');
-    const { group, idOf } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
     await yash.api.setUpiId('yash@okaxis');
-    const link = await yash.api.createPayLink({ groupId: group.id, fromMemberId: idOf('Om'), toMemberId: idOf('Yash'), amount: 30_000 });
+    const link = await yash.api.payLinkFor(group.id, 'Om', 'Yash');
 
     const guest = await device();
     await openPayPage(guest.page, link.token);
@@ -289,9 +247,9 @@ test.describe('A pay link paid by UPI', () => {
   }) => {
     test.slow();
     const yash = await person('Yash');
-    const { group, idOf } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
     await yash.api.setUpiId('yash@okaxis');
-    const link = await yash.api.createPayLink({ groupId: group.id, fromMemberId: idOf('Om'), toMemberId: idOf('Yash'), amount: 30_000 });
+    const link = await yash.api.payLinkFor(group.id, 'Om', 'Yash');
 
     const guest = await device();
     await openPayPage(guest.page, link.token);
@@ -324,13 +282,13 @@ test.describe('A pay link in a group kept in bitcoin', () => {
   test('is owed in sats, with no rate anywhere', async ({ api, device }) => {
     test.slow();
     const yash = api.as((await api.account('Yash')).token);
-    const { group, idOf } = await yash.seedGroup({
+    const { group } = await yash.seedGroup({
       name: 'Sats trip',
       people: ['Om'],
       currency: 'BTC',
       spends: [{ description: 'Beers', amount: 20_000, paidBy: 'Yash' }],
     });
-    const link = await yash.createPayLink({ groupId: group.id, fromMemberId: idOf('Om'), toMemberId: idOf('Yash'), amount: 10_000 });
+    const link = await yash.payLinkFor(group.id, 'Om', 'Yash');
     const guest = await device();
     await openPayPage(guest.page, link.token);
     await expect(guest.page.getByText('Om, you owe Yash')).toBeVisible();

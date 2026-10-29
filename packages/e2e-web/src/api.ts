@@ -17,7 +17,6 @@ import type {
   JoinView,
   JoinRequest,
   Member,
-  PayLink,
   PendingJoin,
   Settlement,
   UpiClaim,
@@ -186,9 +185,17 @@ export class Api {
   createGroupLink(groupId: string) {
     return this.post<GroupLink>(`/groups/${groupId}/link`);
   }
-  createPayLink(input: { groupId: string; fromMemberId: string; toMemberId: string; amount: number }) {
-    const { groupId, ...body } = input;
-    return this.post<PayLink>(`/groups/${groupId}/pay-links`, body);
+  /**
+   * A pay link for the debt `from` owes `to`, had the one way there is: from
+   * the group's page, as whoever opens the group's link does when they
+   * choose a debt to pay. The group's link is made if there is none.
+   */
+  async payLinkFor(groupId: string, from: string, to: string) {
+    const token = ((await this.groupLink(groupId)) ?? (await this.createGroupLink(groupId))).token;
+    const debt = (await this.groupGuestView(token)).debts.find((d) => d.from === from && d.to === to);
+    if (!debt) throw new Error(`${from} owes ${to} nothing in that group.`);
+    const made = await this.call<{ token: string }>('POST', `/g/${token}/debts/${debt.ref}/pay-link`, undefined, { token: null });
+    return { token: made.token, amount: debt.amount };
   }
   guestView(token: string) {
     return this.call<GuestView>('GET', `/s/${encodeURIComponent(token)}`, undefined, { token: null });

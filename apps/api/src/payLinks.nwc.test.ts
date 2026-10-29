@@ -6,7 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { fixtures, type Debt, type Group, type GuestView, type PayLink, type Settlement, type UpiClaim, type UpiPayee } from '@sattle/core';
+import { fixtures, type Debt, type GroupGuestView, type GroupLink, type GuestView, type Settlement, type UpiClaim, type UpiPayee } from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty, type Db } from './db';
@@ -59,6 +59,18 @@ async function guestUntil(token: string, ok: (v: GuestView) => boolean) {
   throw new Error('guest view never got there');
 }
 
+type Err = { code?: string; message?: string };
+
+/**
+ * A pay link for Om's debt to Yash in Flat 4B, the way the group's page hands
+ * one out: for a debt owed to someone who can receive over Lightning.
+ */
+async function linkFromPage() {
+  const group = (await call<GroupLink>('u-yash', 'POST', '/groups/g-flat/link')).body.token;
+  const ref = (await call<GroupGuestView>(undefined, 'GET', `/g/${group}`)).body.debts.find((d) => d.from === 'Om' && d.to === 'Yash')!.ref;
+  return call<{ token: string } & Err>(undefined, 'POST', `/g/${group}/debts/${ref}/pay-link`);
+}
+
 beforeEach(() => {
   db = openDb(':memory:');
   seedIfEmpty(db);
@@ -73,7 +85,7 @@ beforeEach(() => {
 describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => {
   it('works end to end once the payee has connected a wallet', async () => {
     expect((await call('u-yash', 'PUT', '/me/wallet', { nwcUri: URI })).status).toBe(200);
-    const link = (await call<PayLink>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 })).body;
+    const link = (await linkFromPage()).body;
 
     const opened = await call<GuestView>(undefined, 'POST', `/s/${link.token}/open`);
     expect(opened.status).toBe(200);
@@ -91,7 +103,7 @@ describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => 
 
   it('a lapsed invoice gets a fresh one on reopen, and the old one is closed', async () => {
     await call('u-yash', 'PUT', '/me/wallet', { nwcUri: URI });
-    const link = (await call<PayLink>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 })).body;
+    const link = (await linkFromPage()).body;
     await call(undefined, 'POST', `/s/${link.token}/open`);
     const first = await guestUntil(link.token, (v) => v.settlement?.status === 'awaiting_payment');
 
@@ -110,10 +122,10 @@ describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => 
     expect(db.prepare('SELECT status FROM settlements WHERE id = ?').get(first.settlement!.id)).toEqual({ status: 'expired' });
   });
 
-  it('payee without a wallet: refuses to make the link, rather than letting the guest find out', async () => {
-    const made = await call<{ code: string; message: string }>('u-yash', 'POST', '/groups/g-flat/pay-links', { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 });
+  it('payee without a wallet: the page hands out no link, rather than letting the guest find out', async () => {
+    const made = await linkFromPage();
     expect(made.status).toBe(409);
-    expect(made.body).toMatchObject({ code: 'member_cannot_receive', message: expect.stringContaining('Add a way to get paid first') });
+    expect(made.body).toMatchObject({ code: 'member_cannot_receive', message: 'Yash has nowhere to receive this yet.' });
   });
 });
 
@@ -123,13 +135,24 @@ describe('pay link → real invoice → paid (I1/I2 with a fake wallet)', () => 
  * Om owes Yash ₹1,200 in Flat 4B, which is kept in rupees.
  */
 describe('a pay link paid by UPI', () => {
-  type Err = { code?: string; message?: string };
   const OM_OWES_YASH = { fromMemberId: 'm-flat-om', toMemberId: 'm-flat-yash', amount: 120_000 };
 
   const addUpi = () => call('u-yash', 'PUT', '/me/upi', { upiId: 'yash@okaxis' });
   const addWallet = () => call('u-yash', 'PUT', '/me/wallet', { nwcUri: URI });
-  const makeLink = (amount = OM_OWES_YASH.amount) =>
-    call<PayLink & Err>('u-yash', 'POST', '/groups/g-flat/pay-links', { ...OM_OWES_YASH, amount });
+  /**
+   * A link for Om's debt, put in place directly. The group's page hands one
+   * out only while Yash can receive over Lightning (groupLinks.test.ts), and
+   * a link already out stays as it is when his wallet goes, so every mix of
+   * the two ways is a state a link can be in.
+   */
+  const makeLink = (amount = OM_OWES_YASH.amount) => {
+    const token = randomBytes(16).toString('base64url');
+    db.prepare(
+      `INSERT INTO pay_links (token, group_id, from_member_id, to_member_id, amount, created_by_user_id, created_at)
+       VALUES (?, 'g-flat', ?, ?, ?, 'u-yash', ?)`
+    ).run(token, OM_OWES_YASH.fromMemberId, OM_OWES_YASH.toMemberId, amount, new Date().toISOString());
+    return token;
+  };
   const open = (token: string, body?: unknown) => call<GuestView & Err>(undefined, 'POST', `/s/${token}/open`, body);
   const view = async (token: string) => (await call<GuestView>(undefined, 'GET', `/s/${token}`)).body;
   const sayPaid = (token: string) => call<Err>(undefined, 'POST', `/s/${token}/upi-claims`);
@@ -139,51 +162,27 @@ describe('a pay link paid by UPI', () => {
   const invoicesFor = (token: string) =>
     (db.prepare('SELECT COUNT(*) AS n FROM settlements WHERE pay_link_token = ?').get(token) as { n: number }).n;
 
-  it('won’t make a link nobody could pay, and says what to add', async () => {
-    const none = await makeLink();
-    expect(none.status).toBe(409);
-    expect(none.body).toEqual({
-      code: 'member_cannot_receive',
-      message:
-        'Add a way to get paid first, from Wallet: a UPI ID, a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.',
-    });
-
-    // UPI is for rupees. In a group kept in bitcoin a UPI ID is no way to be paid, so it isn't what to add.
+  it('a link for someone who now takes only UPI mints no invoice', async () => {
     await addUpi();
-    const sats = (await call<Group>('u-yash', 'POST', '/groups', { name: 'Meetup', currency: 'BTC', memberNames: ['Riya'] })).body;
-    const [me, riya] = sats.memberIds;
-    await call('u-yash', 'POST', `/groups/${sats.id}/expenses`, {
-      description: 'Pizza', amount: 20_000, paidByMemberId: me, splitMode: 'equal', parts: [{ memberId: me }, { memberId: riya }],
-    });
-    const inSats = await call<Err>('u-yash', 'POST', `/groups/${sats.id}/pay-links`, { fromMemberId: riya, toMemberId: me, amount: 10_000 });
-    expect(inSats.status).toBe(409);
-    expect(inSats.body.message).toBe(
-      'Add a way to get paid first, from Wallet: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.'
-    );
-  });
+    const token = makeLink();
 
-  it('makes one for someone who only takes UPI, and mints no invoice for it', async () => {
-    await addUpi();
-    const link = await makeLink();
-    expect(link.status).toBe(201);
-
-    const opened = await open(link.body.token);
+    const opened = await open(token);
     expect(opened.status).toBe(200);
     expect(opened.body).toEqual({
       payerName: 'Om', payeeName: 'Yash', reason: 'Flat 4B', amount: 120_000, currency: 'INR', payable: false, upi: true,
     });
     expect(minted).toBe(0);
-    expect(invoicesFor(link.body.token)).toBe(0);
+    expect(invoicesFor(token)).toBe(0);
 
     // Asking for Lightning anyway is refused, not left to fail on the wallet.
-    const lightning = await open(link.body.token, { rail: 'lightning' });
+    const lightning = await open(token, { rail: 'lightning' });
     expect(lightning.status).toBe(409);
     expect(lightning.body.code).toBe('member_cannot_receive');
   });
 
   it('gives the UPI ID only to someone who asks to pay', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     expect(JSON.stringify(await view(token))).not.toContain('yash@okaxis');
     expect((await call<UpiPayee>(undefined, 'GET', `/s/${token}/upi`)).body).toEqual({ upiId: 'yash@okaxis', name: 'Yash' });
   });
@@ -191,7 +190,7 @@ describe('a pay link paid by UPI', () => {
   it('asks before minting when it can be paid both ways, and mints once Lightning is chosen', async () => {
     await addUpi();
     await addWallet();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
 
     const asked = await open(token);
     expect(asked.body).toMatchObject({ payable: true, upi: true });
@@ -213,7 +212,7 @@ describe('a pay link paid by UPI', () => {
 
   it('opens straight on the invoice, as before, for someone with a wallet and no UPI ID', async () => {
     await addWallet();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     const opened = await open(token);
     expect(opened.body.upi).toBeUndefined();
     expect(opened.body.settlement).toBeDefined();
@@ -221,7 +220,7 @@ describe('a pay link paid by UPI', () => {
 
   it('lets the page say it was paid; the person owed confirms, and the link shows it paid for good', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
 
     expect((await sayPaid(token)).status).toBe(201);
     expect((await view(token)).upiClaim).toBe('pending');
@@ -251,7 +250,7 @@ describe('a pay link paid by UPI', () => {
 
   it('pays once, even when as much again is still owed', async () => {
     await addUpi();
-    const { token } = (await makeLink(50_000)).body;
+    const token = makeLink(50_000);
     await sayPaid(token);
     await call('u-yash', 'POST', `/upi-claims/${(await claims())[0].id}/confirm`);
     expect(await omOwes()).toBe(70_000);
@@ -263,7 +262,7 @@ describe('a pay link paid by UPI', () => {
 
   it('shows the person owed turning it down, and lets the page say so again', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     await sayPaid(token);
     await call('u-yash', 'POST', `/upi-claims/${(await claims())[0].id}/decline`);
     expect((await open(token)).body).toMatchObject({ upiClaim: 'declined', upi: true });
@@ -274,27 +273,22 @@ describe('a pay link paid by UPI', () => {
 
   it('leaves what the payer said in the app as it is', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     const theirs = (await call<UpiClaim>('u-om', 'POST', '/groups/g-flat/upi-claims', { ...OM_OWES_YASH, reference: 'UPI123' })).body;
 
     expect((await sayPaid(token)).status).toBe(201);
     expect(await claims()).toEqual([theirs]);
   });
 
-  it('stops offering UPI once it is turned off for shared links, and says so to whoever asks for a link', async () => {
+  it('stops offering UPI once it is turned off for shared links', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     await call('u-yash', 'PUT', '/me/upi/group-links', { on: false });
 
-    // No wallet either: the link they already sent can't be paid, and a new one isn't made.
+    // No wallet either: the link already out can't be paid.
     expect((await open(token)).status).toBe(409);
     expect((await call(undefined, 'GET', `/s/${token}/upi`)).status).toBe(409);
     expect((await sayPaid(token)).status).toBe(409);
-    const again = await makeLink();
-    expect(again.status).toBe(409);
-    expect(again.body.message).toBe(
-      'Your UPI ID is turned off for shared links here, and you have no Lightning wallet, so nobody could pay this link. Turn it back on, or add a wallet.'
-    );
 
     // With a wallet it is a Lightning link, and opens on the invoice.
     await addWallet();
@@ -306,7 +300,7 @@ describe('a pay link paid by UPI', () => {
 
   it('never puts a member or group id in what the page is sent', async () => {
     await addUpi();
-    const { token } = (await makeLink()).body;
+    const token = makeLink();
     const ids = [...fixtures.members.map((m) => m.id), ...fixtures.groups.map((g) => g.id)];
     const sent = [
       await open(token),

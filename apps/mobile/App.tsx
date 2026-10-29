@@ -22,7 +22,7 @@ import { layout, useColorMode, useColors } from './src/ui/theme';
 import { readToured, writeToured } from './src/ui/tourStore';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
-/** The path payLinkPath() builds: /s/<token>. */
+/** A pay link, as the group's page hands one out: /s/<token>. */
 const GUEST_PATH = /^\/s\/([^/]+)\/?$/;
 /** The path groupLinkPath() builds: /g/<token>. */
 const GROUP_PATH = /^\/g\/([^/]+)\/?$/;

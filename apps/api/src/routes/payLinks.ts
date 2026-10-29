@@ -1,7 +1,9 @@
 /**
- * Pay links: the payee shares /s/<token>, the payer opens it with no app and
- * no account. The token grants one debt, never the group — /s/ responses
- * carry names and amounts only, never member or group ids.
+ * Pay links: /s/<token>, one debt, opened with no app and no account. The
+ * group's page hands one out when someone on it chooses a debt to pay
+ * (groupLinks.ts); nothing else makes one. The token grants that one debt,
+ * never the group — /s/ responses carry names and amounts only, never
+ * member or group ids.
  *
  * A link can be paid whichever way the person owed can be paid.
  *
@@ -20,9 +22,7 @@
  * left open says it's settled instead of still offering to be paid.
  *
  * With both on offer, nothing is minted until the payer says which: an
- * invoice nobody asked for would stand in the way of the UPI payment. A link
- * that could be paid neither way isn't made, and the person asking for it is
- * told what to add.
+ * invoice nobody asked for would stand in the way of the UPI payment.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -33,13 +33,11 @@ import { z } from 'zod';
 import {
   LEDGER_STATUSES,
   SattleError,
-  UPI_CURRENCY,
   settledOutsideLink,
   toGuestSettlement,
   toGuestSettlementFromElsewhere,
   type Group,
   type GuestView,
-  type Member,
   type PayLink,
   type Settlement,
   type UpiPayee,
@@ -47,19 +45,13 @@ import {
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
-import { minor, parse } from '../http';
+import { parse } from '../http';
 import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, hashOfPreimage, ProofBody, readPreimage } from '../proof';
 import { newId, nowIso } from '../repo';
-import { checkSettlement, debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
-import { takesUpi, upiOnLink } from './upi';
-
-export const CreatePayLinkBody = z.object({
-  fromMemberId: z.string(),
-  toMemberId: z.string(),
-  amount: minor,
-});
+import { debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
+import { upiOnLink } from './upi';
 
 /** What the page sends once the payer has chosen Lightning over UPI. Nothing, until then. */
 const OpenBody = z.object({ rail: z.literal('lightning').optional() });
@@ -117,20 +109,6 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
   };
 
   /**
-   * Said to the person owed, who asked for a link nobody could pay: what to
-   * add. A UPI ID they have but have turned off for shared links is named,
-   * since "add a UPI ID" would make no sense to them.
-   */
-  const whatToAdd = (g: Group, payee: Member) => {
-    if (g.currency !== UPI_CURRENCY) {
-      return 'Add a way to get paid first, from Wallet: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.';
-    }
-    return takesUpi(wallets, payee)
-      ? 'Your UPI ID is turned off for shared links here, and you have no Lightning wallet, so nobody could pay this link. Turn it back on, or add a wallet.'
-      : 'Add a way to get paid first, from Wallet: a UPI ID, a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.';
-  };
-
-  /**
    * The link's debt, for paying it by UPI. 410 once the link has been paid or
    * the debt is no longer owed, 409 if UPI isn't a way to pay it.
    */
@@ -147,41 +125,6 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
     }
     return { g, payee };
   };
-
-  /**
-   * Authed. Only the person owed (the user who claimed toMemberId) can create
-   * a link for their debt; anyone else gets 400 invalid_input. The amount is
-   * capped at what's owed right now. Returns 201 PayLink.
-   *
-   * It needs a way for them to be paid: somewhere to receive over Lightning,
-   * or in a rupee group a UPI ID that shared links may show. With neither it
-   * is 409 member_cannot_receive, and the message says what to add.
-   *
-   * Several links for one debt are allowed (re-sending makes a new one) and
-   * safe: opening any of them refuses while another payment for the pair is
-   * in progress, and once one is paid the debt is smaller than the rest, so
-   * they expire.
-   */
-  r.post('/groups/:id/pay-links', once, async (c) => {
-    const user = c.get('user');
-    const g = repo.groupForUser(c.req.param('id'), user.id);
-    const body = parse(CreatePayLinkBody, await c.req.json());
-
-    const link = transaction(db, () => {
-      const payee = repo.member(body.toMemberId);
-      if (!payee || payee.groupId !== g.id) throw new SattleError('not_found', 'That member isn’t in this group.');
-      if (payee.claimedByUserId !== user.id) {
-        throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
-      }
-      checkSettlement(repo, g, body);
-      // A link that can't be paid would only fail once the guest opens it.
-      if (!receivable(payments, payee) && !upiOnLink(wallets, g, payee)) {
-        throw new SattleError('member_cannot_receive', whatToAdd(g, payee));
-      }
-      return repo.insertPayLink({ token: newPayLinkToken(), groupId: g.id, ...body, createdAt: nowIso() }, user.id);
-    });
-    return c.json(link, 201);
-  });
 
   /**
    * Public, called once when the guest page loads, and again with

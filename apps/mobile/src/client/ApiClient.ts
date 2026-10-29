@@ -13,7 +13,6 @@ import {
   SattleError,
   TERMINAL_STATUSES,
   type CreateGroupInput,
-  type CreatePayLinkInput,
   type CreateSettlementInput,
   type CreateUpiClaimInput,
   type Debt,
@@ -206,11 +205,6 @@ export class ApiClient implements SattleClient {
     return this.request<Member>('PUT', `/members/${memberId}/payout-address`, { address });
   }
 
-
-  createPayLink(input: CreatePayLinkInput, idempotencyKey = newIdempotencyKey()) {
-    const { groupId, ...body } = input;
-    return this.request<PayLink>('POST', `/groups/${groupId}/pay-links`, body, idempotencyKey);
-  }
   openPayLink(token: string, rail?: 'lightning') {
     return this.request<GuestView>('POST', `/s/${encodeURIComponent(token)}/open`, rail && { rail }, newIdempotencyKey());
   }

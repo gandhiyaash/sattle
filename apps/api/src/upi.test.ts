@@ -783,9 +783,10 @@ describe('a debt that could be paid by UPI or Lightning, settled some other way'
 
   it('shows a pay link settled, with nothing left to pay or claim, once it is marked settled', async () => {
     const { call, riya, base, mRiya, mKabir } = await setup();
-    const link = (
-      await call<{ token: string }>('POST', `${base}/pay-links`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token)
-    ).body;
+    // The link the group's page hands out for Kabir's debt.
+    const page = (await call<GroupLink>('POST', `${base}/link`, undefined, riya.token)).body.token;
+    const ref = (await call<GroupGuestView>('GET', `/g/${page}`)).body.debts.find((d) => d.from === 'Kabir' && d.to === 'Riya')!.ref;
+    const link = (await call<{ token: string }>('POST', `/g/${page}/debts/${ref}/pay-link`)).body;
     // Kabir says on the link he paid by UPI; then Riya marks it settled from the app instead of confirming.
     expect((await call('POST', `/s/${link.token}/upi-claims`)).status).toBe(201);
     await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);

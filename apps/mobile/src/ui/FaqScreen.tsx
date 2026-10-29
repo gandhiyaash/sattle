@@ -151,7 +151,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
           upi ? ', and a UPI payment they say they made counts only once the person owed confirms it' : ''
         }. They can join, or ask to, as the group chooses under Manage.`,
         'Anyone in the group can replace the link or turn it off. It can’t be guessed, but it can be forwarded.',
-        'A pay link, sent for one debt, shows less: who owes whom, the group’s name, the amount and whether it’s paid.',
+        'A pay link, opened from there for one debt, shows less: who owes whom, the group’s name, the amount and whether it’s paid.',
       ],
     },
     {

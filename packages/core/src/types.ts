@@ -328,10 +328,11 @@ export interface CreateGroupInput {
 // -- pay links -------------------------------------------------------------
 
 /**
- * A shareable link for one debt: the payee sends it to the payer, who opens
- * /s/<token> with no app and no account. The token grants that one debt,
- * never the group. It can be paid whichever way the payee can be paid: over
- * Lightning, or in a rupee group by UPI (GuestView's `payable` and `upi`).
+ * A link for one debt, opened at /s/<token> with no app and no account. The
+ * group's page hands one out when someone on it chooses a debt to pay. The
+ * token grants that one debt, never the group. It can be paid whichever way
+ * the payee can be paid: over Lightning, or in a rupee group by UPI
+ * (GuestView's `payable` and `upi`).
  */
 export interface PayLink {
   token: string;
@@ -341,13 +342,6 @@ export interface PayLink {
   /** Minor units. */
   amount: number;
   createdAt: string;
-}
-
-export interface CreatePayLinkInput {
-  groupId: string;
-  fromMemberId: string;
-  toMemberId: string;
-  amount: number;
 }
 
 /** Only what the guest page may show. No member ids, no group id. */

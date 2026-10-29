@@ -24,7 +24,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the page someone gets when you send them a pay link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
 
 Try these flows:
 
@@ -264,7 +264,7 @@ A group is kept in one currency, picked when it is made and never changed: rupee
 Under **Account**, **Currencies** lets someone turn one of the two off. Nobody is asked to; it is there for someone who only ever uses one. Turning one off does two things.
 
 - **New groups aren't offered in it.** Someone who uses one currency is never asked which. Someone who uses both picks per group, starting from the one they said new groups start in.
-- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice or sats anywhere, and the trust screen leaves out the rows about them. **Send pay link** stays either way: the link offers whichever ways its sender can be paid (see [Paying by UPI](#paying-by-upi)). With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
+- **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice or sats anywhere, and the trust screen leaves out the rows about them. The group link stays either way: a debt on its page can be paid whichever ways the person owed can be paid (see [Paying by UPI](#paying-by-upi)). With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
 
 Two things are never hidden, because hiding them would strand someone:
 
@@ -384,11 +384,11 @@ The group's shared page asks the same question when someone comes back to it fro
 
 `GET /s/:token/upi` gives the ID, only to a page that asks to pay. **I’ve paid** is `POST /s/:token/upi-claims`: a claim, marked as coming from a link, that the person owed confirms or turns down in the app like any other. Meanwhile the page waits and offers nothing, so nobody pays twice. When they confirm, the settlement is tied to the link (`upi_claims.pay_link_token`, migration 020), so the page shows **Paid** and the link can't be paid a second time. With an invoice out for the debt, UPI waits until it has lapsed.
 
-**Send pay link** is on every debt owed to you, whichever ways you use. A link nobody could pay is never made. With nowhere to receive over Lightning, and in a rupee group no UPI ID that shared links may show, `POST /groups/:id/pay-links` answers `409 member_cannot_receive`, and the app says what to add, in terms of the ways you use, with **Set up getting paid** going to Wallet.
+Nobody sends a pay link by hand: the person owed shares the group link from **Invite**, and choosing a debt on its page is what hands one out (`POST /g/:token/debts/:ref/pay-link`, see [The group link](#the-group-link)). A link nobody could pay is never made: for someone with nowhere to receive over Lightning the page answers `409 member_cannot_receive`, and in the app the card at the top of **Settle up** says what to add, in terms of the ways you use, with **Set up getting paid** going to Wallet.
 
 ### The group link
 
-A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps **Invite** at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. Under the debts is **Join**, for the people who belong in the group; see [Joining a group](#joining-a-group).
+A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps **Invite** at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. **Join group**, at the top beside the group's name, is for the people who belong in it; see [Joining a group](#joining-a-group).
 
 A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
 
@@ -420,7 +420,7 @@ One rule runs through all of it, the same one settling follows: nobody can undo 
 
 Leaving is the reverse of joining. The member's row stays, as a ghost, with its name, history and balance, so the others' ledger still adds up; the group's link hands it back. One consequence to know: once the person owed is a ghost, the one who owes can mark the debt settled, as with any ghost.
 
-Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links it made and its requests to join are removed; the names its members had in shared groups stay.
+Deleting an account leaves every group that way. A group only that account could open is deleted with it, since nobody could ever reach it again. The token, the wallet connection, the pay links that belong to it and its requests to join are removed; the names its members had in shared groups stay.
 
 An edited or deleted expense can't be changed on Nostr, where entries are permanent, so the change is published as a further entry (see [The ledger on Nostr](#the-ledger-on-nostr)). Deleting a group deletes its ledger key from the server; what was already published stays on the relays, readable only by someone who copied the backup key.
 

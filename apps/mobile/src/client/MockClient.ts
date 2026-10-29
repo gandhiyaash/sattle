@@ -28,7 +28,6 @@ import {
   toGuestSettlement,
   toGuestSettlementFromElsewhere,
   type CreateGroupInput,
-  type CreatePayLinkInput,
   type CreateSettlementInput,
   type CreateUpiClaimInput,
   type Expense,
@@ -578,36 +577,6 @@ export class MockClient implements SattleClient {
   private linkPaid(link: PayLink) {
     const sid = this.payLinkSettlements[link.token];
     return Boolean(sid) && LEDGER_STATUSES.includes(this.findSettlement(sid).status);
-  }
-
-  createPayLink(input: CreatePayLinkInput, idempotencyKey?: string) {
-    return this.call(() => {
-      const g = this.findGroup(input.groupId);
-      const payee = this.members.find((m) => m.id === input.toMemberId);
-      if (!payee || !g.memberIds.includes(payee.id)) throw new SattleError('not_found', 'That member isn’t in this group.');
-      if (payee.claimedByUserId !== fixtures.currentUser.id) {
-        throw new SattleError('invalid_input', `Only ${payee.displayName} can send a link for this.`);
-      }
-      // As the server: a link nobody could pay isn't made, and they're told what to add. The demo's
-      // one user can always receive over Lightning, so here it only keeps the two the same.
-      if (!canReceive(payee) && !this.upiOnLink(g.id, payee)) {
-        throw new SattleError(
-          'member_cannot_receive',
-          g.currency !== 'INR'
-            ? 'Add a way to get paid first, from Wallet: a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.'
-            : this.takesUpi(payee)
-              ? 'Your UPI ID is turned off for shared links here, and you have no Lightning wallet, so nobody could pay this link. Turn it back on, or add a wallet.'
-              : 'Add a way to get paid first, from Wallet: a UPI ID, a Lightning wallet or a Lightning address. Then the link has somewhere to send the money.'
-        );
-      }
-      const link: PayLink = {
-        token: Math.random().toString(36).slice(2, 12),
-        ...input,
-        createdAt: this.now(),
-      };
-      this.payLinks.push(link);
-      return link;
-    }, idempotencyKey);
   }
 
   openPayLink(token: string, rail?: 'lightning') {
