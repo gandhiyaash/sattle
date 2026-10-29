@@ -12,6 +12,7 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import type { SupportedCurrency } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
 import { startNewGroupsIn, toggleCurrency, type CurrencyPrefs } from '../prefs/currencyPrefs';
 import { Card, Divider, Segmented } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -47,7 +48,10 @@ export function CurrencyPicker({
             <View key={o.currency}>
               {i > 0 && <Divider />}
               <Pressable
-                onPress={() => onChange(toggleCurrency(prefs, o.currency))}
+                onPress={() => {
+                  analytics.tap('Currency', { control: 'checkbox', currency: o.currency, on: !on });
+                  onChange(toggleCurrency(prefs, o.currency));
+                }}
                 disabled={fixed}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on, disabled: fixed }}

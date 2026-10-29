@@ -332,6 +332,15 @@ export function createRepo(db: Db) {
     'DELETE FROM pay_links WHERE created_by_user_id = ?',
     'DELETE FROM join_requests WHERE user_id = ?',
     'DELETE FROM idempotency_keys WHERE user_id = ?',
+    // Its usage record, and what its installs did before signing in, unless another account
+    // signed in on the same install since: that history is theirs too.
+    `DELETE FROM analytics_events
+     WHERE user_id = ?1
+        OR (user_id IS NULL
+            AND device_id IN (SELECT device_id FROM analytics_events WHERE user_id = ?1 AND device_id IS NOT NULL)
+            AND device_id NOT IN (
+              SELECT device_id FROM analytics_events WHERE user_id IS NOT NULL AND user_id != ?1 AND device_id IS NOT NULL
+            ))`,
     'DELETE FROM users WHERE id = ?',
   ].map((sql) => db.prepare(sql));
 
@@ -378,7 +387,7 @@ export function createRepo(db: Db) {
     },
     /**
      * Removes the account and what only it could use: its pay links, its
-     * requests to join, its saved replies. Its members must already be handed
+     * requests to join, its saved replies, and its usage record. Its members must already be handed
      * back (unclaimAllOf) and its wallet connection removed (walletStore).
      */
     deleteUser(id: string) {

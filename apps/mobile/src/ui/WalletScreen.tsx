@@ -29,6 +29,7 @@ import {
   type UpiProfile,
   type WalletConnection,
 } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
@@ -54,6 +55,7 @@ export interface WalletScreenProps {
 }
 
 export function WalletScreen({ onBack, onOpenFaq }: WalletScreenProps) {
+  useScreenView('Wallet');
   const s = useStyles();
   const client = useClient();
   const wallet = useWallet();
@@ -214,7 +216,7 @@ function ConnectWallet({ current }: { current: Setting<WalletConnection> }) {
       <SectionLabel>Your own wallet</SectionLabel>
       <Card style={{ gap: space.md }}>
         {current.loading && !conn && <Loading lines={2} />}
-        {current.error && !conn && <ErrorState message={current.error.message} onRetry={current.reload} />}
+        {current.error && !conn && <ErrorState message={current.error.message} error={current.error} onRetry={current.reload} />}
 
         {conn?.connected && (
           <View style={{ gap: space.sm }}>
@@ -330,7 +332,7 @@ function ReceiveAtAddress({
       <SectionLabel>{alone ? 'Lightning address' : 'Or a Lightning address'}</SectionLabel>
       <Card style={{ gap: space.md }}>
         {current.loading && address === undefined && <Loading lines={2} />}
-        {current.error && address === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
+        {current.error && address === undefined && <ErrorState message={current.error.message} error={current.error} onRetry={current.reload} />}
 
         {address && !editing && (
           <View style={{ gap: space.sm }}>
@@ -441,7 +443,7 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
       <SectionLabel>UPI</SectionLabel>
       <Card style={{ gap: space.md }}>
         {current.loading && upiId === undefined && <Loading lines={2} />}
-        {current.error && upiId === undefined && <ErrorState message={current.error.message} onRetry={current.reload} />}
+        {current.error && upiId === undefined && <ErrorState message={current.error.message} error={current.error} onRetry={current.reload} />}
 
         {upiId && !editing && (
           <View style={{ gap: space.sm }}>

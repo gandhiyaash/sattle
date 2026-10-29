@@ -46,6 +46,7 @@ import {
   type GuestSettlement,
   type GuestView,
 } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CopyInvoice } from './InvoicePanel';
 import { openAppLink } from './openLink';
@@ -72,6 +73,7 @@ type Load =
   | { kind: 'failed'; error: SattleError };
 
 export function GuestPayScreen({ token, fromGroup = false }: GuestPayScreenProps) {
+  useScreenView('Pay page', { fromGroup });
   return (
     <FromGroup.Provider value={fromGroup}>
       <GuestPay token={token} />
@@ -484,7 +486,7 @@ function UpiPay({
       {loading ? (
         <ActivityIndicator color={color.accent} />
       ) : error || !payee ? (
-        <ErrorState message={error?.message ?? 'Couldn’t get the UPI details. Try again.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Couldn’t get the UPI details. Try again.'} error={error} onRetry={reload} />
       ) : (
         <>
           <UpiPanel
@@ -684,7 +686,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
       return (
         <Page>
           <Text style={s.brand}>Sattle</Text>
-          <ErrorState message={error.message} onRetry={onRetry} />
+          <ErrorState message={error.message} error={error} onRetry={onRetry} />
         </Page>
       );
   }

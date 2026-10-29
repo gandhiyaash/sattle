@@ -49,6 +49,8 @@ jobs:
           EXPO_PUBLIC_USE_MOCK: ${{ vars.EXPO_PUBLIC_USE_MOCK || 'false' }}
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || 'https://battle.axiosiiitl.dev' }}
           EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || 'https://sattle.axiosiiitl.dev' }}
+          # What the app says it is when it reports how it's used (apps/mobile/src/analytics).
+          EXPO_PUBLIC_APP_VERSION: pr-${{ github.event.pull_request.number }}
         run: ./gradlew assembleRelease
 
       - name: Name the APK after the pull request

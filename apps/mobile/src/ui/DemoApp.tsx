@@ -15,6 +15,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
 import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
@@ -430,7 +431,13 @@ function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () =
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={sheet.backdrop} onPress={onClose} />
+      <Pressable
+        style={sheet.backdrop}
+        onPress={() => {
+          analytics.tap('Dismiss', { control: 'backdrop' });
+          onClose();
+        }}
+      />
       {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
       <View style={sheet.frame} pointerEvents="box-none">
         {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
@@ -467,7 +474,10 @@ function DemoBar({
       {tabs.map((tab) => (
         <Pressable
           key={tab.label}
-          onPress={() => onNavigate(tab.route)}
+          onPress={() => {
+            analytics.tap(tab.label, { control: 'tab' });
+            onNavigate(tab.route);
+          }}
           style={sheet.tab}
         >
           <Text

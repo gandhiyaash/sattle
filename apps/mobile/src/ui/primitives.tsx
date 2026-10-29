@@ -25,7 +25,8 @@ import {
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
+import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, SattleError, type Quote } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
 import { layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 const LOGO = {
@@ -70,7 +71,14 @@ export function Screen({
       {/* The app draws under the status bar and the notch, so the header starts below them. */}
       <View style={[s.header, { paddingTop: Math.max(insets.top + space.md, space.xl) }]}>
         {onBack && (
-          <Pressable onPress={onBack} hitSlop={12} style={s.back}>
+          <Pressable
+            onPress={() => {
+              analytics.tap('Back', { control: 'back' });
+              onBack();
+            }}
+            hitSlop={12}
+            style={s.back}
+          >
             <Text style={s.backText}>‹</Text>
           </Pressable>
         )}
@@ -157,6 +165,7 @@ export function Divider() {
 
 export function Button({
   label,
+  track,
   hint,
   onPress,
   href,
@@ -166,6 +175,12 @@ export function Button({
   danger,
 }: {
   label: string;
+  /**
+   * What a tap on it is recorded as (see analytics), when the label holds
+   * someone's name or a group's. Without it, the label is: the same button
+   * should count as one, and names don't belong in the usage record.
+   */
+  track?: string;
   hint?: string;
   onPress?: () => void;
   /**
@@ -193,7 +208,10 @@ export function Button({
     <View>
       <Pressable
         {...link}
-        onPress={onPress}
+        onPress={() => {
+          analytics.tap(track ?? label, { control: 'button', ...(href ? { link: true } : {}) });
+          onPress?.();
+        }}
         disabled={disabled || busy}
         style={({ pressed }) => [
           s.btn,
@@ -239,7 +257,10 @@ export function IconButton({
   const s = useStyles();
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        analytics.tap(label, { control: 'icon' });
+        onPress?.();
+      }}
       disabled={busy}
       hitSlop={4}
       accessibilityRole="button"
@@ -276,7 +297,14 @@ export function Dialog({
   const s = useStyles();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.dialogBackdrop} onPress={onClose} accessibilityLabel="Close" />
+      <Pressable
+        style={s.dialogBackdrop}
+        onPress={() => {
+          analytics.tap('Dismiss', { control: 'backdrop' });
+          onClose();
+        }}
+        accessibilityLabel="Close"
+      />
       <View style={s.dialogCenter} pointerEvents="box-none">
         <View style={s.dialogCard}>
           <Text style={s.dialogTitle}>{title}</Text>
@@ -295,6 +323,7 @@ export function Dialog({
 export function ConfirmButton({
   label,
   confirmLabel,
+  track,
   hint,
   confirmHint,
   onConfirm,
@@ -302,6 +331,8 @@ export function ConfirmButton({
   label: string;
   /** What the second tap says, e.g. "Yes, delete it". */
   confirmLabel: string;
+  /** What the first tap is recorded as, when the labels hold a name; the second is this, confirmed. See Button. */
+  track?: string;
   hint?: string;
   /** What the second tap leaves behind, said only once the first has asked. */
   confirmHint?: string;
@@ -325,10 +356,17 @@ export function ConfirmButton({
   return (
     <View style={{ gap: space.sm }}>
       {state === 'idle' ? (
-        <Button label={label} hint={hint} danger variant="quiet" onPress={() => setState('confirming')} />
+        <Button label={label} track={track} hint={hint} danger variant="quiet" onPress={() => setState('confirming')} />
       ) : (
         <>
-          <Button label={confirmLabel} hint={confirmHint} danger busy={state === 'busy'} onPress={confirm} />
+          <Button
+            label={confirmLabel}
+            track={track && `${track}, confirmed`}
+            hint={confirmHint}
+            danger
+            busy={state === 'busy'}
+            onPress={confirm}
+          />
           {state === 'confirming' && <Button label="Cancel" variant="quiet" onPress={() => setState('idle')} />}
         </>
       )}
@@ -348,7 +386,10 @@ export function LearnMore({ children }: { children: React.ReactNode }) {
   return (
     <View style={{ gap: space.xs }}>
       <Pressable
-        onPress={() => setOpen(!open)}
+        onPress={() => {
+          analytics.tap(open ? 'Show less' : 'Learn more', { control: 'link' });
+          setOpen(!open);
+        }}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
@@ -381,7 +422,10 @@ export function Segmented<T extends string>({
         return (
           <Pressable
             key={o.value}
-            onPress={() => onChange(o.value)}
+            onPress={() => {
+              analytics.tap(o.label, { control: 'segment' });
+              onChange(o.value);
+            }}
             style={[s.segment, selected && s.segmentSelected]}
             accessibilityRole="radio"
             accessibilityState={{ selected }}
@@ -520,12 +564,20 @@ export function Loading({ lines = 3 }: { lines?: number }) {
 
 export function ErrorState({
   message,
+  error,
   onRetry,
 }: {
   message: string;
+  /** What was thrown, when the message came from it: the record gets its code. */
+  error?: unknown;
   onRetry?: () => void;
 }) {
   const color = useColors();
+  // Each message put on screen is noted once, however many times it's drawn, but never in its
+  // own words: most come from the server, and name a member or the group. Its code, or just
+  // that one showed.
+  const code = error instanceof SattleError ? error.code : 'error';
+  useEffect(() => analytics.error(code), [code, message]);
   return (
     <Card style={{ backgroundColor: color.dangerWash, borderColor: color.danger }}>
       <Text style={[type.body, { color: color.danger }]}>{message}</Text>

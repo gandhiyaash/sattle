@@ -39,6 +39,7 @@ import {
   type GroupGuestExpense,
   type UpiPayee,
 } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { useBackFromUpi } from '../react/useBackFromUpi';
 import { GuestPayScreen } from './GuestPayScreen';
@@ -58,6 +59,7 @@ export interface GroupGuestScreenProps {
 const REFRESH_MS = 4000;
 
 export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProps) {
+  useScreenView('Group page', { inApp: onBack !== undefined });
   const s = useStyles();
   const client = useClient();
   const { data, loading, error, reload, refresh } = useAsync(() => client.getGroupGuestView(token), [token]);
@@ -158,6 +160,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
         <View style={s.backBar}>
           <Button
             label={`Back to ${data?.groupName ?? 'the group'}`}
+            track="Back to the group"
             onPress={() => {
               setPaying(null);
               refresh();
@@ -181,7 +184,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
       <Screen title="Sattle" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} onRetry={retry} />
+        <ErrorState message={error?.message ?? 'Couldn’t load this group.'} error={error} onRetry={retry} />
       </Screen>
     );
   }
@@ -232,11 +235,11 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
         </Text>
         {onJoin ? (
           // Inside the app, which has a join screen of its own to go to.
-          <Button label={`Join ${data.groupName}`} variant="primary" onPress={onJoin} />
+          <Button label={`Join ${data.groupName}`} track="Join the group" variant="primary" onPress={onJoin} />
         ) : (
           // In a browser, a real link and not a change of screen: Back returns here, and a phone
           // with the app installed can hand /join/ links to it.
-          <Button label={`Join ${data.groupName}`} variant="primary" href={joinPath(token)} />
+          <Button label={`Join ${data.groupName}`} track="Join the group" variant="primary" href={joinPath(token)} />
         )}
       </Card>
 

@@ -14,6 +14,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { computeBalances, SUPPORTED_CURRENCIES, type Group, type JoinRequest } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import {
   Amount,
@@ -49,6 +51,7 @@ export function GroupsListScreen({
   onNewGroup,
   onJoin,
 }: GroupsListScreenProps) {
+  useScreenView('Groups');
   const color = useColors();
   const s = useStyles();
   const client = useClient();
@@ -139,7 +142,7 @@ export function GroupsListScreen({
         {!(data?.length === 0 && asked.data?.length) && <SectionLabel>Groups</SectionLabel>}
 
         {loading && <Loading lines={2} />}
-        {error && <ErrorState message={error.message} onRetry={reload} />}
+        {error && <ErrorState message={error.message} error={error} onRetry={reload} />}
 
         {data?.length === 0 && !asked.data?.length && (
           <EmptyState
@@ -159,7 +162,10 @@ export function GroupsListScreen({
             {data.map((row, i) => (
               <Pressable
                 key={row.group.id}
-                onPress={() => onOpenGroup(row.group.id)}
+                onPress={() => {
+                  analytics.tap('Group', { control: 'row', groupId: row.group.id });
+                  onOpenGroup(row.group.id);
+                }}
                 style={({ pressed }) => [
                   s.row,
                   i > 0 && s.rowBorder,

@@ -34,6 +34,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatAmount, isBitcoin, type Debt, type Member, type PayWays } from '@sattle/core';
+import { useScreenView } from '../analytics/useScreenView';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
 import { refusesLinks } from '../upi/upiApps';
@@ -61,6 +62,8 @@ export function SettleUpSheet({
   const color = useColors();
   const s = useStyles();
   const flow = useSettleFlow(debt, members, groupName, currency);
+  // Each step of paying is its own showing, so where people stop is in the record.
+  useScreenView('Settle up', { groupId: debt.groupId, step: flow.step });
   const [draft, setDraft] = useState('');
   // The reference the payer may type in for a UPI payment they say went through.
   const [reference, setReference] = useState('');
@@ -173,7 +176,7 @@ export function SettleUpSheet({
           onPay={flow.payWith ?? undefined}
           onOpened={flow.leftForUpi}
         />
-        {flow.error && <ErrorState message={flow.error.message} />}
+        {flow.error && <ErrorState message={flow.error.message} error={flow.error} />}
 
         {flow.recordUpiSuccess ? (
           <Button label="Try again" variant="primary" busy={flow.busy} onPress={flow.recordUpiSuccess} />
@@ -382,6 +385,7 @@ export function SettleUpSheet({
           <>
             <Button
               label={reminder ? `Remind ${recipient.displayName} again` : `Remind ${recipient.displayName}`}
+              track={reminder ? 'Remind them again' : 'Remind them'}
               variant={first === 'remind' ? 'primary' : 'secondary'}
               onPress={sendReminder}
             />
@@ -393,6 +397,7 @@ export function SettleUpSheet({
           <>
             <Button
               label={invite.kind === 'sent' ? `Invite ${recipient.displayName} again` : `Invite ${recipient.displayName}`}
+              track={invite.kind === 'sent' ? 'Invite them again' : 'Invite them'}
               variant={first === 'invite' ? 'primary' : 'secondary'}
               busy={invite.kind === 'busy'}
               onPress={sendInvite}
@@ -433,6 +438,8 @@ export function SettleUpSheet({
         <Button
           key={option.rail}
           label={option.label}
+          // That one's label is the address itself.
+          track={option.rail === 'lightning_address' ? 'Pay their Lightning address' : undefined}
           // A greyed-out button says why, not what it would have done.
           hint={option.availability.available ? option.detail : (option.availability.reason ?? option.detail)}
           variant={option.rank === 1 ? 'primary' : 'secondary'}
@@ -442,7 +449,7 @@ export function SettleUpSheet({
         />
       ))}
 
-      {flow.error && <ErrorState message={flow.error.message} />}
+      {flow.error && <ErrorState message={flow.error.message} error={flow.error} />}
     </View>
   );
 }

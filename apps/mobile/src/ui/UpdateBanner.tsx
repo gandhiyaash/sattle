@@ -7,6 +7,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { analytics } from '../analytics/analytics';
 import { useAppUpdate } from '../react/useAppUpdate';
 import { makeStyles, space, type } from './theme';
 
@@ -33,7 +34,13 @@ export function UpdateBanner() {
     <View style={s.banner}>
       <Text style={s.text}>{text}</Text>
       {action && (
-        <Pressable onPress={action.onPress} hitSlop={12}>
+        <Pressable
+          onPress={() => {
+            analytics.tap(action.label, { control: 'banner' });
+            void action.onPress();
+          }}
+          hitSlop={12}
+        >
           <Text style={s.action}>{action.label}</Text>
         </Pressable>
       )}

@@ -55,6 +55,8 @@ import {
   type UpiClaim,
   type UpiProfile,
 } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { toggleCurrency } from '../prefs/currencyPrefs';
 import { chooseCurrencies, useCurrencyPrefs, usePayWays } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
@@ -139,6 +141,7 @@ export function GroupDetailScreen({
   onOpenWallet,
   onSettle,
 }: GroupDetailScreenProps) {
+  useScreenView('Group', { groupId, tab });
   const color = useColors();
   const s = useStyles();
   const client = useClient();
@@ -213,7 +216,7 @@ export function GroupDetailScreen({
   if (error || !data) {
     return (
       <Screen title="Group" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Could not load this group.'} error={error} onRetry={reload} />
       </Screen>
     );
   }
@@ -352,7 +355,10 @@ export function GroupDetailScreen({
               <View key={expense.id}>
                 {i > 0 && <Divider />}
                 <Pressable
-                  onPress={() => onEditExpense(expense, data.members, data.currency, data.userId)}
+                  onPress={() => {
+                    analytics.tap('Expense', { control: 'row' });
+                    onEditExpense(expense, data.members, data.currency, data.userId);
+                  }}
                   style={({ pressed }) => [s.expenseRow, pressed && { backgroundColor: color.surfaceSunken }]}
                 >
                   <View style={{ flex: 1 }}>
@@ -387,6 +393,7 @@ export function GroupDetailScreen({
                   <ConfirmButton
                     label={`Remove ${member.displayName}`}
                     confirmLabel={`Yes, remove ${member.displayName}`}
+                    track="Remove member"
                     onConfirm={async () => {
                       await keys.run('remove-member', { groupId, id: member.id }, (k) =>
                         client.removeMember(groupId, member.id, k)
@@ -922,7 +929,7 @@ function MarkSettled({
   return (
     <View style={s.linkBlock}>
       {state === 'confirming' || state === 'busy' ? (
-        <Button label={`Yes, ${payerName} paid me`} busy={state === 'busy'} onPress={confirm} />
+        <Button label={`Yes, ${payerName} paid me`} track="Yes, they paid me" busy={state === 'busy'} onPress={confirm} />
       ) : (
         <Button
           label="Mark as settled"

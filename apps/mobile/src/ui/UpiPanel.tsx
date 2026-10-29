@@ -20,6 +20,7 @@ import React, { useState } from 'react';
 import { Image, Platform, Pressable, Text, View } from 'react-native';
 
 import type { UpiPayee } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
 import type { UpiApp } from '../upi/upiApps';
 import { openAppLink } from './openLink';
 import { Button, IconButton } from './primitives';
@@ -94,7 +95,10 @@ export function UpiPanel({
               <Pressable
                 key={app.packageName}
                 disabled={busy}
-                onPress={() => onPay?.(app)}
+                onPress={() => {
+                  analytics.tap('Pay with app', { control: 'app', app: app.name });
+                  onPay?.(app);
+                }}
                 accessibilityRole="button"
                 accessibilityLabel={`Pay with ${app.name}`}
                 style={({ pressed }) => [s.app, pressed && { opacity: 0.7 }, busy && { opacity: 0.4 }]}

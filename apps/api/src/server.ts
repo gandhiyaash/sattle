@@ -6,6 +6,7 @@ import { openDb, seedIfEmpty } from './db';
 import { productionProblems, productionWarnings } from './env';
 import { NostrLedger } from './nostrLedger';
 import { LnurlClient } from './lnurl';
+import { pruneAnalytics } from './middleware';
 import { NwcClient } from './nwc';
 import { SimulatedPayments } from './payments';
 import { LightningPayments } from './payments/lightning';
@@ -46,6 +47,17 @@ db.prepare(
      updated_at = ? WHERE status IN ${interrupted}`
 ).run(new Date().toISOString());
 
+// Old usage rows go (pruneAnalytics: requests and guests' after 30 days, the rest after a year), now
+// and daily, for a server that runs for weeks between deploys. A failure is logged and tried again tomorrow: it mustn't take the server down.
+const prune = () =>
+  pruneAnalytics(db)
+    .then((n) => {
+      if (n > 0) console.log(`analytics: dropped ${n} old row(s)`);
+    })
+    .catch((e) => console.error('analytics:', e));
+void prune();
+setInterval(() => void prune(), 86_400_000).unref();
+
 let lightning: LightningPayments | undefined;
 // One client for checking receive addresses and minting from them, so the
 // pay details fetched on save are reused. `bc` is mainnet; LIGHTNING_NETWORK=tbs for signet.
@@ -65,6 +77,8 @@ const app = createApp({
   demoUserId: env.DEMO_USER_ID || undefined,
   lnurl,
   corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : '*',
+  // A row per request answered (requestLog). Off unless set: see AppDeps.requestLog.
+  requestLog: env.REQUEST_LOG === 'true',
   payments: (repo, wallets) =>
     realPayments
       ? (lightning = new LightningPayments({
@@ -86,7 +100,13 @@ const app = createApp({
 const resumed = lightning?.resume() ?? 0;
 ledger.start();
 
-serve({ fetch: app.fetch, port }, (info) => {
+// In production only nginx talks to the API (deploy/nginx.conf proxies to 127.0.0.1), so it listens
+// there alone: reached directly, it would trust whatever X-Real-IP a client sent, and skip nginx's
+// limits. In development it listens everywhere, as Node does by default, so a phone on the same
+// network can reach it. HOST overrides either.
+const hostname = env.HOST || (env.NODE_ENV === 'production' ? '127.0.0.1' : undefined);
+
+serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`sattle api on http://localhost:${info.port} (${realPayments ? 'real payments' : 'simulated payments'})`);
   if (resumed > 0) console.log(`  watching ${resumed} open invoice(s) from before the restart`);
   console.log(

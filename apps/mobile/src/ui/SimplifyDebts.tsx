@@ -12,6 +12,7 @@
 import React from 'react';
 import { Switch, Text, View } from 'react-native';
 
+import { analytics } from '../analytics/analytics';
 import { LearnMore } from './primitives';
 import { makeStyles, space, type, useColors } from './theme';
 
@@ -39,7 +40,10 @@ export function SimplifyDebtsSwitch({
         </View>
         <Switch
           value={value}
-          onValueChange={onChange}
+          onValueChange={(next) => {
+            analytics.tap('Simplify debts', { control: 'switch', on: next });
+            onChange(next);
+          }}
           disabled={disabled}
           accessibilityLabel="Simplify debts"
           trackColor={{ false: color.lineStrong, true: color.accent }}

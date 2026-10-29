@@ -14,6 +14,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useScreenView } from '../analytics/useScreenView';
 import { Amount, Avatar, Badge, Button, Card, Divider, Screen } from './primitives';
 import { makeStyles, radius, space, type } from './theme';
 
@@ -23,6 +24,7 @@ const LAST = STEPS.length - 1;
 export function OnboardingScreen({ onDone }: { onDone: () => void }) {
   const [at, setAt] = useState(0);
   const step = STEPS[at];
+  useScreenView('Onboarding', { step });
 
   return (
     <Screen

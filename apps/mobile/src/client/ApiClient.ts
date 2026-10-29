@@ -46,6 +46,17 @@ import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;
 
+let extraHeaders: () => Record<string, string> = () => ({});
+/**
+ * Headers every request carries besides its own: which install and session
+ * it came from, so the server's own record of it joins what the app reports
+ * of itself. Set once by analytics.ts; this file doesn't import it, so the
+ * client runs under vitest without React Native.
+ */
+export function setRequestHeaders(headers: () => Record<string, string>) {
+  extraHeaders = headers;
+}
+
 /**
  * Makes a device account. Not on SattleClient, because nobody is signed in
  * yet when it's called; the token it returns is what ApiClient sends after.
@@ -69,7 +80,7 @@ async function postPublic<T>(baseUrl: string, path: string, body: unknown): Prom
   try {
     res = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      headers: { accept: 'application/json', 'content-type': 'application/json', ...extraHeaders() },
       body: JSON.stringify(body),
     });
   } catch {
@@ -96,7 +107,7 @@ export class ApiClient implements SattleClient {
     body?: unknown,
     idempotencyKey?: string
   ): Promise<T> {
-    const headers: Record<string, string> = { accept: 'application/json' };
+    const headers: Record<string, string> = { accept: 'application/json', ...extraHeaders() };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     const token = this.getToken();

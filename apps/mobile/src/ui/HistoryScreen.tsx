@@ -30,6 +30,8 @@ import {
   type Member,
   type Settlement,
 } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
+import { useScreenView } from '../analytics/useScreenView';
 import { useAsync, useClient } from '../react/SattleProvider';
 import { splitSummary } from './GroupDetailScreen';
 import { Amount, BreakdownRow, Button, Card, Divider, ErrorState, Loading, Screen } from './primitives';
@@ -45,6 +47,7 @@ export interface HistoryScreenProps {
 }
 
 export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
+  useScreenView('History', { groupId });
   const color = useColors();
   const s = useStyles();
   const client = useClient();
@@ -69,7 +72,7 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
   if (error || !data) {
     return (
       <Screen title="History" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group’s history.'} onRetry={reload} />
+        <ErrorState message={error?.message ?? 'Could not load this group’s history.'} error={error} onRetry={reload} />
       </Screen>
     );
   }
@@ -86,7 +89,10 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
             <View key={entry.id}>
               {i > 0 && <Divider />}
               <Pressable
-                onPress={() => onOpen(entry, data.members, data.currency)}
+                onPress={() => {
+                  analytics.tap('History entry', { control: 'row', kind: entry.kind });
+                  onOpen(entry, data.members, data.currency);
+                }}
                 accessibilityRole="button"
                 style={({ pressed }) => [s.row, pressed && { backgroundColor: color.surfaceSunken }]}
               >
@@ -198,6 +204,7 @@ export interface HistoryEntrySheetProps {
 
 /** One entry in full. Drawn inside the navigator's sheet, like settling up. */
 export function HistoryEntrySheet({ entry, members, currency, onClose }: HistoryEntrySheetProps) {
+  useScreenView('History entry', { kind: entry.kind });
   const s = useStyles();
   const { height } = useWindowDimensions();
   const nameOf = namer(members);

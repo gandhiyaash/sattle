@@ -63,6 +63,7 @@ import {
   type UpiOutcome,
   type UpiPayee,
 } from '@sattle/core';
+import { analytics } from '../analytics/analytics';
 import type { SattleClient } from '../client/SattleClient';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { upiLauncher } from '../upi/launchUpi';
@@ -251,6 +252,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     try {
       outcome = await upiLauncher.pay(session.uri, app ?? undefined);
     } catch {
+      analytics.action('open UPI app', { app: app?.name ?? null, opened: false });
       throw new Error(
         `${app ? `${app.name} couldn’t be opened` : 'No UPI app on this phone could open this'}. Pay the UPI ID below from your UPI app, then mark it as paid.`
       );
@@ -258,6 +260,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     // The app's name travels with what it said, so Try again reports the same thing under the same
     // key. Without a pick the phone chose, and nobody here knows which app it was.
     if (app) outcome = { ...outcome, paidWith: app.name };
+    analytics.action('open UPI app', { app: app?.name ?? null, opened: true, said: outcome.status });
     setUpi({ ...session, outcome });
     if (outcome.status === 'success') await settleByUpi(outcome);
   };
@@ -348,7 +351,9 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
       upiApp.leaving();
       try {
         upiLauncher.open(copiedFor);
+        analytics.action('open UPI app', { app: copiedFor.name, opened: true, plain: true });
       } catch {
+        analytics.action('open UPI app', { app: copiedFor.name, opened: false, plain: true });
         upiApp.answered();
         setError(new Error(`${copiedFor.name} couldn’t be opened. Pay the UPI ID below from it by hand, then mark it as paid.`));
       }

@@ -11,4 +11,5 @@ export * from './settlementState';
 export { parseLightningAddress, type ParsedAddress } from './lightningAddress';
 export * from './upi';
 export * from './nostrAuth';
+export * from './analytics';
 export * as fixtures from './fixtures';
