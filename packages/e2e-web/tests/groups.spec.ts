@@ -4,23 +4,27 @@
  */
 
 import {
+  addExpense,
   ancestor,
   back,
   button,
   confirm,
   createGroup,
   debtCard,
+  expectDisabled,
   expenseForm,
+  goToGroup,
   groupHeader,
   groupTab,
   inviteLink,
+  joinAs,
   memberRow,
   openGroup,
   openManage,
+  saveExpense,
   section,
 } from '../src/actions';
 import { expect, test } from '../src/fixtures';
-import { addSpend, disabled, goToGroup, joinAs, saveExpense } from '../src/groups.helpers';
 
 test.describe('New group', () => {
   test('refuses a group with no name', async ({ person }) => {
@@ -259,7 +263,7 @@ test.describe('Members', () => {
     const { page } = await person('Yash');
     await createGroup(page, { name: 'Goa trip', people: ['Priya'] });
     await groupTab(page, 'Members');
-    await disabled(button(page, 'Add'));
+    await expectDisabled(button(page, 'Add'));
     await button(page, 'Add').click();
     await expect(page.getByText('2 members · 0 expenses')).toBeVisible();
     const field = page.getByPlaceholder('Add someone by name');
@@ -268,7 +272,7 @@ test.describe('Members', () => {
     await expect(memberRow(page, 'Aman').getByText('Not joined')).toBeVisible();
     await expect(page.getByText('3 members · 0 expenses')).toBeVisible();
     await expect(field).toHaveValue('');
-    await disabled(button(page, 'Add'));
+    await expectDisabled(button(page, 'Add'));
     // Enter adds too.
     await field.fill('Riya');
     await field.press('Enter');
@@ -339,14 +343,14 @@ test.describe('Manage', () => {
     const field = page.getByPlaceholder('Group name');
     await expect(field).toHaveValue('Goa trip');
     const save = section(page, 'Name').getByText('Save', { exact: true });
-    await disabled(save);
+    await expectDisabled(save);
     await field.fill('   ');
-    await disabled(save);
+    await expectDisabled(save);
     await field.fill('  Goa, again  ');
     await save.click();
     await expect(page.getByText('Goa, again', { exact: true })).toBeVisible();
     await expect(field).toHaveValue('Goa, again');
-    await disabled(save);
+    await expectDisabled(save);
     await back(page);
     await expect(page.getByText('Goa, again', { exact: true })).toBeVisible();
     await back(page);
@@ -442,7 +446,7 @@ test.describe('Manage', () => {
     await expect(page.getByText('Manage group')).toBeVisible();
     await expect(page.getByText('Backed up on Nostr')).toHaveCount(0);
     await back(page);
-    await addSpend(page, { description: 'Villa', amount: '300' });
+    await addExpense(page, { description: 'Villa', amount: '300' });
     const [group] = await yash.api.groups();
     const entries = () => yash.api.get<{ entries: number }>(`/groups/${group.id}/ledger`).then((b) => b.entries);
     // The server signs new entries every few seconds.
@@ -456,7 +460,7 @@ test.describe('Manage', () => {
     await expect(page.getByText('Copied. It unlocks this group’s history, so only give it to people in the group.')).toBeVisible();
     await expect(page.getByText(/^sattle-ledger:\/\//)).toBeVisible();
     await back(page);
-    await addSpend(page, { description: 'Cab', amount: '60' });
+    await addExpense(page, { description: 'Cab', amount: '60' });
     await expect.poll(entries, { timeout: 15_000 }).toBe(2);
     await openManage(page);
     await expect(page.getByText('2 entries signed. This server isn’t publishing to relays yet.')).toBeVisible();
@@ -476,7 +480,7 @@ test.describe('Manage', () => {
     const { group } = await alice.api.seedGroup({ name: 'Trip', people: ['Bob'] });
     await joinAs(alice, group.id, bob, 'Bob');
     await goToGroup(bob.page, 'Trip');
-    await addSpend(bob.page, { description: 'Cab', amount: '60', paidBy: 'Bob' });
+    await addExpense(bob.page, { description: 'Cab', amount: '60', paidBy: 'Bob' });
     await goToGroup(alice.page, 'Trip');
     await groupTab(alice.page, 'Members');
     await expect(memberRow(alice.page, 'Bob').getByText('In app')).toBeVisible();
@@ -490,7 +494,7 @@ test.describe('Manage', () => {
     expect(await bob.api.groups()).toHaveLength(0);
 
     await expect(memberRow(alice.page, 'Bob').getByText('Not joined')).toBeVisible({ timeout: 15_000 });
-    await expect(alice.page.getByText('2 members · 1 expenses')).toBeVisible();
+    await expect(alice.page.getByText('2 members · 1 expense')).toBeVisible();
     await expect(memberRow(alice.page, 'Bob').getByText('gets back')).toBeVisible();
     await expect(memberRow(alice.page, 'Bob').getByText('₹30')).toBeVisible();
   });
@@ -554,7 +558,7 @@ test.describe('A group kept in bitcoin', () => {
     await expect(page.getByText('1,001 sats', { exact: true })).toBeVisible();
     await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
     await expect(page.getByText('500 sats', { exact: true })).toBeVisible();
-    await addSpend(page, { description: 'A sat', amount: '1' });
+    await addExpense(page, { description: 'A sat', amount: '1' });
     await expect(page.getByText('1 sat', { exact: true })).toBeVisible();
     await back(page);
     await expect(page.getByText('500 sats', { exact: true })).toHaveCount(2); // the headline and the row

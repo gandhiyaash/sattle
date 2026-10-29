@@ -4,9 +4,22 @@
  * and that every balance in the app agrees with the maths.
  */
 
-import { back, button, createGroup, debtCard, expenseForm, groupHeader, groupTab, memberRow, openGroup } from '../src/actions';
+import {
+  addExpense,
+  back,
+  button,
+  createGroup,
+  debtCard,
+  expenseForm,
+  goToGroup,
+  groupHeader,
+  groupTab,
+  joinAs,
+  memberRow,
+  openGroup,
+  saveExpense,
+} from '../src/actions';
 import { expect, test } from '../src/fixtures';
-import { addSpend, goToGroup, joinAs, saveExpense } from '../src/groups.helpers';
 
 import type { Page } from '@playwright/test';
 
@@ -40,7 +53,7 @@ test.describe('Split equally', () => {
     await expenseForm.description(page).fill('Mine');
     await saveExpense(page);
     await expect(page.getByText('Yash paid · all for Yash')).toBeVisible();
-    await expect(page.getByText('3 members · 1 expenses')).toBeVisible();
+    await expect(page.getByText('3 members · 1 expense')).toBeVisible();
     // Paid for yourself alone: nobody owes anyone.
     await expect(page.getByText('All settled', { exact: true })).toBeVisible();
     await groupTab(page, 'Members');
@@ -170,7 +183,7 @@ test.describe('What the form refuses', () => {
     test(`reads "${typed}" as ${shown}`, async ({ person }) => {
       const { page } = await person('Yash');
       await createGroup(page, { name: 'Trip' });
-      await addSpend(page, { description: 'Thing', amount: typed });
+      await addExpense(page, { description: 'Thing', amount: typed });
       await expect(page.getByText(shown, { exact: true })).toBeVisible();
     });
   }
@@ -202,7 +215,7 @@ test.describe('What the form refuses', () => {
   test('a name of 200 characters is kept and 201 is refused by the server', async ({ person }) => {
     const { page } = await person('Yash');
     await createGroup(page, { name: 'Trip' });
-    await addSpend(page, { description: 'x'.repeat(200), amount: '10' });
+    await addExpense(page, { description: 'x'.repeat(200), amount: '10' });
     await expect(page.getByText('x'.repeat(200), { exact: true })).toBeVisible();
     await openForm(page);
     await expenseForm.description(page).fill('y'.repeat(201));
@@ -218,9 +231,9 @@ test.describe('Who paid', () => {
   test('on your own device you are the payer unless another is picked', async ({ person }) => {
     const { page } = await person('Yash');
     await createGroup(page, { name: 'Trip', people: ['Bob'] });
-    await addSpend(page, { description: 'Villa', amount: '100' });
+    await addExpense(page, { description: 'Villa', amount: '100' });
     await expect(page.getByText('Yash paid · split equally, 2 ways')).toBeVisible();
-    await addSpend(page, { description: 'Cab', amount: '50', paidBy: 'Bob' });
+    await addExpense(page, { description: 'Cab', amount: '50', paidBy: 'Bob' });
     await expect(page.getByText('Bob paid · split equally, 2 ways')).toBeVisible();
     await expect(page.getByText('2 members · 2 expenses')).toBeVisible();
     await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
@@ -235,7 +248,7 @@ test.describe('Who paid', () => {
     const { group } = await alice.api.seedGroup({ name: 'Trip', people: ['Bob'] });
     await joinAs(alice, group.id, bob, 'Bob');
     await goToGroup(bob.page, 'Trip');
-    await addSpend(bob.page, { description: 'Cab', amount: '60' });
+    await addExpense(bob.page, { description: 'Cab', amount: '60' });
     await expect(bob.page.getByText('Bob paid · split equally, 2 ways')).toBeVisible();
   });
 });
@@ -296,7 +309,7 @@ test.describe('Changing an expense', () => {
     await expect(page.getByText('Supper', { exact: true })).toBeVisible();
     await expect(page.getByText('Bob paid · split equally, 2 ways')).toBeVisible();
     await expect(page.getByText('₹450', { exact: true })).toBeVisible();
-    await expect(page.getByText('2 members · 1 expenses')).toBeVisible();
+    await expect(page.getByText('2 members · 1 expense')).toBeVisible();
     await expect(page.getByText('You owe', { exact: true })).toBeVisible();
     await expect(page.getByText('₹225', { exact: true })).toBeVisible();
   });
@@ -418,7 +431,7 @@ test.describe('Changing an expense', () => {
     await expect(button(page, 'Delete expense')).toBeVisible();
     await button(page, 'Delete expense').click();
     await button(page, 'Yes, delete this expense').click();
-    await expect(page.getByText('2 members · 1 expenses')).toBeVisible();
+    await expect(page.getByText('2 members · 1 expense')).toBeVisible();
     await expect(page.getByText('Dinner', { exact: true })).toHaveCount(0);
     await expect(page.getByText('₹30', { exact: true })).toBeVisible();
     await page.getByText('Cab', { exact: true }).click();
@@ -439,7 +452,7 @@ test.describe('Changing an expense', () => {
     await expenseForm.amount(page).fill('100');
     await button(page, 'Add expense').last().dblclick();
     await expect(groupHeader(page)).toBeVisible();
-    await expect(page.getByText('2 members · 1 expenses')).toBeVisible();
+    await expect(page.getByText('2 members · 1 expense')).toBeVisible();
     const [group] = await yash.api.groups();
     expect(await yash.api.expenses(group.id)).toHaveLength(1);
   });

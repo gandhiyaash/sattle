@@ -50,10 +50,13 @@ const minorPerTyped = (currency: string) => (isBitcoin(currency) ? 1 : 100);
  * An amount as typed, in minor units; 0 for anything that isn't a clean
  * number. Separators and a currency sign are let through ("1,250.50"), a minus
  * is not: an expense can't be negative, and dropping the sign would save it as
- * if it were.
+ * if it were. A minus is any hyphen or dash, and the minus sign itself (U+2212): pasted text
+ * and some keyboards don't use the ASCII one.
  */
+const MINUS = /[-\u2010-\u2015\u2212\uFE63\uFF0D]/;
+
 export function parseAmount(text: string, currency = 'INR'): number {
-  if (text.includes('-')) return 0;
+  if (MINUS.test(text)) return 0;
   const n = Number(text.replace(/[^0-9.]/g, ''));
   return Number.isFinite(n) ? Math.round(n * minorPerTyped(currency)) : 0;
 }

@@ -15,6 +15,8 @@
 
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import type { Person } from './fixtures';
+
 /** The button, chip or tab with exactly this label. */
 export const button = (where: Page | Locator, label: string) => where.getByText(label, { exact: true });
 
@@ -29,9 +31,11 @@ export const ancestor = (from: Locator, n: number) => from.locator(`xpath=${Arra
  */
 export const pressable = (where: Page | Locator, label: string) => ancestor(button(where, label), 1);
 
-/** Asserts a button is disabled, by the attribute RNW sets. */
-export const expectDisabled = (where: Page | Locator, label: string) =>
-  expect(pressable(where, label)).toHaveAttribute('aria-disabled', 'true');
+/** Asserts a button is greyed out, by the attribute RNW sets: given the label's locator, or where to find it and its text. */
+export function expectDisabled(where: Page | Locator, label?: string) {
+  const text = label === undefined ? (where as Locator) : button(where, label);
+  return expect(ancestor(text, 1)).toHaveAttribute('aria-disabled', 'true');
+}
 
 /** The section of a screen under this label: the label and the card beneath it. */
 export const section = (where: Page | Locator, label: string) => ancestor(where.getByText(label, { exact: true }), 1);
@@ -55,8 +59,11 @@ export async function groupTab(page: Page, name: 'Expenses' | 'Members' | 'Settl
   await page.getByRole('radio', { name, exact: true }).click();
 }
 
-/** The group's header line: "3 members · 2 expenses". */
-export const groupHeader = (page: Page) => page.getByText(/^\d+ members · \d+ expenses$/);
+/** The group's header line: "3 members · 2 expenses", "1 member · 1 expense". */
+export const groupHeader = (page: Page) => page.getByText(/^\d+ members? · \d+ expenses?$/);
+
+/** "1 member", "3 members": how the app counts. */
+export const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * A row on the groups list, by the group's name, through to the group screen.
@@ -105,7 +112,22 @@ export async function createGroup(
   }
   if (input.simplifyDebts === false) await page.getByRole('switch', { name: 'Simplify debts' }).click();
   await button(page, 'Create group').click();
-  await expect(page.getByText(`${people.length + 1} members · 0 expenses`)).toBeVisible();
+  await expect(page.getByText(`${count(people.length + 1, 'member')} · 0 expenses`)).toBeVisible();
+}
+
+/** The app reopened on its groups list, so a group seeded through the API is there, then that group. */
+export async function goToGroup(page: Page, name: string) {
+  await page.goto('/');
+  await openGroup(page, name);
+}
+
+/** `guest` joins `host`'s group through its link, as the ghost called `asName`. Returns their member. */
+export async function joinAs(host: Person, groupId: string, guest: Person, asName: string) {
+  const link = (await host.api.groupLink(groupId)) ?? (await host.api.createGroupLink(groupId));
+  const view = await host.api.as(null).joinView(link.token);
+  const ghost = view.members.find((m) => m.name === asName);
+  if (!ghost) throw new Error(`${asName} isn't offered on the join page`);
+  return guest.api.join(link.token, { ref: ghost.ref });
 }
 
 export interface SpendInput {
@@ -150,13 +172,17 @@ export async function fillExpense(page: Page, input: SpendInput) {
   for (const [name, amount] of Object.entries(input.exact ?? {})) await expenseForm.exact(page, name).fill(amount);
 }
 
+/** Saves the expense form. "Add expense" is both the screen's title and its button, so the button is the later of the two. */
+export async function saveExpense(page: Page, label: 'Add expense' | 'Save changes' = 'Add expense') {
+  await button(page, label).last().click();
+}
+
 /** Add expense, from a group screen, filled in and saved. Resolves back on the group. */
 export async function addExpense(page: Page, input: SpendInput) {
   await button(page, 'Add expense').click();
   await expect(expenseForm.description(page)).toBeVisible();
   await fillExpense(page, input);
-  // The form's title is "Add expense" too; the button is the last of the two.
-  await button(page, 'Add expense').last().click();
+  await saveExpense(page);
   await expect(expenseForm.description(page)).toBeHidden();
   await expect(groupHeader(page)).toBeVisible();
 }
@@ -198,17 +224,11 @@ export async function saveUpiId(page: Page, upiId: string) {
   await expect(upi.getByText('You can be paid at')).toBeVisible();
 }
 
-/** Wallet: the Lightning address saved. Resolves with Wallet still open. */
-export async function saveLightningAddress(page: Page, address: string) {
-  await tab(page, 'Wallet');
-  const card = section(page, 'Or a Lightning address').or(section(page, 'Lightning address'));
-  await card.getByPlaceholder('you@walletofsatoshi.com').fill(address);
-  await button(card, 'Save').click();
-  await expect(card.getByText('You receive at')).toBeVisible();
-}
+/** The sheet drawn over the screen: settling up, a history entry, a dialog. The last one when one is over another. */
+export const sheet = (page: Page) => page.locator('[aria-modal="true"]').last();
 
-/** The settle-up sheet, or a dialog, which is drawn over the screen. */
-export const sheet = (page: Page) => page.locator('[aria-modal="true"]').first();
+/** One row of a breakdown: its label and what's beside it. */
+export const breakdownRow = (where: Page | Locator, label: string) => ancestor(where.getByText(label, { exact: true }), 1);
 
 /**
  * Taps outside the sheet, which closes it. A tap while the sheet is still

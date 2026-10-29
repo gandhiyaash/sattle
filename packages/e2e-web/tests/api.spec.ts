@@ -384,11 +384,11 @@ test.describe('Groups', () => {
     const owed = await refused(A.del(`/groups/${group.id}`));
     expect(owed.status).toBe(409);
     expect(owed.message).toBe('There’s still money owed in this group. Settle up first.');
-    await A.post(`/groups/${group.id}/settlements`, { fromMemberId: aMember.id, toMemberId: bMember.id, amount, rail: 'invoice' });
+    const s = await A.post<Settlement>(`/groups/${group.id}/settlements`, { fromMemberId: aMember.id, toMemberId: bMember.id, amount, rail: 'invoice' });
     const paying = await refused(B.del(`/groups/${group.id}`));
     expect(paying.status).toBe(409);
     expect(paying.message).toBe('A payment in this group is still in progress. Wait for it to finish.');
-    await sleep(PAYMENT_MS + 500);
+    await untilStatus(A, s.id, 'confirmed');
     expect(await A.debts(group.id)).toEqual([]);
     await B.del(`/groups/${group.id}`);
     expect(await A.groups()).toEqual([]);

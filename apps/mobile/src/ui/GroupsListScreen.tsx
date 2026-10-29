@@ -29,6 +29,7 @@ import {
   Screen,
   SectionLabel,
 } from './primitives';
+import { count } from './GroupDetailScreen';
 import { makeStyles, space, type, useColors } from './theme';
 
 export interface GroupsListScreenProps {
@@ -175,7 +176,7 @@ export function GroupsListScreen({
                 <Avatar name={row.group.name} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.groupName}>{row.group.name}</Text>
-                  <Text style={s.groupMeta}>{row.memberCount} members</Text>
+                  <Text style={s.groupMeta}>{count(row.memberCount, 'member')}</Text>
                 </View>
                 {row.expenseCount === 0 ? (
                   <Text style={s.groupMeta}>No expenses</Text>

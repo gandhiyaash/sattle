@@ -59,6 +59,10 @@ describe('parseAmount', () => {
     expect(parseAmount(' -50', 'INR')).toBe(0);
     expect(parseAmount('₹-1,200', 'INR')).toBe(0);
     expect(parseAmount('5-0', 'BTC')).toBe(0);
+    // Pasted text: the minus sign, an en dash, a fullwidth hyphen.
+    expect(parseAmount('\u221250', 'INR')).toBe(0);
+    expect(parseAmount('\u201350', 'INR')).toBe(0);
+    expect(parseAmount('\uFF0D50', 'INR')).toBe(0);
   });
 
   it('reads back what amountAsTyped wrote, so an edit opens on the amount saved', () => {

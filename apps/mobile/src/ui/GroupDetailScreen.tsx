@@ -272,7 +272,7 @@ export function GroupDetailScreen({
   return (
     <Screen
       title={data.name}
-      subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
+      subtitle={`${count(data.members.length, 'member')} · ${count(data.expenses.length, 'expense')}`}
       onBack={onBack}
       right={
         <View style={s.headerActions}>
@@ -499,6 +499,9 @@ export function GroupDetailScreen({
     </Screen>
   );
 }
+
+/** "1 member", "3 members". */
+export const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** "Om", "Om and N", "Om, N and Aman". */
 function listNames(names: string[]): string {

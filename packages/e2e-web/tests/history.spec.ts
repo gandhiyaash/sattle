@@ -4,9 +4,8 @@
  * debt settled by hand.
  */
 
-import { button, groupTab } from '../src/actions';
+import { breakdownRow, button, goToGroup, groupTab, sheet } from '../src/actions';
 import { expect, test, type Person } from '../src/fixtures';
-import { breakdownRow, goToGroup, sheet } from '../src/groups.helpers';
 
 import type { Page } from '@playwright/test';
 

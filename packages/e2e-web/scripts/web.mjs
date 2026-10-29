@@ -58,7 +58,11 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-/** nginx's `try_files $uri $uri.html /index.html`, kept inside dist. */
+/**
+ * nginx's `try_files $uri $uri.html /index.html`, kept inside dist. A bundle
+ * under /_expo/static/ that isn't there is a 404, as nginx answers, not the
+ * app's page with a 200 (undefined). Null for a path that escapes dist.
+ */
 function fileFor(url) {
   let clean;
   try {
@@ -71,17 +75,35 @@ function fileFor(url) {
   for (const candidate of [target, `${target}.html`]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
+  if (clean.startsWith('/_expo/static/')) return undefined;
   return path.join(dist, 'index.html');
 }
 
+/**
+ * The headers apps/mobile/deploy/nginx.conf sends with every answer, so a change
+ * the policy would block in production (an inline script, an eval, a new host
+ * the app talks to) fails here too. The API's address is the one baked into the
+ * build. No Strict-Transport-Security: a browser ignores it over plain http.
+ */
+const HEADERS = {
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'content-security-policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+    `font-src 'self' data:; connect-src 'self' ${apiUrl}; frame-ancestors 'none'; base-uri 'none'; ` +
+    "form-action 'none'; object-src 'none'",
+};
+
 createServer((req, res) => {
   const file = fileFor(req.url ?? '/');
-  if (!file) {
-    res.writeHead(403);
+  if (file === null || file === undefined) {
+    res.writeHead(file === null ? 403 : 404, HEADERS);
     res.end();
     return;
   }
-  res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+  res.writeHead(200, { ...HEADERS, 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' });
   createReadStream(file).pipe(res);
 }).listen(port, '127.0.0.1', () => {
   console.log(`e2e web app on ${webUrl}, API at ${apiUrl}`);

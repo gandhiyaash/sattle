@@ -5,7 +5,7 @@
 
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 
-import { clipboard, closeSheet, groupTab, openGroup, screenText } from './actions';
+import { groupTab, openGroup } from './actions';
 import type { Api } from './api';
 import type { Device, DeviceOptions } from './fixtures';
 
@@ -82,9 +82,6 @@ export async function duo(
   await b.api.join(link.token, { ref });
   return { a, b, group: seeded.group, groupName: seeded.group.name, members: seeded.members, idOf: seeded.idOf, link };
 }
-
-// The clipboard, the screen's text and closing the sheet live in actions.ts now; the specs still import them from here.
-export { clipboard, closeSheet, screenText };
 
 /** The whole seconds the countdown reads, from "… locked for 1:29". */
 export const countdownOf = (text: string) => /for (\d+):(\d\d)/.exec(text);

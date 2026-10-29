@@ -22,23 +22,20 @@ import {
   skipTour,
   tab,
   tokenOf,
+  clipboard,
 } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 import {
   JOIN_CODE,
-  clipboard,
   groupLinkToken,
   groupWhereGhostOwesMe,
-  noShareSheet,
   openGroupPage,
-  shareSheetDismissed,
   who,
 } from '../src/links.helpers';
 
 test.describe('Invite and the group link', () => {
   test('Invite shows the link as a QR code and copies the message; Manage shows the same link', async ({ person }) => {
     const yash = await person('Yash');
-    await noShareSheet(yash.context);
     const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya'] });
     await openGroup(yash.page, 'Goa trip', { reload: true });
 
@@ -75,7 +72,6 @@ test.describe('Invite and the group link', () => {
 
   test('with approving joins on, the invite says you let them in', async ({ person }) => {
     const yash = await person('Yash');
-    await noShareSheet(yash.context);
     const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya'] });
     await yash.api.setApproveJoins(group.id, true);
     await openGroup(yash.page, 'Goa trip', { reload: true });
@@ -86,8 +82,7 @@ test.describe('Invite and the group link', () => {
   });
 
   test('a share sheet closed without sending says so and keeps the link on screen', async ({ person }) => {
-    const yash = await person('Yash');
-    await shareSheetDismissed(yash.context);
+    const yash = await person('Yash', { shareSheet: 'dismissed' });
     await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya'] });
     await openGroup(yash.page, 'Goa trip', { reload: true });
     const url = await inviteLink(yash.page, { done: false });

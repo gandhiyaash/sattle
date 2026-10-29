@@ -8,9 +8,9 @@
 
 import type { Page } from '@playwright/test';
 
-import { ancestor, button, debtCard, groupTab, openGroup, tokenOf } from '../src/actions';
+import { ancestor, button, clipboard, debtCard, groupTab, openGroup, tokenOf } from '../src/actions';
 import { expect, test } from '../src/fixtures';
-import { clipboard, groupWhereGhostOwesMe, noShareSheet, openPayPage } from '../src/links.helpers';
+import { groupWhereGhostOwesMe, openPayPage } from '../src/links.helpers';
 
 /** The pay link's URL as Settle up shows it after Send pay link. */
 const PAY_URL = /\/s\/[A-Za-z0-9_-]+$/;
@@ -36,7 +36,6 @@ test.describe('Making a pay link', () => {
     person,
   }) => {
     const yash = await person('Yash');
-    await noShareSheet(yash.context);
     // Simplifying off, so the two debts stay as they were paid: Om owes Yash, Yash owes Priya.
     const { group, idOf } = await yash.api.seedGroup({
       name: 'Goa trip',

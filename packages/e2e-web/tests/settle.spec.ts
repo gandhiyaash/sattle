@@ -11,9 +11,21 @@
  * server-wide switch), so that state isn't covered here.
  */
 
-import { ancestor, button, debtCard, groupTab, memberRow, openManage, section, waitForSettled } from '../src/actions';
+import {
+  ancestor,
+  button,
+  clipboard,
+  closeSheet,
+  debtCard,
+  groupTab,
+  memberRow,
+  openManage,
+  screenText,
+  section,
+  waitForSettled,
+} from '../src/actions';
 import { expect, test } from '../src/fixtures';
-import { clipboard, closeSheet, countdownOf, duo, enter, intoGroup, screenText } from '../src/settle.helpers';
+import { countdownOf, duo, enter, intoGroup } from '../src/settle.helpers';
 
 const PREIMAGE = /^[0-9a-f]{64}$/;
 

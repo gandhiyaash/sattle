@@ -5,14 +5,13 @@
  * everything each one refuses; appearance; the FAQ and the trust disclosure.
  */
 
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
-import { ancestor, button, confirm, groupTab, openGroup, section, tab } from '../src/actions';
+import { ancestor, button, confirm, groupTab, openGroup, pressable, section, tab } from '../src/actions';
 import { ApiRefusal } from '../src/api';
 import { expect, test } from '../src/fixtures';
 
 /** The Pressable around a label: it carries aria-disabled, and a disabled one is drawn at 0.4 opacity. */
-const pressable = (where: Page | Locator, label: string) => ancestor(button(where, label), 1);
 
 const RUPEES = 'Rupees. Keep bills in rupees and settle up by UPI.';
 const BITCOIN = 'Bitcoin. Keep bills in sats and settle up over Lightning.';
@@ -169,7 +168,7 @@ test.describe('Account', () => {
     const row = ancestor(anu.page.getByText('Bob', { exact: true }), 2);
     await expect(row.getByText('Not joined')).toBeVisible({ timeout: 15_000 });
     await expect(row.getByText('No app')).toBeVisible();
-    await expect(anu.page.getByText('2 members · 1 expenses')).toBeVisible();
+    await expect(anu.page.getByText('2 members · 1 expense')).toBeVisible();
     const members = await anu.api.members(group.id);
     expect(members.find((m) => m.displayName === 'Bob')).toMatchObject({ status: 'ghost' });
     expect(members.find((m) => m.displayName === 'Bob')!.claimedByUserId).toBeUndefined();

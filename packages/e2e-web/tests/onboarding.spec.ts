@@ -5,11 +5,10 @@
  * backup key with no account at all.
  */
 
-import { ancestor, back, button, makeAccount, skipTour, tab } from '../src/actions';
+import { ancestor, back, button, makeAccount, pressable, skipTour, tab } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 
 /** The Pressable around a label. A disabled button is drawn at 0.4 opacity; nothing else marks it. */
-const pressable = (page: import('@playwright/test').Page, label: string) => ancestor(button(page, label), 1);
 
 const HEX64 = 'ab'.repeat(32);
 

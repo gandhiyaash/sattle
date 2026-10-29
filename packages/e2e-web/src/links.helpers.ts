@@ -3,7 +3,7 @@
  * a group where someone owes its maker, and the pages a link opens.
  */
 
-import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import type { Api } from './api';
 
@@ -43,32 +43,8 @@ export async function openPayPage(page: Page, token: string) {
   await expect(page.getByText(/^(Sattle|Paid|Settled)$/).first()).toBeVisible();
 }
 
-/** What the page last copied. */
-export const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readText());
-
 /** The four-digit code a join request shows. */
 export const JOIN_CODE = /^\d{4}$/;
 
 /** A radio row on the join page, by the name on it. The row's accessible name includes the avatar's initials, so it's found by the name inside. */
 export const who = (page: Page, name: string) => page.getByRole('radio').filter({ has: page.getByText(name, { exact: true }) });
-
-/**
- * Takes the browser's share sheet away before the next page load, so Share
- * falls back to copying, as a desktop browser does. Headless Chromium has
- * navigator.share and refuses it, which reads as the sheet being closed.
- */
-export async function noShareSheet(context: BrowserContext) {
-  await context.addInitScript(() => {
-    Object.defineProperty(Navigator.prototype, 'share', { value: undefined, configurable: true });
-  });
-}
-
-/** A share sheet that is always closed without sending, before the next page load. */
-export async function shareSheetDismissed(context: BrowserContext) {
-  await context.addInitScript(() => {
-    Object.defineProperty(Navigator.prototype, 'share', {
-      value: () => Promise.reject(Object.assign(new Error('dismissed'), { name: 'AbortError' })),
-      configurable: true,
-    });
-  });
-}

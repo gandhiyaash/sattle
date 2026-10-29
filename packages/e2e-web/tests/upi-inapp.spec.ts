@@ -9,9 +9,9 @@
  * payer's word; the Android launcher isn't part of a web build.
  */
 
-import { ancestor, button, debtCard, groupTab, memberRow, saveUpiId, waitForSettled } from '../src/actions';
+import { ancestor, button, clipboard, debtCard, groupTab, memberRow, saveUpiId, waitForSettled } from '../src/actions';
 import { expect, test } from '../src/fixtures';
-import { clipboard, duo, intoGroup, type Who } from '../src/settle.helpers';
+import { duo, intoGroup, type Who } from '../src/settle.helpers';
 
 const ACCENT = 'rgb(194, 98, 28)';
 const spends = [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }];
