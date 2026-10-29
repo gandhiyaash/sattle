@@ -68,8 +68,10 @@ export function Screen({
   const bar = typing ? null : footer;
   return (
     <View style={s.screen}>
-      {/* The app draws under the status bar and the notch, so the header starts below them. */}
-      <View style={[s.header, { paddingTop: Math.max(insets.top + space.md, space.xl) }]}>
+      {/* The app draws under the status bar and the notch, so the header starts below them, as far
+          below as its border is under what it holds. A browser has no status bar: there the space
+          above matches the space below. */}
+      <View style={[s.header, { paddingTop: insets.top + space.md }]}>
         {onBack && (
           <Pressable
             onPress={() => {
