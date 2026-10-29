@@ -22,7 +22,10 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: CI,
-  retries: CI ? 2 : 0,
+  // One retry in CI, for the trace it records and to tell a flaky test from a broken one; a test
+  // that passes only on the retry still fails the run, so a race in a test can't hide behind it.
+  retries: CI ? 1 : 0,
+  failOnFlakyTests: true,
   workers: CI ? 4 : undefined,
   reporter: CI ? [['list'], ['html', { open: 'never' }], ['github']] : [['list'], ['html', { open: 'never' }]],
   timeout: 60_000,

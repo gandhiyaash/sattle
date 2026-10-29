@@ -14,10 +14,15 @@ import { ApiRefusal, type Api } from '../src/api';
 import { API_URL, SIM_SETTLE_MS, SIM_STEP_MS } from '../src/env';
 import { expect, test } from '../src/fixtures';
 
-/** Awaits a call that must be refused, and hands back what the server said. */
-async function refused(p: Promise<unknown>): Promise<ApiRefusal> {
+/**
+ * Awaits a call that must be refused, and hands back what the server said.
+ * Takes the call as a function when there are several to make in turn: a
+ * promise made ahead of its turn rejects with nobody listening, which Node
+ * reports as an unhandled rejection and Playwright counts as a failure.
+ */
+async function refused(p: Promise<unknown> | (() => Promise<unknown>)): Promise<ApiRefusal> {
   try {
-    await p;
+    await (typeof p === 'function' ? p() : p);
   } catch (e) {
     if (e instanceof ApiRefusal) return e;
     throw e;
@@ -329,16 +334,16 @@ test.describe('Groups', () => {
     const other = api.as((await api.account('Stranger')).token);
     const g = await me.createGroup({ name: 'Private', memberNames: [] });
     for (const attempt of [
-      other.group(g.id),
-      other.members(g.id),
-      other.expenses(g.id),
-      other.debts(g.id),
-      other.settlements(g.id),
-      other.history(g.id),
-      other.groupLink(g.id),
-      other.put(`/groups/${g.id}`, { name: 'Taken' }),
-      other.del(`/groups/${g.id}`),
-      other.addMember(g.id, 'Me'),
+      () => other.group(g.id),
+      () => other.members(g.id),
+      () => other.expenses(g.id),
+      () => other.debts(g.id),
+      () => other.settlements(g.id),
+      () => other.history(g.id),
+      () => other.groupLink(g.id),
+      () => other.put(`/groups/${g.id}`, { name: 'Taken' }),
+      () => other.del(`/groups/${g.id}`),
+      () => other.addMember(g.id, 'Me'),
     ]) {
       const r = await refused(attempt);
       expect(r.status).toBe(404);
@@ -1302,7 +1307,7 @@ test.describe('Joining', () => {
     const { A, link, group } = await pair(api);
     await A.del(`/groups/${group.id}/link`);
     expect(await A.groupLink(group.id)).toBeNull();
-    for (const attempt of [api.joinView(link.token), api.groupGuestView(link.token)]) {
+    for (const attempt of [() => api.joinView(link.token), () => api.groupGuestView(link.token)]) {
       const r = await refused(attempt);
       expect(r.status).toBe(404);
       expect(r.message).toBe('This link is no longer valid.');
@@ -1446,7 +1451,7 @@ test.describe('Group links', () => {
   test('the link’s routes are members only', async ({ api }) => {
     const { group } = await pair(api);
     const stranger = api.as((await api.account('Stranger')).token);
-    for (const attempt of [stranger.groupLink(group.id), stranger.createGroupLink(group.id), stranger.del(`/groups/${group.id}/link`)]) {
+    for (const attempt of [() => stranger.groupLink(group.id), () => stranger.createGroupLink(group.id), () => stranger.del(`/groups/${group.id}/link`)]) {
       expect((await refused(attempt)).status).toBe(404);
     }
     expect((await api.raw('POST', `/groups/${group.id}/link`)).status).toBe(401);
@@ -1605,10 +1610,10 @@ test.describe('Pay links', () => {
 
   test('a dead pay link is 404 everywhere', async ({ api }) => {
     for (const attempt of [
-      api.guestView('no-such-link'),
-      api.call('POST', '/s/no-such-link/open', undefined, { token: null }),
-      api.call('GET', '/s/no-such-link/upi', undefined, { token: null }),
-      api.call('POST', '/s/no-such-link/upi-claims', undefined, { token: null }),
+      () => api.guestView('no-such-link'),
+      () => api.call('POST', '/s/no-such-link/open', undefined, { token: null }),
+      () => api.call('GET', '/s/no-such-link/upi', undefined, { token: null }),
+      () => api.call('POST', '/s/no-such-link/upi-claims', undefined, { token: null }),
     ]) {
       const r = await refused(attempt);
       expect(r.status).toBe(404);
