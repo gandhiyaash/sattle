@@ -1,0 +1,20 @@
+{
+  "name": "@sattle/e2e-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for the web app against the real API, with Playwright.",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed",
+    "e2e:report": "playwright show-report",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@sattle/core": "*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3"
+  }
+}

@@ -34,6 +34,7 @@ Try these flows:
 
 ```bash
 npm test           # core ledger tests + API route tests (vitest)
+npm run e2e        # the web app in a headless browser against the real API (Playwright)
 npm run typecheck  # all workspaces
 npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next start
 ```
@@ -87,6 +88,12 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   analytics.ts               What the app reports of how it is used: the event and batch shapes, and the limits the server holds a batch to.
   fixtures.ts                Seed data covering all three member states.
   ledger.test.ts             Run before touching ledger.ts.
+
+packages/e2e-web/            @sattle/e2e-web: the web app in a browser against the real API. See Browser tests.
+  playwright.config.ts       Starts both servers, exports the app, runs headless Chromium as a phone.
+  src/fixtures.ts            device, person and api: a browser in a given state, a signed-in account in one, the API spoken to directly.
+  src/actions.ts             The screens, driven the way a person drives them.
+  tests/                     One file per area: onboarding, groups, expenses, settling, links, pay links, UPI, the API itself.
 
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
@@ -176,6 +183,16 @@ apps/mobile/                 @sattle/mobile: Expo
 ```
 
 `DemoApp.tsx` is a plain state machine, not expo-router. When routing is added, each case becomes a route file and the navigator is deleted. The screens only take props and callbacks, so none of them need to change.
+
+## Browser tests
+
+`npm run e2e` runs the web app in a headless Chromium against the real API, from `packages/e2e-web`. The Playwright config starts both: the API on 127.0.0.1:3900 with an in-memory database, no seed, no demo user and the payment simulator, so nothing reaches the network; and the web app on 127.0.0.1:8900, exported once with those addresses baked in and served the way nginx serves it, so `/s/<token>` and `/g/<token>` load the app and `/privacy` the policy. Every test makes its own accounts and groups, so the files run in parallel against one server.
+
+The browser is a phone: Pixel 7's width, touch and user agent, in Chrome's own headless mode (not the headless shell), so what it renders is what Chrome renders. Headless always, in CI too; there is nothing in the app a window would change. To watch a test, `npx playwright test --ui` from the package; a failed run in CI uploads its report with a trace of each failure, which `npx playwright show-report` replays step by step.
+
+Tests sit under `tests/`, one file per area, built on three fixtures (`src/fixtures.ts`): `device()` is a browser in a given starting state, a brand-new phone or one that has seen the tour or holds a token; `person(name)` is an account made through the API and open in its own browser on the groups list, with the API bound to its token for seeding and checking; `api` is the API spoken to directly, which `tests/api.spec.ts` uses to abuse every route. The screens are driven through `src/actions.ts`, which finds buttons by their label and inputs by their placeholder, since react-native-web draws a Pressable as a plain div.
+
+A test that shows up a bug in the app keeps its correct expectation and is marked `test.fail` with the bug in its reason, so the run stays green and the bug stays on record until it's fixed.
 
 ## Working on it
 

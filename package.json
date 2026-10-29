@@ -14,7 +14,8 @@
     "web": "npm run web -w @sattle/mobile",
     "api": "npm run dev -w @sattle/api",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "e2e": "npm run e2e -w @sattle/e2e-web"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

@@ -94,7 +94,8 @@ export interface GroupDetailScreenProps {
   tab: GroupTab;
   onTab: (tab: GroupTab) => void;
   onBack: () => void;
-  onAddExpense: (members: Member[], currency: string) => void;
+  /** Opens the form for a new expense. `userId` is who is signed in: the payer unless they say otherwise. */
+  onAddExpense: (members: Member[], currency: string, userId: string) => void;
   /** Opens an expense to change or delete it. `userId` is who is signed in. */
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
@@ -271,7 +272,7 @@ export function GroupDetailScreen({
   return (
     <Screen
       title={data.name}
-      subtitle={`${data.members.length} members · ${data.expenses.length} expenses`}
+      subtitle={`${count(data.members.length, 'member')} · ${count(data.expenses.length, 'expense')}`}
       onBack={onBack}
       right={
         <View style={s.headerActions}>
@@ -284,7 +285,11 @@ export function GroupDetailScreen({
           // Not the accent: on this tab that is for paying.
           <Button label="History" onPress={onHistory} />
         ) : (
-          <Button label="Add expense" variant="primary" onPress={() => onAddExpense(data.members, data.currency)} />
+          <Button
+            label="Add expense"
+            variant="primary"
+            onPress={() => onAddExpense(data.members, data.currency, data.userId)}
+          />
         )
       }
     >
@@ -494,6 +499,9 @@ export function GroupDetailScreen({
     </Screen>
   );
 }
+
+/** "1 member", "3 members". */
+export const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** "Om", "Om and N", "Om, N and Aman". */
 function listNames(names: string[]): string {

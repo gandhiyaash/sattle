@@ -55,7 +55,11 @@ export interface AddExpenseScreenProps {
   currency?: string;
   /** Change this expense instead of adding one. */
   expense?: Expense;
-  /** With `expense`: who is signed in, to tell whether it's theirs to change. */
+  /**
+   * Who is signed in. Adding, they are who paid unless they say otherwise:
+   * whoever puts a spend in is almost always the one who paid it. Changing an
+   * expense, it tells whether the expense is theirs to change.
+   */
   userId?: string;
   onBack: () => void;
   /** The expense was added, changed or deleted. */
@@ -90,7 +94,8 @@ export function AddExpenseScreen({
 
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
-  const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? members[0]?.id ?? '');
+  const me = userId ? members.find((m) => m.claimedByUserId === userId) : undefined;
+  const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? me?.id ?? members[0]?.id ?? '');
   // An uneven split comes back as the amounts it resolved to, which saving keeps.
   const [mode, setMode] = useState<SplitMode>(expense && expense.splitMode !== 'equal' ? 'exact' : 'equal');
   const [included, setIncluded] = useState<string[]>(
