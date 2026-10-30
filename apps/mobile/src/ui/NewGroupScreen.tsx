@@ -45,7 +45,8 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
   const [name, setName] = useState('');
   const [currency, setCurrency] = useState(prefs.newGroups);
   const [people, setPeople] = useState<string[]>(['']);
-  const [simplifyDebts, setSimplifyDebts] = useState(true);
+  // Off until someone turns it on: debts first read the way they were spent.
+  const [simplifyDebts, setSimplifyDebts] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

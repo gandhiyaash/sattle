@@ -1,7 +1,8 @@
 /**
  * Whether a group simplifies its debts, as Splitwise does: chosen when the
  * group is made (NewGroupScreen) and changed under Manage
- * (GroupSettingsScreen). On to start with.
+ * (GroupSettingsScreen). Off to start with: the app sends `false` when it
+ * makes a group, so the API's own default never applies.
  *
  * Simplified, debts are combined into as few payments as there can be, so
  * someone may pay a person they never split with. Off, everyone pays back
