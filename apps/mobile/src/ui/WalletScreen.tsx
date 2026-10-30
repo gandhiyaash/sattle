@@ -19,7 +19,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   parseUpiId,
@@ -622,7 +622,10 @@ export function TrustModel({ ways }: { ways: PayWays }) {
       : 'Sattle can’t see money move, so a debt is settled on someone’s word, not proof.',
     'Mark as settled is the word of the person who is owed, or of the payer when the one owed hasn’t joined.',
     upi &&
-      'A UPI payment is someone’s word too: what the payer’s UPI app said, on Android, or what the payer said, with the app’s name and the reference kept in the group’s history to check against a statement.',
+      // An iPhone hears nothing from a UPI app, and the App Store turns down an app that names Android.
+      (Platform.OS === 'ios'
+        ? 'A UPI payment is someone’s word too: what the payer said, with the reference they gave kept in the group’s history to check against a statement.'
+        : 'A UPI payment is someone’s word too: what the payer’s UPI app said, on Android, or what the payer said, with the app’s name and the reference kept in the group’s history to check against a statement.'),
   ];
   return (
     <View>
