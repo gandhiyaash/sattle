@@ -27,14 +27,23 @@ import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, type Quote } from '@sattle/core';
 import { useBack } from './backNavigation';
-import { layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { brandBlue, layout, makeStyles, radius, shadow, space, type, useColors } from './theme';
 
-const LOGO = {
-  light: require('../../assets/logo-light.png'),
-  dark: require('../../assets/logo-dark.png'),
-};
-/** The logo's width over its height. */
-const LOGO_ASPECT = 326 / 120;
+/** The app icon's S, on no background; Logo puts it on its blue tile. */
+const LOGO_MARK = require('../../assets/logo-mark.png');
+
+/** The app icon's mark on its blue tile, then the name. The same in both modes but for the name's ink. */
+export function Logo({ label = 'Sattle', size = 30 }: { label?: string; size?: number }) {
+  const s = useStyles();
+  return (
+    <View style={s.logo} accessible accessibilityRole="header" accessibilityLabel={label}>
+      <View style={[s.logoTile, { width: size, height: size, borderRadius: Math.round(size * 0.26) }]}>
+        <Image source={LOGO_MARK} style={{ width: size, height: size }} />
+      </View>
+      <Text style={[s.logoName, { fontSize: Math.round(size * 0.72) }]}>Sattle</Text>
+    </View>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -60,7 +69,6 @@ export function Screen({
   children: React.ReactNode;
 }) {
   const s = useStyles();
-  const mode = useColorMode();
   const insets = useSafeAreaInsets();
   // While someone is typing, the footer steps aside: on Android the window shrinks to the
   // keyboard, and a bar fixed to its bottom would sit over what little is left to type in.
@@ -79,13 +87,7 @@ export function Screen({
         )}
         <View style={{ flex: 1 }}>
           {brand ? (
-            <Image
-              source={LOGO[mode]}
-              style={s.logo}
-              resizeMode="contain"
-              accessibilityRole="header"
-              accessibilityLabel={title}
-            />
+            <Logo label={title} />
           ) : (
             <Text style={s.headerTitle} numberOfLines={1}>
               {title}
@@ -590,7 +592,9 @@ const useStyles = makeStyles((color) => ({
   back: { paddingRight: space.xs },
   backText: { fontSize: 28, lineHeight: 30, color: color.inkMuted },
   headerTitle: { ...type.title, color: color.ink },
-  logo: { height: 30, width: 30 * LOGO_ASPECT },
+  logo: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  logoTile: { backgroundColor: brandBlue, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoName: { fontWeight: '800', letterSpacing: -0.6, color: color.ink },
   headerSubtitle: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   scrollBody: { padding: space.lg, gap: space.lg },
   footer: {

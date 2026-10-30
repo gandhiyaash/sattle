@@ -49,7 +49,7 @@ import {
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CopyInvoice } from './InvoicePanel';
 import { openAppLink } from './openLink';
-import { BreakdownRow, Button, ErrorState, QuoteBreakdown, SatLine } from './primitives';
+import { BreakdownRow, Button, ErrorState, Logo, QuoteBreakdown, SatLine } from './primitives';
 import { QrCode } from './QrCode';
 import { makeStyles, radius, shadow, space, type, useColors } from './theme';
 import { UpiPanel } from './UpiPanel';
@@ -150,7 +150,7 @@ function GuestPay({ token }: { token: string }) {
   const proof = <ProofEntry onSubmit={sendProof} />;
   const header = (
     <>
-      <Text style={s.brand}>Sattle</Text>
+      <Logo />
       <Text style={s.title}>
         {view.payerName}, you owe {view.payeeName}
       </Text>
@@ -658,14 +658,14 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
     case 'not_found':
       return (
         <Page>
-          <Text style={s.brand}>Sattle</Text>
+          <Logo />
           <Notice title="This link isn’t valid" body="Check you copied all of it, or ask whoever sent it for a new one." />
         </Page>
       );
     case 'link_expired':
       return (
         <Page>
-          <Text style={s.brand}>Sattle</Text>
+          <Logo />
           <Text style={s.title}>Nothing to pay</Text>
           <Text style={s.reason}>
             You can close this.
@@ -675,7 +675,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
     case 'member_cannot_receive':
       return (
         <Page>
-          <Text style={s.brand}>Sattle</Text>
+          <Logo />
           <Notice title="Can’t pay this yet" body={`${error.message} Let them know, then open this link again.`} />
           <Button label="Try again" onPress={onRetry} />
         </Page>
@@ -683,7 +683,7 @@ function LinkError({ error, onRetry }: { error: SattleError; onRetry: () => void
     default:
       return (
         <Page>
-          <Text style={s.brand}>Sattle</Text>
+          <Logo />
           <ErrorState message={error.message} onRetry={onRetry} />
         </Page>
       );
@@ -784,12 +784,6 @@ const useStyles = makeStyles((color) => ({
     padding: space.xl,
     gap: space.md,
     ...shadow,
-  },
-  brand: {
-    ...type.caption,
-    color: color.inkFaint,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
   title: { ...type.title, color: color.ink },
   amountBlock: { gap: 2, marginVertical: space.sm },
