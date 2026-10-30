@@ -46,17 +46,17 @@
 <body>
 <main>
   <h1>Privacy Policy</h1>
-  <p class="meta">Sattle · Effective 5 October 2026</p>
+  <p class="meta">Sattle · Effective 30 October 2026</p>
 
-  <p>Sattle is an app for splitting shared expenses with friends and settling up over the Bitcoin Lightning Network. It is run by the Sattle team ("we", "us"). This policy covers the Sattle app for Android, iOS and the web, the web app at <a href="https://sattle.tech">sattle.tech</a> (and at its earlier address, sattle.axiosiiitl.dev), pay links, and the Sattle server that they talk to.</p>
+  <p>Sattle is an app for splitting shared expenses with friends and settling up over the Bitcoin Lightning Network or UPI. It is run by the Sattle team ("we", "us"). This policy covers the Sattle app for Android, iOS and the web, the web app at <a href="https://sattle.tech">sattle.tech</a> (and at its earlier address, sattle.axiosiiitl.dev), pay links, and the Sattle server that they talk to.</p>
 
   <div class="summary">
     <ul>
       <li>We store what you enter to split expenses: group names, people's names, expenses, and payments between members.</li>
-      <li>We never hold your money. Payments go directly from one person's Lightning wallet to another's.</li>
+      <li>We never hold your money. Payments go directly from one person's Lightning wallet or bank account to another's.</li>
       <li>We don't ask for your email, phone number, contacts, location or photos.</li>
-      <li>We don't use advertising, analytics or tracking, and we don't sell or rent data to anyone.</li>
-      <li>You can ask us to delete your data at any time at <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>.</li>
+      <li>We record how the app is used, such as which screens are opened and which buttons are pressed, to improve it. We don't use advertising or anyone else's analytics, we don't track you across other companies' apps or websites, and we don't sell or rent data to anyone.</li>
+      <li>You can delete your account in the app, under Account, or ask us to delete your data at any time at <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>.</li>
     </ul>
   </div>
 
@@ -81,9 +81,21 @@
     <li><strong>Pay links:</strong> a random link token, the debt it is for, and who created it.</li>
     <li><strong>Your UPI ID</strong>, if you add one so that people can pay you over UPI.</li>
     <li><strong>UPI payments someone says they made:</strong> who says they paid whom, the amount, and the reference their UPI app gave, until the person owed confirms or declines it. The payment itself happens in the payer's UPI app, not in Sattle, and we are not told about it by any bank or app.</li>
-    <li><strong>Your account key:</strong> a random key created when you first open the app, which this device sends to prove it's you. Your device keeps a copy (in the phone's secure storage, or the browser's local storage on the web). There is no password or recovery, so if your device loses the key, you lose access to the account.</li>
+    <li><strong>Your sign-in key:</strong> a random key created when you first make an account, which your device sends to prove it's you. Your device keeps a copy (in the phone's secure storage, which on an iPhone is the keychain, or the browser's local storage on the web). You can copy it on the Account screen to sign in on another device, and replace it there, which signs out every device holding the old one. There is no email or password to recover it with.</li>
+    <li><strong>Your Nostr public key</strong>, if you link one to your account to sign in with. Signing in uses a browser extension or a remote signer app that keeps your private key; Sattle never sees or stores the private key.</li>
     <li><strong>Request keys</strong> that stop a repeated tap from making the same payment twice.</li>
   </ul>
+
+  <h3>How the app is used</h3>
+  <p>The app reports to our server what happens in it, so we can see how Sattle is used and improve it:</p>
+  <ul>
+    <li>which screens, sheets and pages are shown, and which buttons are pressed, by their label (or a fixed name, where a label would contain someone's name);</li>
+    <li>when the app opens, goes to the background and comes back;</li>
+    <li>when it hands something to another app, and which kind: a wallet, a UPI app, the share sheet or the clipboard. The invoice, UPI ID, link or text itself is never included;</li>
+    <li>error messages shown on screen.</li>
+  </ul>
+  <p>Each report carries a random ID the app creates for this installation, an ID for the current session, the platform (Android, iOS or web), the app version, and when it happened. When you are signed in, it is linked to your account, and what that installation reported before you signed up becomes part of your account's record. Pay link and group link tokens, invoices and UPI IDs are never recorded. On an iPhone the installation ID is kept in the keychain, so deleting and reinstalling the app on the same phone keeps it until the phone is erased.</p>
+  <p>Our server can also record each request the app makes (the kind of request, its result and how long it took, with the installation and session IDs) when we turn that record on to look into a problem.</p>
 
   <h3>Technical data</h3>
   <ul>
@@ -92,10 +104,10 @@
   </ul>
 
   <h3>What we don't collect</h3>
-  <p>Sattle does not collect your email address, phone number, contacts, location, photos, files, device identifiers or advertising ID. It contains no advertising, analytics or crash-reporting software. It never asks for your wallet's recovery phrase or private keys, or for card or bank details.</p>
+  <p>Sattle does not collect your email address, phone number, contacts, location, photos, files, or your device's advertising ID or other hardware identifiers. The only identifier it creates is the random installation ID described above. It contains no advertising software, and no analytics or crash-reporting software from anyone else. It never asks for your wallet's recovery phrase or private keys, or for card or bank details.</p>
 
   <h2>2. How we use data</h2>
-  <p>We use the data above only to provide Sattle: to show groups and balances, record expenses, create and track payments and pay links, and keep the service working and secure. We do not use it for advertising or profiling, and we do not sell or rent it.</p>
+  <p>We use the data above only to provide Sattle: to show groups and balances, record expenses, create and track payments and pay links, keep the service working and secure, and understand how the app is used so we can improve it. We do not use it for advertising or profiling, and we do not sell or rent it.</p>
 
   <h2>3. Who can see it</h2>
   <ul>
@@ -111,6 +123,7 @@
     <li><strong>Your Lightning wallet provider.</strong> If you connect a wallet, our server sends requests to it over Nostr Wallet Connect to create invoices and check their status. Each request contains the amount and a description with your name and the group's name. Requests travel through the Nostr relay named in your connection string; the contents are encrypted, but the relay can see when messages are sent. Your wallet provider handles this data under its own privacy policy.</li>
     <li><strong>UPI apps and banks.</strong> If you pay or are paid over UPI, that payment is handled by the UPI apps and banks involved, under their own terms. The app opens the payer's UPI app with the payee's UPI ID, name, the amount and a note naming the group.</li>
     <li><strong>The Lightning Network.</strong> When a payment is made, it is routed by Lightning nodes that are not run by us. Like any Bitcoin payment, it is handled by the payer's and payee's wallets and the nodes along the route.</li>
+    <li><strong>Nostr relays.</strong> A group's expenses, changes to them and confirmed payments are also published to public Nostr relays as a backup, encrypted with a key that only the group's members are given, so the group can be rebuilt without our server. Relays can't read the entries, but they can see our server's public key, a tag for each group, and when each entry was made. Relays are not run by us, and entries published to them can't be withdrawn. If you sign in with a remote Nostr signer, the sign-in request travels through the relay it names, encrypted.</li>
     <li><strong>Oracle Cloud</strong> hosts our server and database in India.</li>
     <li><strong>Cloudflare</strong> delivers and protects our website and server traffic.</li>
     <li><strong>CoinGecko</strong> provides the Bitcoin exchange rate. Our server requests the rate on its own; no user data is sent.</li>
@@ -118,16 +131,17 @@
   <p>We may also disclose data if the law requires it, or to protect the safety of our users or the service.</p>
 
   <h2>5. Your wallet connection</h2>
-  <p>The wallet connection string you paste is a secret that lets whoever holds it make requests to your wallet. We store it on our server and use it only to create and check invoices for payments made to you. We never use it to send money from your wallet. The app shows you which permissions the connection grants and warns you if it allows more than receiving. You can revoke the connection at any time in your wallet app, after which we can no longer use it.</p>
+  <p>The wallet connection string you paste is a secret that lets whoever holds it make requests to your wallet. We store it on our server and use it only to create and check invoices for payments made to you. We never use it to send money from your wallet. The app shows you which permissions the connection grants and warns you if it allows more than receiving. Disconnect, on the Wallet screen, makes our server forget it. You can also revoke the connection at any time in your wallet app, after which we can no longer use it.</p>
 
   <h2>6. Where data is stored and how it is protected</h2>
   <p>Data is stored on our server in India. All connections between the app and the server are encrypted with HTTPS. Access to the server is limited to the people who run Sattle. Data on the server is not end-to-end encrypted, so it can be read by us. No method of storing data is completely secure, and we cannot guarantee absolute security.</p>
 
   <h2>7. How long we keep data</h2>
-  <p>We keep groups, expenses and payment records for as long as the group exists, because they make up the group's shared history. Server logs are kept for 14 days. Wallet connections are kept until you ask us to remove them. When you ask us to delete your data, we delete it within 30 days, except where we must keep it by law.</p>
+  <p>We keep groups, expenses and payment records for as long as the group exists, because they make up the group's shared history. Server logs are kept for 14 days. Wallet connections are kept until you disconnect them or ask us to remove them. The record of how the app is used is kept for a year for an account, and for 30 days for an installation that never made one; the server's request record, when on, for 30 days.</p>
+  <p>When you delete your account in the app, your sign-in key stops working, and your wallet connection, the pay links you made, your requests to join groups and your record of how the app was used are deleted. A group that only you could open is deleted with everything in it. In groups you share, your name and balance stay, because the other members' records need them. Encrypted backup entries already published to Nostr relays can't be withdrawn. When you ask us to delete your data, we delete it within 30 days, except where we must keep it by law.</p>
 
   <h2>8. Your choices and rights</h2>
-  <p>You can ask us to access, correct, export or delete your personal data, or to remove your wallet connection, by emailing <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>. Depending on where you live, you may have further rights under laws such as India's Digital Personal Data Protection Act, 2023 or the EU's GDPR, including the right to complain to a data protection authority. If someone added you to a group without your knowledge, you can ask us to remove your name.</p>
+  <p>You can delete your account yourself in the app, under Account, and disconnect your wallet on the Wallet screen. You can also ask us to access, correct, export or delete your personal data, or to remove your wallet connection, by emailing <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a>. Depending on where you live, you may have further rights under laws such as India's Digital Personal Data Protection Act, 2023 or the EU's GDPR, including the right to complain to a data protection authority. If someone added you to a group without your knowledge, you can ask us to remove your name.</p>
 
   <h2>9. Children</h2>
   <p>Sattle involves payments and is intended for people aged 18 and over. We do not knowingly collect data from children. If you believe a child has given us data, contact us and we will delete it.</p>
