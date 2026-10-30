@@ -20,6 +20,9 @@
 #
 # Output lands in dist-ios/: the archive always, which Xcode's Organizer can open to upload by
 # hand if the upload fails, and the .ipa with UPLOAD=0.
+#
+# It deletes and regenerates apps/mobile/ios, so build nothing else from there while it runs:
+# Xcode or `just ios` working in the same folder pulls files out from under the archive.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -109,9 +112,12 @@ NAME="sattle-$VERSION_NAME-$BUILD_NUMBER"
 ARCHIVE="$OUT/$NAME.xcarchive"
 rm -rf "$ARCHIVE"
 
+# DerivedData of its own, shared with no dev build or open Xcode: the shared one remembers the
+# ios/ that prebuild just replaced, and fails with "failed to find blueprint corresponding to PIF
+# GUID" on the new project's ids. It goes with $WORK at the end.
 xcodebuild archive -quiet \
   -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
-  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
+  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -derivedDataPath "$WORK/DerivedData" \
   "${SIGN_ARCHIVE[@]}"
 
 # --- export -------------------------------------------------------------------------------
