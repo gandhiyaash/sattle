@@ -13,7 +13,7 @@ import { ancestor, button, clipboard, debtCard, groupTab, memberRow, saveUpiId, 
 import { expect, test } from '../src/fixtures';
 import { duo, intoGroup, type Who } from '../src/settle.helpers';
 
-const ACCENT = 'rgb(194, 98, 28)';
+const ACCENT = 'rgb(11, 87, 208)';
 const spends = [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }];
 
 /** Yash owes Priya ₹300, and Priya can be paid by UPI. */

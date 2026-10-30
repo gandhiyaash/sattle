@@ -62,7 +62,7 @@ test.describe('links on a brand-new device', () => {
     const { token } = await api.account('Deep');
     const signedIn = await device({ token });
     await signedIn.page.goto('/nothing/here');
-    await expect(signedIn.page.getByText('No groups yet')).toBeVisible();
+    await expect(signedIn.page.getByText('What are you splitting?')).toBeVisible();
   });
 
   test('/privacy is the policy page, served as it is', async ({ device }) => {
@@ -137,7 +137,7 @@ test.describe('the server out of reach', () => {
 
     await page.unroute(API);
     await button(page, 'Get started').click();
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
   });
 });
 

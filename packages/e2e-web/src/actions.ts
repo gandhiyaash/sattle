@@ -91,7 +91,7 @@ export async function skipTour(page: Page) {
 export async function makeAccount(page: Page, name: string) {
   await page.getByPlaceholder('Your name').fill(name);
   await button(page, 'Get started').click();
-  await expect(page.getByText('No groups yet')).toBeVisible();
+  await expect(page.getByText('What are you splitting?')).toBeVisible();
 }
 
 /**
@@ -110,7 +110,8 @@ export async function createGroup(
     if (i > 0) await button(page, 'Add another person').click();
     await page.getByPlaceholder('Their name').nth(i).fill(people[i]);
   }
-  if (input.simplifyDebts === false) await page.getByRole('switch', { name: 'Simplify debts' }).click();
+  // New group starts it off; the tests were written for groups that simplify unless they say not to.
+  if (input.simplifyDebts !== false) await page.getByRole('switch', { name: 'Simplify debts' }).click();
   await button(page, 'Create group').click();
   await expect(page.getByText(`${count(people.length + 1, 'member')} · 0 expenses`)).toBeVisible();
 }

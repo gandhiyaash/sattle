@@ -83,11 +83,12 @@ test.describe('New group', () => {
     expect((await yash.api.groups())[0].currency).toBe('BTC');
   });
 
-  test('explains simplifying debts, and keeps it off when turned off', async ({ person }) => {
+  test('starts without simplifying debts, and explains it', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;
     await button(page, 'New group').click();
-    await expect(page.getByText('Debts are combined, so everyone settles up in as few payments as possible.')).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Simplify debts' })).not.toBeChecked();
+    await expect(page.getByText('Everyone pays back the people who paid for them.')).toBeVisible();
     await button(page, 'Learn more').click();
     await expect(
       page.getByText(
@@ -96,8 +97,6 @@ test.describe('New group', () => {
     ).toBeVisible();
     await button(page, 'Show less').click();
     await expect(page.getByText('Say Aman owes Priya', { exact: false })).toBeHidden();
-    await page.getByRole('switch', { name: 'Simplify debts' }).click();
-    await expect(page.getByText('Everyone pays back the people who paid for them.')).toBeVisible();
     await expect(page.getByText('Anyone in the group can change this later, under Manage.')).toBeVisible();
     await page.getByPlaceholder('Goa trip').fill('Flat');
     await button(page, 'Create group').click();
@@ -116,10 +115,9 @@ test.describe('New group', () => {
     await groupTab(page, 'Settle up');
     await expect(page.getByText('All settled.')).toBeVisible();
     await back(page);
-    await expect(page.getByText('No expenses yet')).toBeVisible();
-    await expect(page.getByText('Add one to a group and what you owe or are owed shows here.')).toBeVisible();
-    await expect(page.getByText('3 members', { exact: true })).toBeVisible();
-    await expect(page.getByText('No expenses', { exact: true })).toBeVisible();
+    await expect(page.getByText('Nothing to settle yet.', { exact: false })).toBeVisible();
+    await expect(page.getByText('3 people', { exact: true })).toBeVisible();
+    await expect(page.getByText('No expenses yet', { exact: true })).toBeVisible();
     await expect(button(page, 'New group')).toBeVisible();
     await expect(button(page, 'Join with a link')).toBeVisible();
   });
@@ -151,8 +149,8 @@ test.describe('Groups list', () => {
     });
     await page.goto('/');
     // Owed ₹200 in one, owing ₹100 in the other: ₹100 owed in all.
-    await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
-    await expect(page.getByText('₹100', { exact: true })).toHaveCount(2);
+    await expect(page.getByText('You’re owed', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹100', { exact: true })).toHaveCount(3); // the headline, you owe, and Flat 4B's row
     const goa = ancestor(page.getByText('Goa trip', { exact: true }), 2);
     await expect(goa.getByText('you’re owed')).toBeVisible();
     await expect(goa.getByText('₹200')).toBeVisible();
@@ -176,13 +174,13 @@ test.describe('Groups list', () => {
       spends: [{ description: 'Villa', amount: 30_000, paidBy: 'Yash' }],
     });
     await page.goto('/');
-    const labels = page.getByText(/^(You are owed|You owe|All settled)$/);
+    const labels = page.getByText(/^(You’re owed|You owe|All square)$/);
     await expect(labels).toHaveCount(2);
     await expect(page.getByText('₹150', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('500 sats', { exact: true }).first()).toBeVisible();
     // Rupees first, as everywhere in the app.
     const amounts = await page.getByText(/^(₹150|500 sats)$/).allTextContents();
-    expect(amounts.slice(0, 2)).toEqual(['₹150', '500 sats']);
+    expect(amounts.indexOf('₹150')).toBeLessThan(amounts.indexOf('500 sats'));
   });
 
   test('a group that has been settled reads as settled', async ({ person }) => {
@@ -196,8 +194,7 @@ test.describe('Groups list', () => {
     // Priya never joined, so the person who owes her may record a cash payment.
     await yash.api.markSettled({ groupId: group.id, fromMemberId: idOf('Yash'), toMemberId: idOf('Priya'), amount: 10_000 });
     await page.goto('/');
-    await expect(page.getByText('All settled', { exact: true })).toBeVisible();
-    await expect(page.getByText('settled', { exact: true })).toHaveCount(2);
+    await expect(page.getByText('All square', { exact: true })).toHaveCount(2); // the headline and the row
     const row = ancestor(page.getByText('Flat 4B', { exact: true }), 2);
     await expect(row.getByText('you owe')).toHaveCount(0);
     await openGroup(page, 'Flat 4B');
@@ -490,7 +487,7 @@ test.describe('Manage', () => {
     await button(bob.page, 'Leave this group').click();
     await expect(bob.page.getByText('Anything owed to you can then be marked settled by whoever owes it.')).toBeVisible();
     await button(bob.page, 'Yes, leave').click();
-    await expect(bob.page.getByText('No groups yet')).toBeVisible();
+    await expect(bob.page.getByText('What are you splitting?')).toBeVisible();
     expect(await bob.api.groups()).toHaveLength(0);
 
     await expect(memberRow(alice.page, 'Bob').getByText('Not joined')).toBeVisible({ timeout: 15_000 });
@@ -531,13 +528,13 @@ test.describe('Manage', () => {
     await button(alice.page, 'Delete this group').click();
     await expect(alice.page.getByText('Everything in it goes, for everyone. This can’t be undone.')).toBeVisible();
     await button(alice.page, 'Yes, delete it for everyone').click();
-    await expect(alice.page.getByText('No groups yet')).toBeVisible();
+    await expect(alice.page.getByText('What are you splitting?')).toBeVisible();
 
     // Bob's list is from before: tapping the row finds nothing there.
     await bob.page.getByText('Trip', { exact: true }).click();
     await expect(button(bob.page, 'Try again')).toBeVisible();
     await bob.page.reload();
-    await expect(bob.page.getByText('No groups yet')).toBeVisible();
+    await expect(bob.page.getByText('What are you splitting?')).toBeVisible();
     expect(await bob.api.groups()).toHaveLength(0);
   });
 });
@@ -561,6 +558,6 @@ test.describe('A group kept in bitcoin', () => {
     await addExpense(page, { description: 'A sat', amount: '1' });
     await expect(page.getByText('1 sat', { exact: true })).toBeVisible();
     await back(page);
-    await expect(page.getByText('500 sats', { exact: true })).toHaveCount(2); // the headline and the row
+    await expect(page.getByText('500 sats', { exact: true })).toHaveCount(3); // the headline, owed to you, and the row
   });
 });

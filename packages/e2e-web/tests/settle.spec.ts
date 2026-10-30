@@ -121,8 +121,7 @@ test.describe('paying someone who has joined, over Lightning', () => {
 
     // The groups list's headline follows.
     await a.page.getByText('‹', { exact: true }).first().click();
-    await expect(a.page.getByText('All settled', { exact: true })).toBeVisible();
-    await expect(a.page.getByText('settled', { exact: true }).first()).toBeVisible();
+    await expect(a.page.getByText('All square', { exact: true })).toHaveCount(2); // the headline and the row
   });
 
   test('history records the payment with its proof', async ({ api, device }) => {

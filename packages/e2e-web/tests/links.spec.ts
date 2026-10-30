@@ -415,7 +415,7 @@ test.describe('Joining through the link on a brand-new device', () => {
     await guest.page.getByPlaceholder('Your name').fill('Kabir');
     await button(guest.page, 'Join as Kabir').click();
     await expect(guest.page.getByText('Goa trip', { exact: true })).toBeVisible();
-    await expect(guest.page.getByText('3 members', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText('3 people', { exact: true })).toBeVisible();
     const members = await yash.members(group.id);
     expect(members.map((m) => m.displayName)).toEqual(['Yash', 'Priya', 'Kabir']);
     expect(members[2]).toMatchObject({ status: 'joined' });
@@ -498,7 +498,7 @@ test.describe('Joining with an account already on the device', () => {
     const url = `http://127.0.0.1:8900/g/${token}`;
 
     const priya = await person('Priya');
-    await button(priya.page, 'Join with a link').click();
+    await button(priya.page, 'Use a link').click();
     await expect(priya.page.getByText('Join a group')).toBeVisible();
     await expect(priya.page.getByText('Paste the group link you were sent.')).toBeVisible();
     const field = priya.page.getByPlaceholder('https://…/g/…');
@@ -517,7 +517,7 @@ test.describe('Joining with an account already on the device', () => {
 
     // A link that leads nowhere offers the way back to pasting another.
     await priya.page.goto('/');
-    await button(priya.page, 'Join with a link').click();
+    await button(priya.page, 'Use a link').click();
     await priya.page.getByPlaceholder('https://…/g/…').fill('http://127.0.0.1:8900/g/nothing-here-really');
     await button(priya.page, 'Continue').click();
     await expect(priya.page.getByText('This link is no longer valid.')).toBeVisible();
@@ -554,7 +554,7 @@ test.describe('Joining with an account already on the device', () => {
     await expect(om.page.getByText('Join a group')).toBeVisible();
     await expect(om.page.getByText('You’re joining', { exact: true })).toBeVisible();
     await back(om.page);
-    await expect(om.page.getByText('No groups yet')).toBeVisible();
+    await expect(om.page.getByText('What are you splitting?')).toBeVisible();
     await expect(om.page).toHaveURL('/');
     void api;
   });
@@ -588,7 +588,7 @@ test.describe('A group that approves joins', () => {
     await expect(guest.page.getByText('Someone in Goa trip has to let you in. If they ask, tell them your code:')).toBeVisible();
     const askerCode = (await guest.page.getByText(JOIN_CODE).textContent())!;
     await expect(guest.page.getByText('Groups', { exact: true }).first()).toBeVisible();
-    await expect(guest.page.getByText('No groups yet')).toBeHidden();
+    await expect(guest.page.getByText('What are you splitting?')).toBeHidden();
 
     await expect(yash.page.getByText('Asking to join')).toBeVisible({ timeout: 15_000 });
     await expect(yash.page.getByText('Someone wants to join as Priya')).toBeVisible();
@@ -601,7 +601,7 @@ test.describe('A group that approves joins', () => {
     await expect(memberRow(yash.page, 'Priya').getByText('In app')).toBeVisible({ timeout: 15_000 });
 
     await expect(guest.page.getByText('Asked to join')).toBeHidden({ timeout: 15_000 });
-    await expect(guest.page.getByText('2 members', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText('2 people', { exact: true })).toBeVisible();
     await openGroup(guest.page, 'Goa trip');
     await groupTab(guest.page, 'Members');
     await expect(guest.page.getByText('Priya (you)')).toBeVisible();
@@ -636,7 +636,7 @@ test.describe('A group that approves joins', () => {
     await expect(guest.page.getByText('Waiting', { exact: true })).toBeHidden();
     await button(guest.page, 'OK').click();
     await expect(guest.page.getByText('Asked to join')).toBeHidden();
-    await expect(guest.page.getByText('No groups yet')).toBeVisible();
+    await expect(guest.page.getByText('What are you splitting?')).toBeVisible();
     expect(await yash.api.members(group.id)).toHaveLength(2);
   });
 
@@ -657,7 +657,7 @@ test.describe('A group that approves joins', () => {
 
     await button(guest.page, 'Take back my request').click();
     await expect(guest.page.getByText('Asked to join')).toBeHidden();
-    await expect(guest.page.getByText('No groups yet')).toBeVisible();
+    await expect(guest.page.getByText('What are you splitting?')).toBeVisible();
     await expect(yash.page.getByText('Asking to join')).toBeHidden({ timeout: 15_000 });
 
     // Picked the wrong name: picking the right one leaves one request, not two.

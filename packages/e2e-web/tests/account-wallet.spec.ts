@@ -39,7 +39,7 @@ test.describe('Account', () => {
     const { page, token: old } = await person('Yash');
     const other = await device({ token: old });
     await other.page.goto('/');
-    await expect(other.page.getByText('No groups yet')).toBeVisible();
+    await expect(other.page.getByText('What are you splitting?')).toBeVisible();
 
     await tab(page, 'Account');
     await confirm(page, 'Replace sign-in key', 'Yes, sign out my other devices');
@@ -58,7 +58,7 @@ test.describe('Account', () => {
     await expect(other.page.getByText('What should your friends call you?')).toBeVisible();
     expect(await other.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
     await page.reload();
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
   });
 
   test('turning a currency off hides what goes with it, and the last one stays on', async ({ person }) => {
@@ -335,8 +335,8 @@ test.describe('Wallet', () => {
   test('appearance follows the choice, and the choice is kept', async ({ person }) => {
     const { page } = await person('Yash');
     await tab(page, 'Wallet');
-    const dark = 'rgb(21, 19, 17)';
-    const light = 'rgb(250, 248, 245)';
+    const dark = 'rgb(12, 16, 24)';
+    const light = 'rgb(245, 247, 250)';
     await expect(page.getByRole('radio', { name: 'System', exact: true })).toHaveAttribute('aria-checked', 'true');
     expect(await backgrounds(page)).toContain(light);
 

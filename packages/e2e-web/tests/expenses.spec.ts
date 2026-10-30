@@ -267,9 +267,9 @@ test.describe('Balances agree everywhere', () => {
     });
     // Yash: +300 −100 −45 = +155. Bob: −100. Carl: −100 +90 −45 = −55.
     await page.goto('/');
-    await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
-    await expect(page.getByText('₹155', { exact: true })).toHaveCount(2); // the headline and the row
-    await expect(page.getByText('you’re owed')).toBeVisible();
+    await expect(page.getByText('You’re owed', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹155', { exact: true })).toHaveCount(3); // the headline, owed to you, and the row
+    await expect(page.getByText('you’re owed', { exact: true })).toBeVisible();
     await openGroup(page, 'Trip');
     await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
     await expect(page.getByText('₹155', { exact: true })).toBeVisible();
