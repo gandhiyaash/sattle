@@ -7,8 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.chanakya.sattle"
+      "supportsTablet": false,
+      "bundleIdentifier": "tech.sattle.app",
+      "appleTeamId": "4G96L8W59F",
+      "associatedDomains": ["applinks:sattle.tech", "applinks:sattle.axiosiiitl.dev"],
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "CFBundleDisplayName": "Sattle"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -38,7 +46,8 @@
     "plugins": [
       "./plugins/withAndroidReleaseSigning",
       "./plugins/withIosSceneLifecycle",
-      "expo-secure-store"
+      "./plugins/withIosReleaseSigning",
+      ["expo-secure-store", { "faceIDPermission": false }]
     ]
   }
 }

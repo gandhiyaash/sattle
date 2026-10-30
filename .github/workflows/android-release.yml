@@ -51,6 +51,12 @@ on:
       started_at:
         description: 'When the build started, in seconds since 1970'
         value: ${{ jobs.release.outputs.started_at }}
+      version:
+        description: 'The version built and tagged, X.Y.Z'
+        value: ${{ jobs.release.outputs.version }}
+      version_code:
+        description: 'Its Play version code, which the iOS release takes as its build number'
+        value: ${{ jobs.release.outputs.version_code }}
 
 # Two runs bumping the version at once would race for the same tag.
 concurrency:
@@ -66,6 +72,9 @@ jobs:
     outputs:
       # publish.yml times the server deploy from this.
       started_at: ${{ steps.start.outputs.at }}
+      # publish.yml builds the iOS app as the same version.
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
 
     steps:
       - name: Note the Start Time
@@ -127,6 +136,7 @@ jobs:
           fi
 
       - name: Determine Version
+        id: version
         env:
           BUMP_TYPE: ${{ inputs.bump_type }}
           REF: ${{ github.ref_name }}
@@ -163,6 +173,8 @@ jobs:
           # Play's cap of 2100000000 for thousands of years.
           VERSION_CODE=$(( $(date +%s) / 60 ))
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "Building v$NEW_VERSION, version code $VERSION_CODE (latest tag: ${LAST:-none})"
 
       - name: Install Dependencies

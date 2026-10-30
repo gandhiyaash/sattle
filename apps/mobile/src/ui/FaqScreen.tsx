@@ -21,7 +21,7 @@
  */
 
 import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 
 import type { PayWays } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
@@ -43,6 +43,12 @@ interface Faq {
 
 /** When the lists of wallets below were last checked against the wallets themselves. */
 const WALLETS_CHECKED = 'October 2026';
+
+/**
+ * An iPhone can't list the UPI apps or hear back from one (UpiPanel), so its UPI answers say what
+ * it does and nothing else. They name no other phone: App Review turns down an app that does.
+ */
+const IPHONE = Platform.OS === 'ios';
 
 const LIGHTNING_FAQS: Faq[] = [
   {
@@ -109,19 +115,28 @@ const UPI_FAQS: Faq[] = [
   {
     question: 'How does paying by UPI work?',
     answer: [
-      'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI then shows the UPI apps on your phone. Pick one and it opens with their ID, the amount and a note filled in, and you pay there, from your bank account to theirs. Google Pay and PhonePe don’t take a link from another app, so for those the UPI ID is copied instead, the app opens, and you paste it in and type the amount. In a browser, the same is shown as a QR code to scan from your phone.',
+      IPHONE
+        ? 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI shows their ID and the amount, and Open UPI app hands both to a UPI app on your iPhone, with a note, for you to pay there, from your bank account to theirs. Google Pay and PhonePe don’t take that from another app; if one of them opens, copy the UPI ID and pay it in that app by hand.'
+        : 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI then shows the UPI apps on your phone. Pick one and it opens with their ID, the amount and a note filled in, and you pay there, from your bank account to theirs. Google Pay and PhonePe don’t take a link from another app, so for those the UPI ID is copied instead, the app opens, and you paste it in and type the amount. In a browser, the same is shown as a QR code to scan from your phone.',
       'Sattle isn’t in the payment. No bank or UPI app tells anyone else that one person paid another, so the server never sees the money move.',
     ],
   },
   {
     question: 'How does Sattle know a UPI payment went through?',
-    answer: [
-      'It doesn’t see it. It is told, and who tells it depends on your device.',
-      'On Android, an app that takes the link is opened in a way that lets it answer when it closes. It hands back one line: a status, its transaction ID, the bank’s approval reference, and the reference the link carried. Only a status of SUCCESS settles the debt, there and then, with those ids and the app’s name kept on the payment and shown in the group’s history. Pending, failed, or no answer at all, which some apps give, settles nothing: you can try again, or tap I’ve paid and say whether it went through. Google Pay and PhonePe are opened plain, with nothing to answer, so when you come back the sheet asks whether it went through, and your yes settles it without a reference, with the app’s name kept.',
-      'On an iPhone or in a browser, a UPI app says nothing back. When you return, the sheet asks Did the payment go through? Yes settles the debt on your word, with the reference your UPI app showed if you type it in. No records nothing.',
-      'From a group’s shared page, without the app, I’ve paid is a claim: the person owed sees it and confirms or declines it. That page has no login, so it can’t settle a debt by itself.',
-      'None of this is proof. On Android it is your UPI app’s word, passed on by your phone; otherwise your own. The ids and the reference are what let anyone check the payment against a bank statement afterwards.',
-    ],
+    answer: IPHONE
+      ? [
+          'It doesn’t see it. It is told.',
+          'A UPI app says nothing back to Sattle. When you return, the sheet asks Did the payment go through? Yes settles the debt on your word, with the reference your UPI app showed if you type it in. No records nothing.',
+          'From a group’s shared page, without the app, I’ve paid is a claim: the person owed sees it and confirms or declines it. That page has no login, so it can’t settle a debt by itself.',
+          'None of this is proof: it is your word. The reference is what lets anyone check the payment against a bank statement afterwards.',
+        ]
+      : [
+          'It doesn’t see it. It is told, and who tells it depends on your device.',
+          'On Android, an app that takes the link is opened in a way that lets it answer when it closes. It hands back one line: a status, its transaction ID, the bank’s approval reference, and the reference the link carried. Only a status of SUCCESS settles the debt, there and then, with those ids and the app’s name kept on the payment and shown in the group’s history. Pending, failed, or no answer at all, which some apps give, settles nothing: you can try again, or tap I’ve paid and say whether it went through. Google Pay and PhonePe are opened plain, with nothing to answer, so when you come back the sheet asks whether it went through, and your yes settles it without a reference, with the app’s name kept.',
+          'On an iPhone or in a browser, a UPI app says nothing back. When you return, the sheet asks Did the payment go through? Yes settles the debt on your word, with the reference your UPI app showed if you type it in. No records nothing.',
+          'From a group’s shared page, without the app, I’ve paid is a claim: the person owed sees it and confirms or declines it. That page has no login, so it can’t settle a debt by itself.',
+          'None of this is proof. On Android it is your UPI app’s word, passed on by your phone; otherwise your own. The ids and the reference are what let anyone check the payment against a bank statement afterwards.',
+        ],
   },
   {
     question: 'Who sees my UPI ID?',
@@ -134,7 +149,9 @@ const UPI_FAQS: Faq[] = [
     question: 'Why do Google Pay and PhonePe need the UPI ID pasted in?',
     answer: [
       'They refuse a payment that another app starts with a link to a personal UPI ID. NPCI, which runs UPI, told every payment app to refuse these from 1 April 2024 (circular OC/76A), to stop fraud through links sent around. The apps say something about a limit when they refuse, but it isn’t your limit: the same payment goes through when you type the ID in yourself.',
-      'So Sattle doesn’t send them the link. It copies the UPI ID and opens the app, and you paste the ID into its search, pick the person, type the amount and pay. When you come back, Sattle asks whether it went through, and your yes settles it. CRED, Paytm and most other apps still take the link, open with everything filled in, and tell Sattle how it went.',
+      IPHONE
+        ? 'An iPhone doesn’t tell Sattle which app it hands the payment to. If it is one of these two, copy the UPI ID, paste it into the app’s search, pick the person, type the amount and pay. CRED, Paytm and most other apps still take it and open with everything filled in.'
+        : 'So Sattle doesn’t send them the link. It copies the UPI ID and opens the app, and you paste the ID into its search, pick the person, type the amount and pay. When you come back, Sattle asks whether it went through, and your yes settles it. CRED, Paytm and most other apps still take the link, open with everything filled in, and tell Sattle how it went.',
       'A QR code is treated differently: scanning one with the app’s camera is allowed, with no cap, which is why a browser shows one. A QR code opened from your photos is capped at ₹2,000 by the same rule.',
       'If another app refuses the link, pay the ID shown on the screen by hand from it, then tap I’ve paid.',
     ],

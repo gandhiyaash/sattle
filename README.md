@@ -329,7 +329,7 @@ The link proves nothing about who is on the other end, since it can be forwarded
 
 `GET /join/:token` is public, like the group page, and returns names and nothing else: the group, and each person in it, with an opaque `ref` in place of an id and whether someone has joined as them. A `ref` is a hash of the link and the member, so it is no use with another link. Joining is `POST /join` with the token and either the `ref` or, to be added as someone new, a `displayName`; it needs an account, answers with the member, and is refused (`409 conflict`) when the group approves joins or the `ref` is someone who has joined. Asking is `POST /join-requests` with the same body; asking again replaces the last request. `PUT /groups/:id` with `approveJoins` turns approving on or off. `GET /links/:token/group` needs an account too: it answers with the group when the caller is already in it and `null` when they aren't, which is how the app knows to open the group. `GET /me/join-requests` and `DELETE /join-requests/:id` are the asker's; `GET /groups/:id/join-requests`, `POST /join-requests/:id/approve` and `/decline` are for anyone in the group. The link itself is made, replaced and turned off with `GET`, `POST` and `DELETE /groups/:id/link`.
 
-The shared link, `/g/<token>`, opens in a browser, so paying needs no app. On an Android phone with the app installed it opens the app instead, which claims `/g/` and `/join/` links (`intentFilters` in `app.json`):
+The shared link, `/g/<token>`, opens in a browser, so paying needs no app. On a phone with the app installed it opens the app instead, which claims `/g/` and `/join/` links (`intentFilters` and `ios.associatedDomains` in `app.json`):
 
 - **Someone already in the group** lands in the group, on **Settle up**. That is the point of handing the link to the app: paying by UPI from there goes through the app, which hears what the UPI app says, where a browser hears nothing.
 - **Anyone else**, with an account or without, gets the same group page inside the app: what's been split, who owes whom, the buttons to pay. Having the app installed doesn't take away what holding the link shows. **Join** on it goes to the app's join screen.
@@ -338,6 +338,14 @@ The shared link, `/g/<token>`, opens in a browser, so paying needs no app. On an
 Everywhere else the link carries on in the browser, and in the installed app it can still be pasted under **Join with a link** on the groups list. What the app claims is fixed when it is built, so a copy from before `/g/` was added still gets that link in the browser until it is updated. A pay link, `/s/<token>`, always opens in the browser.
 
 Android hands the app the link only when the site vouches for it. `apps/mobile/public/.well-known/assetlinks.json`, which the web deploy publishes, has to list the SHA-256 of every certificate a real copy is signed with: the upload key, which signs the APK on a GitHub release, and Play's app signing key, which signs what Play installs (Play Console, **App integrity**, **App signing**). A copy signed with a key that isn't listed, a debug build for one, gets the link in the browser as before.
+
+An iPhone asks the same of the site through `apps/mobile/public/.well-known/apple-app-site-association`, which names the app as its team and bundle ID (`4G96L8W59F.tech.sattle.app`) and the two paths. Apple's CDN fetches it when the app is installed and every few days after, so a change to it takes a while to reach phones. It must come back as `application/json` with no redirect. It has no extension, so the nginx site on the VM needs to say so:
+
+```nginx
+location = /.well-known/apple-app-site-association { default_type application/json; }
+```
+
+A copy from Xcode with the app's team gets the links too; one signed by any other team doesn't. Expo's scene delegate passes the link to React Native whether it launched the app or reached it running, and `App.tsx` reads both.
 
 ### Paying by UPI
 
@@ -519,6 +527,8 @@ It takes the three inputs of the [Android release](#releasing-the-android-app) a
 
 The wait lines the two up only roughly. Play reviews `internal` in minutes and can take hours over `production`, and installed copies update when their owners let them. So a server change still has to work with the previous app.
 
+The `ios` job runs beside `wait`, once the Android release has tagged the version: it uploads the same commit, as the same version, to App Store Connect. The server doesn't wait for it, since App Review takes a day or more and starts only when someone sends the build for review. See [Releasing the iOS app](#releasing-the-ios-app).
+
 To ship one half alone, run its workflow on its own: `deploy.yml` for a server fix, `android-release.yml` for an app-only release.
 
 ### Releasing the Android app
@@ -557,6 +567,23 @@ What it needs from the repository:
 | Secret | `PLAY_STORE_CREDENTIALS` | The Play upload: a service account's JSON key. Without it the run ends at the GitHub release. |
 | Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The API and the web app the build talks to and links to, each `https://<host>`. Every build checks for them first and stops without them. Variables, not secrets: the addresses are public, a secret is masked in every log line, and a fork's pull request gets no secrets. |
 | Variable | `EXPO_PUBLIC_USE_MOCK` | Leave unset. The run refuses to send a mock build to `production`. |
+
+### Releasing the iOS app
+
+The iOS half of a publish is the `Create iOS Release (App Store Connect)` workflow (`.github/workflows/ios-release.yml`). It builds the commit the Android release tagged, as that version, with the Android version code as its build number, and uploads it to App Store Connect, where it shows up in TestFlight. Nothing reaches the App Store until someone picks the build in App Store Connect and sends it for review. Run on its own, `gh workflow run ios-release.yml` uploads `main` as the newest tag's version, as the Android release's `none` does. App Store Connect takes that only while the version hasn't been released; after that, publish a new one.
+
+`just ios-release` does the same from a Mac: it regenerates `ios/` with `expo prebuild --clean`, archives a Release build into `dist-ios/`, and uploads it, signed and sent through the Apple account Xcode is signed in to. The archive stays there, so Xcode's Organizer can upload it by hand if the upload fails. `UPLOAD=0` exports the `.ipa` there instead. `scripts/ios-release.sh` lists its inputs. Both compile Expo's modules from source (`EXPO_USE_PRECOMPILED_MODULES=0`, which the justfile sets for every iOS build): the precompiled ones were built with Swift 6.3 and don't load under Xcode 27's Swift 6.4.
+
+The app's team is `ios.appleTeamId` in `app.json`, and its bundle ID is `tech.sattle.app`, under a domain we own. Android stays `com.chanakya.sattle`, since a published Play app can't change its package; App Store Connect fixes the bundle ID the same way once the app is made there. The runner has no Xcode account, so it signs by hand: the certificate and profile go into a keychain made for the run and deleted after it, and `plugins/withIosReleaseSigning` points the app target's Release signing at three build settings that the script sets only when it is given `PROVISIONING_PROFILE`. CocoaPods' targets never see them, since a library handed a provisioning profile fails the build. The runner builds with Xcode 26.6 (`XCODE` in the workflow); App Store Connect has taken only builds made with Xcode 26 or later since 28 April 2026.
+
+What it needs from the repository. Until all six secrets are set, a publish leaves iOS out with a notice:
+
+| | Name | For |
+| --- | --- | --- |
+| Secrets | `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD` | An Apple Distribution certificate with its private key, exported from Keychain Access as a `.p12`, then `base64 -i cert.p12 \| pbcopy`. |
+| Secret | `IOS_PROFILE_BASE64` | An App Store provisioning profile for `tech.sattle.app`, base64 the same way. Make it after the App ID has Associated Domains turned on, which Xcode does on the first signed build from a Mac, or the build fails on the entitlement. |
+| Secrets | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | An App Store Connect API key with the App Manager role (Users and Access, Integrations), for the upload. `ASC_KEY_P8` is the text of the `.p8` file. |
+| Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The same two as the Android release. |
 
 ### Android updates
 
@@ -620,10 +647,9 @@ What it doesn't fix: the server signs every entry, so the record proves what the
 - Getting your place back in a group where you were the only one who had joined, without the old device, the sign-in key, or a Nostr key linked beforehand. Nobody else is there to let the new device in.
 - Taking a device off a member. Whoever is let in as someone stays them until that device leaves, and the person can't remove it from their other device.
 - Amber's own sign-in intents (NIP-55) on Android. Amber works today through its bunker:// link. Remote signing hasn't been tried in the installed app, only on the web.
-- Handing **Join** over to the installed app on an iPhone. That needs Associated Domains; it carries on in the web app, and in the app the link is pasted.
 - Removing someone who has joined. They can leave, but nobody else can take them out.
 - `BreezWallet`, an in-app wallet. Until then the app has none: you receive through your own wallet over NWC or at your Lightning address, and pay from any wallet. Demo mode on native shows `MockWallet`.
-- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles `/g/<token>` and `/join/<token>`, and only on Android. A pay link, `/s/<token>`, opens in the browser on every phone.
+- Native routing. On web, `/s/<token>`, `/g/<token>` and `/join/<token>` open the right screen; the installed app handles `/g/<token>` and `/join/<token>`, on Android and iPhone. A pay link, `/s/<token>`, opens in the browser on every phone.
 - Paying a ghost's Lightning address with real payments on (see [The API](#the-api)).
 - Live status over SSE in the signed-in app. The server streams it, but a browser can't attach a sign-in token to an SSE connection, so the app polls; short-lived stream tickets would fix that.
 - Knowing that a UPI payment happened. The person owed confirms it; a payment gateway that could confirm it for us would mean holding people's money.

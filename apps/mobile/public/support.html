@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sattle Support</title>
+<meta name="description" content="How to get help with Sattle.">
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root {
+    --paper: #FAF8F5; --surface: #FFFFFF; --ink: #1A1714; --muted: #6B635A;
+    --line: #E6E0D7; --accent: #C2621C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #171411; --surface: #1F1B17; --ink: #F2EDE6; --muted: #A89E92;
+      --line: #332D27; --accent: #E38A45;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 8px; }
+  p, ul { margin: 0 0 12px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); margin-bottom: 24px; }
+  .contact {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; margin: 24px 0;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Support</h1>
+  <p class="meta">Sattle</p>
+
+  <p>Sattle splits shared expenses with friends and settles them over the Bitcoin Lightning Network or UPI. Only one person in a group needs the app; everyone else can use the group's link in a browser.</p>
+
+  <div class="contact">
+    <p>Write to <a href="mailto:reach.oms2004@gmail.com">reach.oms2004@gmail.com</a> with what you were doing, what you expected, and what happened instead.</p>
+    <p style="margin: 0">Found a bug? You can also open an issue on <a href="https://github.com/gandhiyaash/sattle/issues">GitHub</a>.</p>
+  </div>
+
+  <p>The app answers most questions itself: open <strong>Wallet</strong>, then <strong>FAQ</strong>.</p>
+
+  <h2>A payment went wrong</h2>
+  <p>Sattle never holds money. A Lightning payment goes from the payer's wallet straight to the wallet of the person owed, and a UPI payment from one bank account to another. If money left your wallet or bank and didn't arrive, the wallet or bank that sent it can trace it. Don't pay the same debt twice: the person you paid can mark it settled in the group.</p>
+
+  <h2>A new phone, or a lost one</h2>
+  <p>Your account is a name and a sign-in key. On the old device, <strong>Account → Copy sign-in key</strong> gives you the key; on the new one, <strong>I have a sign-in key</strong> on the welcome screen signs you in with all your groups. If you linked a Nostr key, <strong>Sign in with Nostr</strong> works too. If a phone that was signed in is lost, replace the key under <strong>Account</strong> from another device, and the lost phone is signed out.</p>
+
+  <h2>Deleting your account</h2>
+  <p>Open <strong>Account → Delete account</strong> in the app. What is deleted and what stays is set out in the <a href="/privacy">privacy policy</a>. You can also ask us by email.</p>
+</main>
+</body>
+</html>

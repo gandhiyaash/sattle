@@ -4,7 +4,8 @@ name: publish
 # Android build starts, to give Play's review of the upload a head start. That lines the
 # two up only roughly: review takes minutes on internal and can take hours on production,
 # and installed copies update when their owners let them. So the server still has to
-# work with the previous app.
+# work with the previous app. The iOS app goes to App Store Connect alongside, as the same
+# version, and waits in TestFlight until someone sends it for review there.
 on:
   workflow_dispatch:
     inputs:
@@ -65,6 +66,16 @@ jobs:
       bump_type: ${{ inputs.bump_type }}
       track: ${{ inputs.track }}
       update_priority: ${{ inputs.update_priority }}
+
+  # The commit and version the Android release tagged. Skipped, with a notice, until the iOS
+  # signing secrets are set. The server doesn't wait for it: App Review takes a day or more.
+  ios:
+    needs: android
+    uses: ./.github/workflows/ios-release.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.android.outputs.version }}
+      build_number: ${{ needs.android.outputs.version_code }}
 
   # Waits on the build as well as the clock, so a failed build never ships the server.
   # Re-running a failed build re-runs this too, and it counts from the new start.

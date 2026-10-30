@@ -1,0 +1,175 @@
+name: Create iOS Release (App Store Connect)
+
+on:
+  # On its own it uploads the current commit as the newest vX.Y.Z tag's version, as the Android
+  # release does with `none`. App Store Connect takes that only while the version hasn't been
+  # released; after that, publish a new version.
+  workflow_dispatch:
+  # publish.yml runs this with the version and build number the Android release used.
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      build_number:
+        type: string
+        required: true
+
+# Two uploads at once could race for the same build number.
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+env:
+  # Apple takes uploads built with Xcode 26 or later since 28 April 2026. The newest the runner
+  # image has; move it on when the image does.
+  XCODE: '26.6'
+
+jobs:
+  release:
+    name: Build & Upload iOS
+    runs-on: macos-26
+    timeout-minutes: 75
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check signing secrets
+        id: secrets
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          CALLED: ${{ inputs.version }}
+        run: |
+          names=(IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD IOS_PROFILE_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8)
+          missing=()
+          for name in "${names[@]}"; do [ -n "${!name}" ] || missing+=("$name"); done
+          # Until iOS is set up, a publish ships Android and the server without it.
+          if [ -n "$CALLED" ] && [ "${#missing[@]}" -eq "${#names[@]}" ]; then
+            echo "::notice::No iOS signing secrets are set, so this release has no iOS build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for name in "${missing[@]}"; do echo "::error::Missing GitHub secret $name"; done
+          [ "${#missing[@]}" -eq 0 ]
+
+      - name: Check app config
+        if: steps.secrets.outputs.skip != 'true'
+        env:
+          API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
+        run: |
+          # The two addresses are repository variables, or secrets of the same name: nothing in this file names a host.
+          for pair in "EXPO_PUBLIC_API_URL=$API_URL" "EXPO_PUBLIC_APP_URL=$APP_URL"; do
+            name="${pair%%=*}"; value="${pair#*=}"
+            if [ -z "$value" ]; then
+              echo "::error::Set $name as a repository variable (or secret), or the app talks to localhost"
+              exit 1
+            fi
+            if [[ ! "$value" =~ ^https://[^/]+$ ]]; then
+              echo "::error::$name must be https://<host>, with no path and no trailing slash"
+              exit 1
+            fi
+          done
+
+      - name: Checkout Repository
+        if: steps.secrets.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        if: steps.secrets.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Determine Version
+        if: steps.secrets.outputs.skip != 'true'
+        env:
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build_number }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -e
+          if [ "$REF" != "main" ]; then
+            echo "::error::Releases are cut from main; this run is on $REF."
+            exit 1
+          fi
+          if [ -z "$VERSION" ]; then
+            LAST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            VERSION=${LAST#v}
+            VERSION=${VERSION:-$(node -p "require('./apps/mobile/package.json').version")}
+            # The clock the Android release counts its version codes by.
+            BUILD=$(( $(date +%s) / 60 ))
+          fi
+          echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
+          echo "Building v$VERSION, build $BUILD"
+
+      - name: Install Dependencies
+        if: steps.secrets.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Select Xcode
+        if: steps.secrets.outputs.skip != 'true'
+        run: sudo xcode-select -s "/Applications/Xcode_$XCODE.app" && xcodebuild -version
+
+      - name: Install Signing Certificate and Profile
+        if: steps.secrets.outputs.skip != 'true'
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -e
+          # The runner has no Xcode account to sign with, so the Apple Distribution certificate
+          # goes into a keychain of its own and the App Store profile beside it, and the app
+          # target is signed by hand with them (plugins/withIosReleaseSigning).
+          KEYCHAIN="$RUNNER_TEMP/sattle-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/dist.p12" -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/dist.p12"
+
+          echo "$IOS_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/sattle.mobileprovision"
+          UUID=$(security cms -D -i "$RUNNER_TEMP/sattle.mobileprovision" | plutil -extract UUID raw -)
+          # Xcode 16 and later read profiles from UserData; older ones from MobileDevice.
+          for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$RUNNER_TEMP/sattle.mobileprovision" "$dir/$UUID.mobileprovision"
+          done
+          echo "PROVISIONING_PROFILE=$UUID" >> "$GITHUB_ENV"
+
+          # The App Store Connect key uploads the build.
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+
+      - name: Build and Upload
+        if: steps.secrets.outputs.skip != 'true'
+        env:
+          # EXPO_PUBLIC_* values are inlined into the JS bundle at build time; see android-release.yml.
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL || secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_APP_URL: ${{ vars.EXPO_PUBLIC_APP_URL || secrets.EXPO_PUBLIC_APP_URL }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        # VERSION_NAME, BUILD_NUMBER, PROVISIONING_PROFILE and ASC_KEY_PATH come from the steps above.
+        run: scripts/ios-release.sh
+
+      - name: Remove Signing Material
+        if: always() && steps.secrets.outputs.skip != 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/sattle-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/sattle.mobileprovision"
