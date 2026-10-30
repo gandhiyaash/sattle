@@ -9,6 +9,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.chanakya.sattle",
+      "appleTeamId": "4G96L8W59F",
+      "associatedDomains": ["applinks:sattle.tech", "applinks:sattle.axiosiiitl.dev"],
       "config": {
         "usesNonExemptEncryption": false
       },

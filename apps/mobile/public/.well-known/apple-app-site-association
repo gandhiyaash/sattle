@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["4G96L8W59F.com.chanakya.sattle"],
+        "components": [
+          { "/": "/join/*" },
+          { "/": "/g/*" }
+        ]
+      }
+    ]
+  }
+}
