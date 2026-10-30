@@ -339,7 +339,7 @@ Everywhere else the link carries on in the browser, and in the installed app it 
 
 Android hands the app the link only when the site vouches for it. `apps/mobile/public/.well-known/assetlinks.json`, which the web deploy publishes, has to list the SHA-256 of every certificate a real copy is signed with: the upload key, which signs the APK on a GitHub release, and Play's app signing key, which signs what Play installs (Play Console, **App integrity**, **App signing**). A copy signed with a key that isn't listed, a debug build for one, gets the link in the browser as before.
 
-An iPhone asks the same of the site through `apps/mobile/public/.well-known/apple-app-site-association`, which names the app as its team and bundle ID (`4G96L8W59F.com.chanakya.sattle`) and the two paths. Apple's CDN fetches it when the app is installed and every few days after, so a change to it takes a while to reach phones. It must come back as `application/json` with no redirect. It has no extension, so the nginx site on the VM needs to say so:
+An iPhone asks the same of the site through `apps/mobile/public/.well-known/apple-app-site-association`, which names the app as its team and bundle ID (`4G96L8W59F.tech.sattle.app`) and the two paths. Apple's CDN fetches it when the app is installed and every few days after, so a change to it takes a while to reach phones. It must come back as `application/json` with no redirect. It has no extension, so the nginx site on the VM needs to say so:
 
 ```nginx
 location = /.well-known/apple-app-site-association { default_type application/json; }
@@ -574,14 +574,14 @@ The iOS half of a publish is the `Create iOS Release (App Store Connect)` workfl
 
 `just ios-release` does the same from a Mac: it regenerates `ios/` with `expo prebuild --clean`, archives a Release build into `dist-ios/`, and uploads it, signed and sent through the Apple account Xcode is signed in to. The archive stays there, so Xcode's Organizer can upload it by hand if the upload fails. `UPLOAD=0` exports the `.ipa` there instead. `scripts/ios-release.sh` lists its inputs. Both compile Expo's modules from source (`EXPO_USE_PRECOMPILED_MODULES=0`, which the justfile sets for every iOS build): the precompiled ones were built with Swift 6.3 and don't load under Xcode 27's Swift 6.4.
 
-The app's team is `ios.appleTeamId` in `app.json`. The runner has no Xcode account, so it signs by hand: the certificate and profile go into a keychain made for the run and deleted after it, and `plugins/withIosReleaseSigning` points the app target's Release signing at three build settings that the script sets only when it is given `PROVISIONING_PROFILE`. CocoaPods' targets never see them, since a library handed a provisioning profile fails the build. The runner builds with Xcode 26.6 (`XCODE` in the workflow); App Store Connect has taken only builds made with Xcode 26 or later since 28 April 2026.
+The app's team is `ios.appleTeamId` in `app.json`, and its bundle ID is `tech.sattle.app`, under a domain we own. Android stays `com.chanakya.sattle`, since a published Play app can't change its package; App Store Connect fixes the bundle ID the same way once the app is made there. The runner has no Xcode account, so it signs by hand: the certificate and profile go into a keychain made for the run and deleted after it, and `plugins/withIosReleaseSigning` points the app target's Release signing at three build settings that the script sets only when it is given `PROVISIONING_PROFILE`. CocoaPods' targets never see them, since a library handed a provisioning profile fails the build. The runner builds with Xcode 26.6 (`XCODE` in the workflow); App Store Connect has taken only builds made with Xcode 26 or later since 28 April 2026.
 
 What it needs from the repository. Until all six secrets are set, a publish leaves iOS out with a notice:
 
 | | Name | For |
 | --- | --- | --- |
 | Secrets | `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD` | An Apple Distribution certificate with its private key, exported from Keychain Access as a `.p12`, then `base64 -i cert.p12 \| pbcopy`. |
-| Secret | `IOS_PROFILE_BASE64` | An App Store provisioning profile for `com.chanakya.sattle`, base64 the same way. Make it after the App ID has Associated Domains turned on, which Xcode does on the first signed build from a Mac, or the build fails on the entitlement. |
+| Secret | `IOS_PROFILE_BASE64` | An App Store provisioning profile for `tech.sattle.app`, base64 the same way. Make it after the App ID has Associated Domains turned on, which Xcode does on the first signed build from a Mac, or the build fails on the entitlement. |
 | Secrets | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | An App Store Connect API key with the App Manager role (Users and Access, Integrations), for the upload. `ASC_KEY_P8` is the text of the `.p8` file. |
 | Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The same two as the Android release. |
 
