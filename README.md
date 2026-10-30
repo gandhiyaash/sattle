@@ -527,6 +527,8 @@ It takes the three inputs of the [Android release](#releasing-the-android-app) a
 
 The wait lines the two up only roughly. Play reviews `internal` in minutes and can take hours over `production`, and installed copies update when their owners let them. So a server change still has to work with the previous app.
 
+The `ios` job runs beside `wait`, once the Android release has tagged the version: it uploads the same commit, as the same version, to App Store Connect. The server doesn't wait for it, since App Review takes a day or more and starts only when someone sends the build for review. See [Releasing the iOS app](#releasing-the-ios-app).
+
 To ship one half alone, run its workflow on its own: `deploy.yml` for a server fix, `android-release.yml` for an app-only release.
 
 ### Releasing the Android app
@@ -565,6 +567,23 @@ What it needs from the repository:
 | Secret | `PLAY_STORE_CREDENTIALS` | The Play upload: a service account's JSON key. Without it the run ends at the GitHub release. |
 | Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The API and the web app the build talks to and links to, each `https://<host>`. Every build checks for them first and stops without them. Variables, not secrets: the addresses are public, a secret is masked in every log line, and a fork's pull request gets no secrets. |
 | Variable | `EXPO_PUBLIC_USE_MOCK` | Leave unset. The run refuses to send a mock build to `production`. |
+
+### Releasing the iOS app
+
+The iOS half of a publish is the `Create iOS Release (App Store Connect)` workflow (`.github/workflows/ios-release.yml`). It builds the commit the Android release tagged, as that version, with the Android version code as its build number, and uploads it to App Store Connect, where it shows up in TestFlight. Nothing reaches the App Store until someone picks the build in App Store Connect and sends it for review. Run on its own, `gh workflow run ios-release.yml` uploads `main` as the newest tag's version, as the Android release's `none` does. App Store Connect takes that only while the version hasn't been released; after that, publish a new one.
+
+`just ios-release` does the same from a Mac: it regenerates `ios/` with `expo prebuild --clean`, archives a Release build into `dist-ios/`, and uploads it, signed and sent through the Apple account Xcode is signed in to. The archive stays there, so Xcode's Organizer can upload it by hand if the upload fails. `UPLOAD=0` exports the `.ipa` there instead. `scripts/ios-release.sh` lists its inputs. Both compile Expo's modules from source (`EXPO_USE_PRECOMPILED_MODULES=0`, which the justfile sets for every iOS build): the precompiled ones were built with Swift 6.3 and don't load under Xcode 27's Swift 6.4.
+
+The app's team is `ios.appleTeamId` in `app.json`. The runner has no Xcode account, so it signs by hand: the certificate and profile go into a keychain made for the run and deleted after it, and `plugins/withIosReleaseSigning` points the app target's Release signing at three build settings that the script sets only when it is given `PROVISIONING_PROFILE`. CocoaPods' targets never see them, since a library handed a provisioning profile fails the build. The runner builds with Xcode 26.6 (`XCODE` in the workflow); App Store Connect has taken only builds made with Xcode 26 or later since 28 April 2026.
+
+What it needs from the repository. Until all six secrets are set, a publish leaves iOS out with a notice:
+
+| | Name | For |
+| --- | --- | --- |
+| Secrets | `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD` | An Apple Distribution certificate with its private key, exported from Keychain Access as a `.p12`, then `base64 -i cert.p12 \| pbcopy`. |
+| Secret | `IOS_PROFILE_BASE64` | An App Store provisioning profile for `com.chanakya.sattle`, base64 the same way. Make it after the App ID has Associated Domains turned on, which Xcode does on the first signed build from a Mac, or the build fails on the entitlement. |
+| Secrets | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | An App Store Connect API key with the App Manager role (Users and Access, Integrations), for the upload. `ASC_KEY_P8` is the text of the `.p8` file. |
+| Variables | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_APP_URL` | The same two as the Android release. |
 
 ### Android updates
 

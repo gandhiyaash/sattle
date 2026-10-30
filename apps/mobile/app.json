@@ -46,6 +46,7 @@
     "plugins": [
       "./plugins/withAndroidReleaseSigning",
       "./plugins/withIosSceneLifecycle",
+      "./plugins/withIosReleaseSigning",
       ["expo-secure-store", { "faceIDPermission": false }]
     ]
   }
