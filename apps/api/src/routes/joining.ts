@@ -153,18 +153,14 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
 
   /**
    * Authed. The signed-in user joins the link's group, and gets their Member
-   * back (201). With a `ref`, they become the ghost they picked on the join
-   * page, with the balance already on that name. With a `displayName`, they
-   * weren't on the page and are added as a new member. A request they had
-   * waiting on this group is gone: they're in.
-   *
-   * Someone who has joined is asked for, whatever the group chose: the link
-   * can be forwarded, and whoever is them would be paid what the group owes
-   * them. Anyone in the group can say yes, their own device included.
+   * back (201). With a `ref`, they become the person they picked on the join
+   * page, with the balance already on that name: a ghost, or someone who has
+   * joined, as another device of theirs. With a `displayName`, they weren't
+   * on the page and are added as a new member. A request they had waiting on
+   * this group is gone: they're in.
    *   link not usable                       → as `live` above
    *   already in this group                 → 409 conflict (one account, one member)
    *   the group has to let people in        → 409 conflict: ask (/join-requests)
-   *   a ref someone has joined as           → 409 conflict: ask (/join-requests)
    *   a new name someone has joined as      → 409 conflict: pick them on the
    *                                           list, or give a name that tells
    *                                           the two apart
@@ -185,13 +181,6 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       }
       const members = repo.members(link.groupId);
       const picked = whoIs(link, who, members);
-      const joined = members.find((m) => m.id === picked.memberId && m.claimedByUserId);
-      if (joined) {
-        throw new SattleError(
-          'conflict',
-          `${joined.displayName} has already joined, so someone in ${group.name} has to let you in as them. Ask to join instead.`
-        );
-      }
       const taken = !picked.memberId && members.find((m) => m.claimedByUserId && sameName(m.displayName, picked.displayName));
       if (taken) {
         throw new SattleError(

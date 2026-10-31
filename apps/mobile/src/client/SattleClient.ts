@@ -133,12 +133,11 @@ export interface SattleClient {
   // -- joining -------------------------------------------------------------
   //
   // The group's link (below) is also how someone joins: with the same token,
-  // they pick which of the people who haven't joined they are, or give their
-  // own name, and are in (`join`). A group that approves joins
-  // (Group.approveJoins, `setApproveJoins`) makes that a request instead
-  // (`askToJoin`), which someone already in the group lets in, so a forwarded
-  // link can't be used to become someone. Being someone who has joined, on
-  // another device, is always asked for.
+  // they pick which of the group's people they are, someone who has joined
+  // included, or give their own name, and are in (`join`). A group that
+  // approves joins (Group.approveJoins, `setApproveJoins`) makes that a
+  // request instead (`askToJoin`), which someone already in the group lets
+  // in, so a forwarded link can't be used to become someone.
 
   /** Public. Who the group's link offers to join as, and whether picking one joins or asks. Throws `not_found` for a link that was replaced or turned off. */
   getJoinView(token: string): Promise<JoinView>;
@@ -146,9 +145,8 @@ export interface SattleClient {
    * The signed-in user joins the link's group, at once, and gets their Member.
    * With a `ref`, one of `getJoinView`'s `members`, they become that member;
    * with a `displayName`, they're added as a new one. Throws `conflict` when
-   * the group approves joins, when the ref is someone who has joined (ask
-   * instead), when someone joined as that person since, or when the name is
-   * a member still waiting to be picked.
+   * the group approves joins (ask instead), or when the name is a member
+   * still waiting to be picked or someone who has joined.
    */
   join(token: string, as: JoinAs, idempotencyKey?: string): Promise<Member>;
   /**
@@ -160,9 +158,9 @@ export interface SattleClient {
   getJoinedGroup(token: string): Promise<Group | null>;
   /**
    * The signed-in user asks to join the link's group, and is in once someone
-   * there says yes: the way in to a group that approves joins, and to being
-   * someone who has joined, on another device. With a `ref`, one of
-   * `getJoinView`'s, they ask to be that member.
+   * there says yes: the way in to a group that approves joins. With a `ref`,
+   * one of `getJoinView`'s, they ask to be that member, alongside anyone who
+   * has joined as them.
    * With a `displayName`, they ask to be added as a new member; throws
    * `conflict` if that name is a member still waiting to be picked. Asking
    * again replaces their last request for the group.
