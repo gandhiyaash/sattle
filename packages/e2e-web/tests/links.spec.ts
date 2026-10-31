@@ -631,6 +631,27 @@ test.describe('A group that approves joins', () => {
     expect(await yash.api.members(group.id)).toHaveLength(2);
   });
 
+  test('a join page opened before approving was turned off joins at once, with no code', async ({ person, device }) => {
+    test.slow();
+    const yash = await person('Yash');
+    const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya'] });
+    await yash.api.setApproveJoins(group.id, true);
+    const token = await groupLinkToken(yash.api, group.id);
+
+    const guest = await device();
+    await guest.page.goto(`/join/${token}`);
+    await expect(guest.page.getByText('You’re asking to join', { exact: true })).toBeVisible();
+    await yash.api.setApproveJoins(group.id, false);
+
+    // The page still says asking; the tap finds the group lets people in now.
+    await who(guest.page, 'Priya').click();
+    await button(guest.page, 'Ask to join as Priya').click();
+    await expect(guest.page.getByText('2 members', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText('Asked to join')).toBeHidden();
+    expect((await yash.api.memberNamed(group.id, 'Priya')).claimedByUserId).toBeDefined();
+    expect(await yash.api.pendingJoins(group.id)).toEqual([]);
+  });
+
   test('a request can be taken back, and asking again replaces it', async ({ person, device }) => {
     test.slow();
     const yash = await person('Yash');

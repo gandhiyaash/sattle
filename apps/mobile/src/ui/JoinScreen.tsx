@@ -223,7 +223,8 @@ const NEW = '+';
  * them taps + and gives their own name. `join` does the joining and leaves
  * the screen; if it throws, the message is shown and the list is read again,
  * since the group may have started approving joins, or the person may have
- * been removed.
+ * been removed. A group that stopped approving since is found on the tap:
+ * they join instead of asking.
  */
 function WhoAreYou({
   token,
@@ -282,7 +283,10 @@ function WhoAreYou({
     setBusy(true);
     setFailed(null);
     try {
-      await join(member ? { ref: member.ref } : { displayName: name }, name, atOnce);
+      // The page was read when it opened, and the group may have stopped approving joins since.
+      // Asking then would leave them waiting on a yes nobody has to give, so they join instead.
+      const now = atOnce || !(await client.getJoinView(token)).approveJoins;
+      await join(member ? { ref: member.ref } : { displayName: name }, name, now);
     } catch (e) {
       // The choice stays. After a dropped connection the retry is one tap, with the name still
       // in the field, and it sends the same request again, so one that went through is answered
