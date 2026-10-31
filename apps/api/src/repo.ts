@@ -136,6 +136,7 @@ const toUpiClaim = (r: Row): UpiClaim => ({
   reference: opt(r.reference),
   status: r.status as UpiClaim['status'],
   ...(r.via_link ? { viaLink: true } : {}),
+  ...(r.another_way ? { anotherWay: true as const } : {}),
   createdAt: r.created_at as string,
 });
 
@@ -293,8 +294,8 @@ export function createRepo(db: Db) {
     upiClaimsOfGroup: db.prepare('SELECT * FROM upi_claims WHERE group_id = ? ORDER BY created_at'),
     insertUpiClaim: db.prepare(
       `INSERT INTO upi_claims (id, group_id, from_member_id, to_member_id, amount, reference, status, via_link, created_at,
-                               pay_link_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                               pay_link_token, another_way)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
     payLinkOfUpiClaim: db.prepare('SELECT pay_link_token FROM upi_claims WHERE id = ?'),
     setUpiClaimStatus: db.prepare('UPDATE upi_claims SET status = ? WHERE id = ?'),
@@ -699,7 +700,8 @@ export function createRepo(db: Db) {
       q.deleteUpiClaimForPair.run(claim.groupId, claim.fromMemberId, claim.toMemberId);
       q.insertUpiClaim.run(
         claim.id, claim.groupId, claim.fromMemberId, claim.toMemberId, claim.amount,
-        claim.reference ?? null, claim.status, claim.viaLink ? 1 : 0, claim.createdAt, payLinkToken ?? null
+        claim.reference ?? null, claim.status, claim.viaLink ? 1 : 0, claim.createdAt, payLinkToken ?? null,
+        claim.anotherWay ? 1 : 0
       );
       return claim;
     },

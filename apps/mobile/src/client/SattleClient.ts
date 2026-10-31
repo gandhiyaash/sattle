@@ -216,6 +216,15 @@ export interface SattleClient {
    * owed confirms it. A claim already waiting for the debt is left as it is.
    */
   claimUpiFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<void>;
+  /**
+   * Public. Marks the debt `ref` as paid another way: cash, or UPI to the
+   * person's phone number. Needs no UPI ID or Lightning address, only the
+   * debt's `markable`, which says the person owed has joined. Moves nothing:
+   * they confirm it. A claim already waiting for the debt is left as it is.
+   * Throws `conflict` when they haven't joined or a Lightning payment for it
+   * is under way, `link_expired` if the debt is gone.
+   */
+  markPaidFromGroupLink(token: string, ref: string, idempotencyKey?: string): Promise<void>;
 
   // -- changing and removing ------------------------------------------------
   //

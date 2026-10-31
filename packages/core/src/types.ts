@@ -376,6 +376,8 @@ export interface GuestView {
   upi?: boolean;
   /** A UPI payment someone said they made for this debt, that the person owed hasn't confirmed. */
   upiClaim?: UpiClaim['status'];
+  /** With `upiClaim`: it was marked as paid another way on the group's page, not said to be paid by UPI. */
+  claimAnotherWay?: true;
   /**
    * The latest payment this link started. Absent until an invoice is minted,
    * which waits for the payer to choose when the link can also be paid by UPI.
@@ -497,6 +499,14 @@ export interface GroupGuestDebt {
   upi?: boolean;
   /** A UPI payment someone said they made for this debt, that the person owed hasn't confirmed. */
   upiClaim?: UpiClaim['status'];
+  /** With `upiClaim`: it was marked as paid another way (UpiClaim.anotherWay), not said to be paid by UPI. */
+  claimAnotherWay?: true;
+  /**
+   * Whether the page can mark it as paid, for a payment made outside Sattle (cash, UPI to a phone
+   * number). Whatever the person owed has set up, or hasn't: it only needs them to have joined, so
+   * there is someone to confirm it.
+   */
+  markable?: true;
 }
 
 /** Only what the group page may show. Names and amounts, no member or group ids. */
@@ -581,7 +591,8 @@ export interface UpiPayee {
 }
 
 /**
- * A payer's word that they paid a debt over UPI. Nobody can check it, so it
+ * A payer's word that they paid a debt over UPI, or, from the group's page,
+ * that it was paid another way (`anotherWay`). Nobody can check it, so it
  * moves no balance. The person owed either confirms it, which makes it a
  * settlement, or says it didn't arrive, which the payer is then shown.
  */
@@ -598,6 +609,12 @@ export interface UpiClaim {
   status: 'pending' | 'declined';
   /** Made by someone on a shared link, the group's or a pay link, who may not be the payer. */
   viaLink?: boolean;
+  /**
+   * Marked as paid on the group's page, for a payment made outside Sattle: cash, or UPI to a
+   * phone number. No UPI ID or Lightning address is needed for it. Confirmed, the debt is
+   * settled outside the app (rail `manual`), not paid by UPI. Always `viaLink`.
+   */
+  anotherWay?: true;
   createdAt: string;
 }
 

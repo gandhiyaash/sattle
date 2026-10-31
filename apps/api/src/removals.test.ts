@@ -241,7 +241,7 @@ describe('PUT /groups/:id', () => {
     ).run(group.id, mKabir, mRiya, new Date().toISOString());
     expect(await off()).toMatchObject({
       status: 409,
-      body: { message: 'A UPI payment in this group hasn’t been confirmed yet. Wait until it has.' },
+      body: { message: 'A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.' },
     });
 
     db.prepare(`DELETE FROM upi_claims`).run();

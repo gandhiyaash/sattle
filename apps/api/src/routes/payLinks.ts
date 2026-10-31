@@ -104,6 +104,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
       payable: receivable(payments, payee),
       ...(upiOnLink(wallets, g, payee) ? { upi: true } : {}),
       ...(claim ? { upiClaim: claim.status } : {}),
+      ...(claim?.anotherWay ? { claimAnotherWay: true as const } : {}),
       settlement: latest && (elsewhere ? toGuestSettlementFromElsewhere(latest) : toGuestSettlement(latest)),
     };
   };

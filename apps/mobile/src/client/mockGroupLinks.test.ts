@@ -137,6 +137,36 @@ describe('MockClient group links', () => {
     await expect(c.getGroupLinkUpi('demo-group', debt.ref)).rejects.toMatchObject({ code: 'member_cannot_receive' });
   });
 
+  it('marks a debt to someone who has joined as paid, with no UPI ID, and the person owed confirms it as settled outside the app', async () => {
+    const c = client();
+    const fromPriya = async () => (await c.getGroupGuestView('demo-group')).debts.find((d) => d.from === 'Priya');
+    const debt = (await fromPriya())!;
+    expect(debt).toMatchObject({ to: 'Yash', markable: true });
+    expect(debt.upi).toBeUndefined();
+
+    await c.markPaidFromGroupLink('demo-group', debt.ref);
+    expect(await fromPriya()).toMatchObject({ upiClaim: 'pending', claimAnotherWay: true });
+    const [claim] = (await c.getUpiClaims('g-flat')).filter((x) => x.anotherWay);
+    expect(claim).toMatchObject({ amount: debt.amount, status: 'pending', viaLink: true });
+
+    expect(await c.confirmUpiClaim(claim.id)).toMatchObject({
+      rail: 'manual',
+      status: 'manually_confirmed',
+      note: 'Paid another way',
+      amount: debt.amount,
+    });
+    expect(await fromPriya()).toBeUndefined();
+  });
+
+  it('won’t mark a debt to someone who hasn’t joined, since nobody could confirm it', async () => {
+    const c = client();
+    const link = await c.createGroupLink('g-goa');
+    const toAman = (await c.getGroupGuestView(link.token)).debts.find((d) => d.to === 'Aman')!;
+    expect(toAman.markable).toBeUndefined();
+    await expect(c.markPaidFromGroupLink(link.token, toAman.ref)).rejects.toMatchObject({ code: 'conflict' });
+    expect((await c.getGroupGuestView(link.token)).debts.find((d) => d.to === 'Aman')!.upiClaim).toBeUndefined();
+  });
+
   it('lets the person owed choose for one group, over what they chose for all of them', async () => {
     const c = client();
     await c.setUpiId('yash@okaxis');

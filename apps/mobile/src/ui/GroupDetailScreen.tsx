@@ -11,8 +11,8 @@
  * 3. Who pays whom: every debt in the group, from groupDebts, so it is
  *    simplified into as few payments as there can be unless the group turned
  *    that off, and the switch for it is right there. The user's own rows act:
- *    Pay on what they owe; Remind, a UPI payment to confirm, and Mark as
- *    settled on what they're owed.
+ *    Pay on what they owe; Remind, a payment to confirm (by UPI, or marked as
+ *    paid on the group's link), and Mark as settled on what they're owed.
  * 4. Activity: the expenses by day, each with what it meant for the user.
  *    See all opens the full history, which has payments and changes too.
  *
@@ -549,7 +549,8 @@ function Cover({
 /**
  * One debt in Who pays whom. The user's own act: what they owe has Pay, or
  * Options when the person can't be paid here yet; what they're owed has
- * Remind, a UPI payment to answer when there is one, and Mark as settled.
+ * Remind, a payment someone says they made to answer when there is one, and
+ * Mark as settled.
  */
 function DebtRow({
   debt,
@@ -1395,10 +1396,11 @@ function MarkSettled({ debt, onSettled }: { debt: Debt; onSettled: () => void })
 }
 
 /**
- * A UPI payment someone says they made, on the debt it is for. Sattle can't
- * see it, so the person owed is asked whether it arrived; that is what
- * settles it. The payer sees that it is waiting, or that it was turned down,
- * and can take it back.
+ * A UPI payment someone says they made, on the debt it is for, or one the
+ * group's page marked as paid another way (`anotherWay`: cash, UPI to a phone
+ * number). Sattle can't see either, so the person owed is asked whether it
+ * arrived; that is what settles it. The payer sees that it is waiting, or
+ * that it was turned down, and can take it back.
  */
 function UpiClaimPanel({
   claim,
@@ -1424,6 +1426,9 @@ function UpiClaimPanel({
   const [error, setError] = useState<string | null>(null);
   const amount = formatAmount(claim.amount, currency);
   const declined = claim.status === 'declined';
+  // Marked as paid another way, which only the group's page does, so it is always from a link.
+  const another = Boolean(claim.anotherWay);
+  const payment = another ? 'payment' : 'UPI payment';
 
   const act = async (action: string, fn: (key: string) => Promise<unknown>, done?: string) => {
     setBusy(action);
@@ -1444,10 +1449,12 @@ function UpiClaimPanel({
       <View style={s.under}>
         <Text style={declined ? s.error : s.note}>
           {declined
-            ? `${otherName} says the UPI payment of ${amount} didn’t arrive.`
-            : claim.viaLink
-              ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
-              : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
+            ? `${otherName} says the ${payment} of ${amount} didn’t arrive.`
+            : another
+              ? `Marked as paid another way from the group’s link. Waiting for ${otherName} to confirm they got ${amount}.`
+              : claim.viaLink
+                ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
+                : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
         </Text>
         <View style={{ alignSelf: 'flex-start' }}>
           <Pill
@@ -1464,7 +1471,7 @@ function UpiClaimPanel({
   if (declined) {
     return (
       <View style={s.under}>
-        <Text style={s.note}>You said {otherName}’s UPI payment of {amount} didn’t arrive.</Text>
+        <Text style={s.note}>You said {otherName}’s {payment} of {amount} didn’t arrive.</Text>
         <View style={{ alignSelf: 'flex-start' }}>
           <Pill
             label="It arrived after all"
@@ -1481,11 +1488,13 @@ function UpiClaimPanel({
     <View style={[s.claim, { backgroundColor: wash('paid', mode) }]}>
       <View style={{ gap: 2 }}>
         <Text style={s.claimTitle}>
-          {claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you {amount} by UPI
+          {another
+            ? `Someone on the group’s link says ${otherName} paid you ${amount} another way`
+            : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI`}
         </Text>
         <Text style={s.claimMeta}>
           {claim.reference ? `UPI ref ${claim.reference} · ` : ''}
-          {ago(claim.createdAt)} · Check your UPI app
+          {ago(claim.createdAt)} · {another ? 'Like cash or UPI to your number' : 'Check your UPI app'}
         </Text>
       </View>
       <View style={s.pair}>

@@ -178,7 +178,7 @@ function GuestPay({ token }: { token: string }) {
         <Text style={s.reason}>{view.reason}</Text>
         <Notice
           title={`Waiting for ${view.payeeName}`}
-          body={`Paid by UPI. ${view.payeeName} will confirm it arrived.`}
+          body={`${view.claimAnotherWay ? 'Marked as paid another way' : 'Paid by UPI'}. ${view.payeeName} will confirm it arrived.`}
         />
         <Footer />
       </Page>
@@ -189,7 +189,7 @@ function GuestPay({ token }: { token: string }) {
   const upiOffered = Boolean(view.upi) && !fromGroup;
   const turnedDown = view.upiClaim === 'declined' && (
     <Notice
-      title="The UPI payment didn’t arrive"
+      title={view.claimAnotherWay ? 'The payment didn’t arrive' : 'The UPI payment didn’t arrive'}
       body={`${view.payeeName} says it didn’t reach them. Check with them before paying again.`}
     />
   );

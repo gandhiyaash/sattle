@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, Group, GroupGuestView, GroupLink, GuestView, JoinView, Member, User } from '@sattle/core';
+import type {
+  Debt,
+  Expense,
+  Group,
+  GroupGuestView,
+  GroupLink,
+  GuestView,
+  JoinView,
+  Member,
+  Settlement,
+  UpiClaim,
+  User,
+} from '@sattle/core';
 
 import { createApp } from './app';
 import { openDb, seedIfEmpty } from './db';
@@ -9,13 +21,17 @@ import { SimulatedPayments } from './payments';
 /**
  * A production-shaped server: no fixtures, no demo user. Riya made "Manali"
  * with Kabir and Aman as ghosts, and paid for the cab: each of them owes her ₹10.
+ * With `nowhereToReceive`, nobody can be paid over Lightning, Riya included:
+ * no wallet and no Lightning address.
  */
-async function setup() {
+async function setup({ nowhereToReceive = false } = {}) {
   const db = openDb(':memory:');
   const app = createApp({
     db,
-    payments: (repo) =>
-      new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 60_000, rateFiatPerBtc: 9_000_000, alwaysFail: false }),
+    payments: (repo) => {
+      const simulated = new SimulatedPayments(repo, { stepMs: 1, settleDelayMs: 60_000, rateFiatPerBtc: 9_000_000, alwaysFail: false });
+      return nowhereToReceive ? Object.assign(simulated, { canReceive: () => false }) : simulated;
+    },
   });
   async function call<T = unknown>(method: string, path: string, body?: unknown, token?: string) {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -135,8 +151,8 @@ describe('GET /g/:token', () => {
         },
       ],
       debts: [
-        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), from: 'Aman', to: 'Riya', amount: 1000, payable: true },
-        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), from: 'Kabir', to: 'Riya', amount: 1000, payable: true },
+        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), from: 'Aman', to: 'Riya', amount: 1000, payable: true, markable: true },
+        { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), from: 'Kabir', to: 'Riya', amount: 1000, payable: true, markable: true },
       ],
     });
   });
@@ -291,6 +307,131 @@ describe('POST /g/:token/debts/:ref/pay-link', () => {
     expect((await call('POST', `/g/${fresh}/debts/${stale}/pay-link`)).status).toBe(410);
     expect((await call('POST', `/g/${fresh}/debts/made-up/pay-link`)).status).toBe(410);
     expect((await call('POST', `/g/${old}/debts/${stale}/pay-link`)).status).toBe(404);
+  });
+});
+
+describe('POST /g/:token/debts/:ref/paid-another-way', () => {
+  /** Riya shares the link. Helpers for marking a debt as paid from the page, and for Riya's side in the app. */
+  async function marking(opts?: { nowhereToReceive?: boolean }) {
+    const t = await setup(opts);
+    const token = await t.share();
+    const debtOf = async (from: string, to = 'Riya') =>
+      (await t.view(token)).body.debts.find((d) => d.from === from && d.to === to)!;
+    const mark = async (from: string, to = 'Riya') =>
+      t.call<{ ok?: true; code?: string; message?: string }>(
+        'POST',
+        `/g/${token}/debts/${(await debtOf(from, to)).ref}/paid-another-way`
+      );
+    const claims = async () => (await t.call<UpiClaim[]>('GET', `${t.base}/upi-claims`, undefined, t.riya.token)).body;
+    const owes = async (from: string) =>
+      (await t.call<Debt[]>('GET', `${t.base}/debts`, undefined, t.riya.token)).body.find((d) => d.fromMemberId === from)?.amount;
+    return { ...t, token, debtOf, mark, claims, owes };
+  }
+
+  it('is offered on every debt to someone who has joined, with no Lightning address or UPI ID asked for', async () => {
+    const { debtOf, mark, owes, mAman } = await marking({ nowhereToReceive: true });
+    // Riya can't be paid from the page at all.
+    expect(await debtOf('Aman')).toMatchObject({ payable: false, markable: true });
+    expect((await debtOf('Aman')).upi).toBeUndefined();
+
+    expect((await mark('Aman')).status).toBe(201);
+    expect(await debtOf('Aman')).toMatchObject({ upiClaim: 'pending', claimAnotherWay: true });
+    // Their word moves nothing until Riya confirms it.
+    expect(await owes(mAman)).toBe(1000);
+  });
+
+  it('is confirmed by the person owed, which settles it outside the app', async () => {
+    const { call, riya, view, token, mark, claims, owes, mAman, mRiya } = await marking({ nowhereToReceive: true });
+    await mark('Aman');
+    const [made] = await claims();
+    expect(made).toMatchObject({ fromMemberId: mAman, toMemberId: mRiya, amount: 1000, status: 'pending', viaLink: true, anotherWay: true });
+
+    const confirmed = await call<Settlement>('POST', `/upi-claims/${made.id}/confirm`, undefined, riya.token);
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body).toMatchObject({
+      rail: 'manual',
+      status: 'manually_confirmed',
+      note: 'Paid another way',
+      recordedByMemberId: mRiya,
+      amount: 1000,
+    });
+    expect(await owes(mAman)).toBeUndefined();
+    expect((await view(token)).body.debts.map((d) => d.from)).toEqual(['Kabir']);
+    expect(await claims()).toEqual([]);
+  });
+
+  it('works whatever the group’s currency', async () => {
+    const { call, riya } = await setup();
+    const usd = (await call<Group>('POST', '/groups', { name: 'NYC', currency: 'USD', memberNames: ['Kabir'] }, riya.token)).body;
+    await call(
+      'POST',
+      `/groups/${usd.id}/expenses`,
+      { description: 'Cab', amount: 3000, paidByMemberId: usd.memberIds[0], splitMode: 'equal', parts: usd.memberIds.map((memberId) => ({ memberId })) },
+      riya.token
+    );
+    const token = (await call<GroupLink>('POST', `/groups/${usd.id}/link`, undefined, riya.token)).body.token;
+    const [debt] = (await call<GroupGuestView>('GET', `/g/${token}`)).body.debts;
+    expect(debt).toMatchObject({ from: 'Kabir', to: 'Riya', markable: true });
+    expect((await call('POST', `/g/${token}/debts/${debt.ref}/paid-another-way`)).status).toBe(201);
+  });
+
+  it('isn’t offered on a debt to someone who hasn’t joined, since nobody could confirm it', async () => {
+    const { addExpense, mKabir, view, token, mark, count } = await marking();
+    await addExpense(mKabir, 9000, 'Hotel');
+    const toKabir = (await view(token)).body.debts.filter((d) => d.to === 'Kabir');
+    expect(toKabir.length).toBeGreaterThan(0);
+    for (const d of toKabir) expect(d.markable).toBeUndefined();
+
+    const refused = await mark(toKabir[0].from, 'Kabir');
+    expect(refused).toMatchObject({ status: 409, body: { code: 'conflict' } });
+    expect(refused.body.message).toContain('Kabir hasn’t joined');
+    expect(count('upi_claims')).toBe(0);
+  });
+
+  it('shows the person owed turning it down, and lets the page say so again', async () => {
+    const { call, riya, debtOf, mark, claims } = await marking();
+    await mark('Aman');
+    await call('POST', `/upi-claims/${(await claims())[0].id}/decline`, undefined, riya.token);
+    expect(await debtOf('Aman')).toMatchObject({ upiClaim: 'declined', claimAnotherWay: true });
+
+    expect((await mark('Aman')).status).toBe(201);
+    expect(await debtOf('Aman')).toMatchObject({ upiClaim: 'pending', claimAnotherWay: true });
+  });
+
+  it('leaves a claim that is already waiting as it is', async () => {
+    const { call, riya, token, debtOf, mark, claims } = await marking();
+    await call('PUT', '/me/upi', { upiId: 'riya@okhdfcbank' }, riya.token);
+    await call('POST', `/g/${token}/debts/${(await debtOf('Aman')).ref}/upi-claims`);
+
+    expect((await mark('Aman')).status).toBe(201);
+    const [waiting] = await claims();
+    expect(waiting.anotherWay).toBeUndefined();
+    expect((await debtOf('Aman')).claimAnotherWay).toBeUndefined();
+  });
+
+  it('waits for a Lightning payment under way, is 410 once the debt is settled, and 404 once the link is off', async () => {
+    const { call, base, riya, token, debtOf, mark, mKabir, mRiya } = await marking();
+    // Aman's page opened the pay page, which minted an invoice that hasn't been paid yet.
+    const pay = (await call<{ token: string }>('POST', `/g/${token}/debts/${(await debtOf('Aman')).ref}/pay-link`)).body;
+    await call('POST', `/s/${pay.token}/open`);
+    expect(await mark('Aman')).toMatchObject({ status: 409, body: { code: 'conflict' } });
+
+    const { ref } = await debtOf('Kabir');
+    await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 1000 }, riya.token);
+    expect((await call('POST', `/g/${token}/debts/${ref}/paid-another-way`)).status).toBe(410);
+
+    await call('DELETE', `${base}/link`, undefined, riya.token);
+    expect((await call('POST', `/g/${token}/debts/${ref}/paid-another-way`)).status).toBe(404);
+  });
+
+  it('keeps a pay link for the same debt waiting while it is marked as paid, and the pay page says how', async () => {
+    const { call, token, debtOf, mark } = await marking();
+    const pay = (await call<{ token: string }>('POST', `/g/${token}/debts/${(await debtOf('Aman')).ref}/pay-link`)).body;
+    await mark('Aman');
+    const opened = await call<GuestView>('POST', `/s/${pay.token}/open`);
+    expect(opened.body).toMatchObject({ upiClaim: 'pending', claimAnotherWay: true });
+    // Nothing minted: paying it now could pay it twice.
+    expect(opened.body.settlement).toBeUndefined();
   });
 });
 
