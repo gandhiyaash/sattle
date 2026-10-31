@@ -39,7 +39,7 @@ command -v pod > /dev/null || die 'CocoaPods not found: brew install cocoapods'
 # As in the Android release: nothing here names a host.
 for name in EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL; do
   [ -n "${!name:-}" ] || die "set $name to https://<host>"
-  [[ "${!name}" =~ ^https://[^/]+$ ]] || die "$name must be https://<host>, with no path and no trailing slash, got '${!name}'"
+  [[ "${!name}" =~ ^https://[^/[:space:]]+$ ]] || die "$name must be https://<host>, with no path, no trailing slash and no whitespace, got '${!name}'"
 done
 export EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL
 

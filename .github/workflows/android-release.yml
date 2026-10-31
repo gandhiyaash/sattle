@@ -128,8 +128,8 @@ jobs:
                 echo "::error::Set $name as a repository variable (or secret), or the app talks to localhost"
                 exit 1
               fi
-              if [[ ! "$value" =~ ^https://[^/]+$ ]]; then
-                echo "::error::$name must be https://<host>, with no path and no trailing slash"
+              if [[ ! "$value" =~ ^https://[^/[:space:]]+$ ]]; then
+                echo "::error::$name must be https://<host>, with no path, no trailing slash and no whitespace"
                 exit 1
               fi
             done
