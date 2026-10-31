@@ -1235,16 +1235,11 @@ test.describe('Joining', () => {
     expect((await A.members(group.id)).find((m) => m.displayName === 'Aman')!.claimedByUserId).toBeUndefined();
   });
 
-  test('being someone who has joined is asked for even where joining is open, and adds this device to them once let in', async ({ api }) => {
+  test('joining as someone who has joined adds this device to them: one member, both accounts in', async ({ api }) => {
     const { A, B, link, group, bMember } = await pair(api, { people: ['Priya'] });
     const C = api.as((await api.account('Priya laptop')).token);
     const priyaRef = (await api.joinView(link.token)).members.find((m) => m.name === 'Priya')!.ref;
-    const r = await refused(C.join(link.token, { ref: priyaRef }));
-    expect(r.status).toBe(409);
-    expect(r.message).toBe('Priya has already joined, so someone in Goa trip has to let you in as them. Ask to join instead.');
-    const req = await C.askToJoin(link.token, { ref: priyaRef });
-    // Priya's own device can say yes.
-    const joined = await B.approveJoin(req.id);
+    const joined = await C.join(link.token, { ref: priyaRef });
     expect(joined).toMatchObject({ id: bMember.id, claimedByUserId: (await B.me()).id, alsoHeldBy: [(await C.me()).id] });
     expect((await B.groups()).map((g) => g.id)).toEqual([group.id]);
     expect((await C.groups()).map((g) => g.id)).toEqual([group.id]);

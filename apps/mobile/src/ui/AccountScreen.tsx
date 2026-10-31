@@ -148,7 +148,7 @@ function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void })
       <Card style={{ gap: space.md }}>
         <Text style={s.body}>
           Your sign-in key gets you into this account on another phone or browser, or back into it here after clearing
-          this device’s data. On the welcome screen, tap I have a sign-in key and paste it.
+          this device’s data. On the welcome screen, tap Other ways to sign in, then I have a sign-in key, and paste it.
         </Text>
         <Text style={s.body}>
           Keep it like a password, in a password manager say. Anyone with it can act as you in all your groups.
@@ -192,8 +192,8 @@ function NostrCard({ user }: { user: User }) {
               {npub}
             </Text>
             <Text style={s.body}>
-              On a new phone or browser, tap Sign in with Nostr on the welcome screen to get back into this account,
-              with all your groups.
+              On a new phone or browser, tap Other ways to sign in on the welcome screen, then Sign in with Nostr, to
+              get back into this account, with all your groups.
             </Text>
             <ConfirmButton
               label="Unlink this key"

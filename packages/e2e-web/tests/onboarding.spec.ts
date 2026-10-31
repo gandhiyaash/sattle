@@ -2,7 +2,8 @@
  * First launch, in a browser: the three-screen tour, the welcome screen that
  * makes an account from a name, the two ways back into an account that
  * already exists (a sign-in key, a Nostr key), and restoring a group from its
- * backup key with no account at all.
+ * backup key with no account at all. Those three wait under Other ways to
+ * sign in.
  */
 
 import { ancestor, back, button, makeAccount, pressable, skipTour, tab } from '../src/actions';
@@ -143,12 +144,34 @@ test.describe('welcome', () => {
     const token = await page.evaluate(() => localStorage.getItem('sattle.token'));
     expect((await api.as(token).me()).displayName).toBe(name);
   });
+
+  test('the ways in to an account or a group from elsewhere wait under Other ways to sign in', async ({ device }) => {
+    const { page } = await device();
+    await page.goto('/');
+    const others = pressable(page, 'Other ways to sign in');
+    const ways = ['I have a sign-in key', 'Sign in with Nostr', 'Restore a group from its backup key'];
+    await expect(others).toHaveAttribute('aria-expanded', 'false');
+    for (const way of ways) await expect(button(page, way)).toHaveCount(0);
+
+    await button(page, 'Other ways to sign in').click();
+    await expect(others).toHaveAttribute('aria-expanded', 'true');
+    for (const way of ways) await expect(button(page, way)).toBeVisible();
+
+    // Back from one of them finds them still showing.
+    await button(page, 'Sign in with Nostr').click();
+    await back(page);
+    await expect(button(page, 'I have a sign-in key')).toBeVisible();
+
+    await button(page, 'Other ways to sign in').click();
+    for (const way of ways) await expect(button(page, way)).toHaveCount(0);
+  });
 });
 
 test.describe('I have a sign-in key', () => {
   test('refuses what isn’t a key, and a key no account has', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
+    await button(page, 'Other ways to sign in').click();
     await button(page, 'I have a sign-in key').click();
     await expect(page.getByText('Sign in with your key')).toBeVisible();
     await expect(pressable(page, 'Sign in')).toHaveCSS('opacity', '0.4');
@@ -181,6 +204,7 @@ test.describe('I have a sign-in key', () => {
 
     const { page } = await device();
     await page.goto('/');
+    await button(page, 'Other ways to sign in').click();
     await button(page, 'I have a sign-in key').click();
     await page.getByPlaceholder('sattle-signin:…').fill(key);
     await button(page, 'Sign in').click();
@@ -198,6 +222,7 @@ test.describe('I have a sign-in key', () => {
     const { token } = await api.account('Bare');
     const { page } = await device();
     await page.goto('/');
+    await button(page, 'Other ways to sign in').click();
     await button(page, 'I have a sign-in key').click();
     await page.getByPlaceholder('sattle-signin:…').fill(`  ${token}  `);
     await page.getByPlaceholder('sattle-signin:…').press('Enter');
@@ -209,6 +234,7 @@ test.describe('Sign in with Nostr', () => {
   test('offers a bunker link, and nothing from an extension this browser hasn’t got', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
+    await button(page, 'Other ways to sign in').click();
     await button(page, 'Sign in with Nostr').click();
     await expect(page.getByText('If you linked a Nostr key under Account, signing in with it opens your account here, with all your groups.')).toBeVisible();
     await expect(page.getByText('Paste a bunker link from your signer')).toBeVisible();
@@ -225,6 +251,7 @@ test.describe('Restore a group from its backup key', () => {
   test('from welcome: reads the key before asking any relay, and Back returns', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
+    await button(page, 'Other ways to sign in').click();
     await button(page, 'Restore a group from its backup key').click();
     await expect(page.getByText('Restore a group', { exact: true })).toBeVisible();
     await expect(page.getByText('From its backup key, straight off Nostr')).toBeVisible();

@@ -175,7 +175,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
       question: 'How does joining a group work?',
       answer: [
         'From the group’s link, tap Join and pick your name, or give one if you’re not on the list. You’re in at once, as that name and with the balance on it.',
-        'You can pick your name again on another phone or browser, even once you’ve joined. That asks: someone in the group lets it in, and so can the device you joined on. Then each one is you in the group, with the same balance, and they all stay in.',
+        'You can pick your name again on another phone or browser, even once you’ve joined. Each one is you in the group, with the same balance, and they all stay in.',
         'A group can ask to look first, under Manage. Then picking a name is a request, not a place in the group: someone already in it has to let you in, and you both see the same four-digit code to check it’s really you. Until then you can do no more than anyone else holding the link.',
         'Once in, you see and can add to everything, like everyone else.',
       ],
@@ -190,7 +190,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
     {
       question: 'What if I lose this phone?',
       answer: [
-        'Your account is a name and a sign-in key that this device holds. There is no email, phone number or password to recover it with, so keep a copy of the key: on the Account screen, Copy sign-in key gives it to you, to keep in a password manager. On a new phone or browser, I have a sign-in key on the welcome screen gets you back in, with all your groups. You can link a Nostr key there too, and sign in with that instead.',
+        'Your account is a name and a sign-in key that this device holds. There is no email, phone number or password to recover it with, so keep a copy of the key: on the Account screen, Copy sign-in key gives it to you, to keep in a password manager. On a new phone or browser, Other ways to sign in on the welcome screen, then I have a sign-in key, gets you back in, with all your groups. You can link a Nostr key there too, and sign in with that instead.',
         'If you lose a phone that was signed in, replace the key from another device that is: the lost phone is signed out.',
         'A group’s expenses and payments are also sent to Nostr relays, encrypted with the group’s backup key, which is under Manage. With that key, Restore a group reads them back and rebuilds the balances without Sattle’s server.',
       ],
