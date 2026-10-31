@@ -81,7 +81,8 @@ test.describe('links on a device that is signed in', () => {
     const link = await api.createGroupLink(group.id);
     await page.goto(`/join/${link.token}`);
     await expect(page.getByText('Weekend', { exact: true })).toBeVisible();
-    await expect(groupHeader(page)).toHaveText('2 members · 0 expenses');
+    await expect(groupHeader(page)).toBeVisible();
+    await expect(page.getByText('You, Riya', { exact: true })).toBeVisible();
     await expect(page.getByText('Join a group')).toHaveCount(0);
     await expect(page).toHaveURL(/\/$/);
   });
@@ -152,7 +153,7 @@ test.describe('a browser that blocks storage', () => {
     await page.goto('/');
     await makeAccount(page, 'Yash');
     await button(page, 'New group').click();
-    await expect(page.getByPlaceholder('Goa trip')).toBeVisible();
+    await expect(page.getByPlaceholder('Name your group')).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
 
     await page.reload();

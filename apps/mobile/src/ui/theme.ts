@@ -252,3 +252,35 @@ export function coverFor(name: string): Cover {
   for (const ch of name.trim() || 'Group') h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return covers[h % covers.length]!;
 }
+
+/**
+ * The tints behind people's initials: a wash and the ink on it, for each
+ * mode. Picked from the name the way a cover is, so a person keeps their
+ * colour on every screen and every device. The person looking is always
+ * the accent, so "you" stands out from the rest.
+ */
+const faces = {
+  light: [
+    ['#DCF1EF', '#0F5B57'],
+    ['#F3E6F5', '#6B2C75'],
+    ['#E4F1EA', '#1F5E3E'],
+    ['#FBEFD9', '#7A4B0E'],
+    ['#E8E6F7', '#3D3480'],
+    ['#F9E4E4', '#7A2323'],
+  ],
+  dark: [
+    ['#133B38', '#9FE0D9'],
+    ['#3A2140', '#E5BDEB'],
+    ['#173A28', '#A8DDBF'],
+    ['#3D2C10', '#F0CF95'],
+    ['#27234A', '#C4BEF2'],
+    ['#3F1C1C', '#F2B3B3'],
+  ],
+} as const;
+
+export function faceFor(name: string, mode: 'light' | 'dark'): { bg: string; ink: string } {
+  let h = 0;
+  for (const ch of name.trim() || '?') h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const [bg, ink] = faces[mode][h % faces[mode].length]!;
+  return { bg, ink };
+}

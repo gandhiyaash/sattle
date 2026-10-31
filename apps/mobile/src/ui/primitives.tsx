@@ -27,7 +27,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, SattleError, type Quote } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
-import { brandBlue, layout, makeStyles, radius, shadow, space, type, useColors } from './theme';
+import { brandBlue, faceFor, layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 /** The app icon's S, on no background; Logo puts it on its blue tile. */
 const LOGO_MARK = require('../../assets/logo-mark.png');
@@ -319,6 +319,228 @@ export function Dialog({
   );
 }
 
+/** Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button. */
+export function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+  const s = useStyles();
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable
+        style={s.dialogBackdrop}
+        onPress={() => {
+          analytics.tap('Dismiss', { control: 'backdrop' });
+          onClose();
+        }}
+      />
+      {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
+      <View style={s.sheetFrame} pointerEvents="box-none">
+        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
+        <View style={[s.sheet, { paddingBottom: insets.bottom }]}>{children}</View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * What most sheets hold: the grab handle, a title with a line under it, an ×
+ * when there is `onClose`, and the rest scrolling under them when it runs
+ * past the screen.
+ */
+export function SheetBody({
+  title,
+  subtitle,
+  onClose,
+  action,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose?: () => void;
+  /** In the ×'s place, for a sheet that is closed by finishing it: Done. */
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const s = useStyles();
+  return (
+    <>
+      <View style={s.sheetHandle} />
+      <ScrollView
+        style={{ flexShrink: 1 }}
+        contentContainerStyle={s.sheetBody}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={s.sheetHead}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={s.sheetTitle} accessibilityRole="header">
+              {title}
+            </Text>
+            {subtitle && <Text style={s.sheetSubtitle}>{subtitle}</Text>}
+          </View>
+          {action ?? (onClose && <Glyph name="close" label="Close" onPress={onClose} />)}
+        </View>
+        {children}
+      </ScrollView>
+    </>
+  );
+}
+
+/** Stroked paths on a 24 by 24 grid, for Glyph. */
+const GLYPHS = {
+  back: 'M15 5l-7 7 7 7',
+  close: 'M6 6l12 12M18 6L6 18',
+  addPerson: 'M9 4.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7M3 20c1-3.5 3.3-5 6-5s5 1.5 6 5M18 8v6M15 11h6',
+  more: 'M5.5 12h.01M12 12h.01M18.5 12h.01',
+  plus: 'M12 5v14M5 12h14',
+  check: 'M5 12.5l4.5 4.5L19 7',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  chat: 'M12 4a8 8 0 0 0-6.9 12L4 20l4.1-1.1A8 8 0 1 0 12 4z',
+  text: 'M4 5h16v11H9l-5 4z',
+  copy: 'M9 9h11v11H9zM5 15V4h11',
+  share: 'M12 15V3M7 8l5-5 5 5M5 13v7h14v-7',
+  chevronDown: 'M6 9l6 6 6-6',
+  chevronRight: 'M9 5l7 7-7 7',
+  info: 'M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18M12 11v6M12 7.5v.5',
+} as const;
+
+export type GlyphName = keyof typeof GLYPHS;
+
+/**
+ * A drawn icon. With `onPress` it is a round 44-point button and `label` is
+ * what a screen reader says for it; without, it is only a picture. `on` is
+ * the button's fill, for one drawn over a colour.
+ */
+export function Glyph({
+  name,
+  label,
+  onPress,
+  ink,
+  on,
+  size = 22,
+  weight = 2,
+  children,
+}: {
+  name: GlyphName;
+  label?: string;
+  onPress?: () => void;
+  ink?: string;
+  on?: string;
+  size?: number;
+  weight?: number;
+  /** Drawn over the button's corner: a count. */
+  children?: React.ReactNode;
+}) {
+  const color = useColors();
+  const s = useStyles();
+  // The dots are drawn as round caps on zero-length lines, so they want a heavy stroke.
+  const icon = (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d={GLYPHS[name]}
+        stroke={ink ?? color.ink}
+        strokeWidth={name === 'more' ? 3.6 : weight}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+  if (!onPress) return icon;
+  return (
+    <Pressable
+      onPress={() => {
+        analytics.tap(label ?? name, { control: 'icon' });
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [s.glyphBtn, on ? { backgroundColor: on } : null, pressed && { opacity: 0.75 }]}
+    >
+      {icon}
+      {children}
+    </Pressable>
+  );
+}
+
+/**
+ * A round button for a row or a pair: Pay, Remind, Let in. `grow` shares the
+ * width with the one beside it.
+ */
+export function Pill({
+  label,
+  onPress,
+  variant = 'outline',
+  busy,
+  disabled,
+  grow,
+  track,
+  accessibilityLabel,
+}: {
+  label: string;
+  onPress?: () => void;
+  variant?: 'primary' | 'outline' | 'soft';
+  busy?: boolean;
+  disabled?: boolean;
+  grow?: boolean;
+  /** As on Button: what a tap is recorded as when the label holds a name. */
+  track?: string;
+  accessibilityLabel?: string;
+}) {
+  const color = useColors();
+  const s = useStyles();
+  const primary = variant === 'primary';
+  return (
+    <Pressable
+      onPress={() => {
+        analytics.tap(track ?? label, { control: 'pill' });
+        onPress?.();
+      }}
+      disabled={disabled || busy}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={({ pressed }) => [
+        s.pill,
+        primary && s.pillPrimary,
+        variant === 'soft' && s.pillSoft,
+        grow && { flex: 1 },
+        pressed && { opacity: 0.85 },
+        (disabled || busy) && { opacity: 0.4 },
+      ]}
+    >
+      {busy ? (
+        <ActivityIndicator color={primary ? color.onAccent : color.ink} />
+      ) : (
+        <Text style={[s.pillLabel, primary && { color: color.onAccent }]}>{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+/** A line about what just happened, over the bottom of the screen for a few seconds. */
+export function Toast({ text, bottom = 96 }: { text: string | null; bottom?: number }) {
+  const s = useStyles();
+  if (!text) return null;
+  return (
+    <View style={[s.toast, { bottom }]} accessibilityRole="alert" accessibilityLiveRegion="polite" pointerEvents="none">
+      <Glyph name="check" ink="#7FD3A8" size={18} weight={2.6} />
+      <Text style={s.toastText}>{text}</Text>
+    </View>
+  );
+}
+
+/** `[text, show]`: show(line) puts it up, and it goes again after three seconds. */
+export function useToast(): [string | null, (line: string) => void] {
+  const [text, setText] = useState<string | null>(null);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const show = React.useCallback((line: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    setText(line);
+    timer.current = setTimeout(() => setText(null), 3000);
+  }, []);
+  return [text, show];
+}
+
 /**
  * Two taps for anything that can't be undone: the first asks, the second
  * does it. `onConfirm` may throw; the message shows under the button and the
@@ -444,17 +666,28 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Avatar({ name, dim }: { name: string; dim?: boolean }) {
+/** Someone's initials on their own tint (faceFor), or the accent for the person looking. Dim for someone left out. */
+export function Avatar({ name, dim, me, size = 36 }: { name: string; dim?: boolean; me?: boolean; size?: number }) {
   const color = useColors();
+  const mode = useColorMode();
   const s = useStyles();
   const initials = name
     .split(' ')
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
+  const face = me ? { bg: color.accentWash, ink: color.accent } : faceFor(name, mode);
   return (
-    <View style={[s.avatar, dim && { backgroundColor: color.surfaceSunken }]}>
-      <Text style={[s.avatarText, dim && { color: color.inkFaint }]}>{initials}</Text>
+    <View
+      style={[
+        s.avatar,
+        { width: size, height: size, backgroundColor: face.bg },
+        dim && { backgroundColor: color.surface, borderWidth: 1, borderStyle: 'dashed', borderColor: color.lineStrong },
+      ]}
+    >
+      <Text style={[s.avatarText, { color: face.ink, fontSize: Math.round(size * 0.36) }, dim && { color: color.inkFaint }]}>
+        {initials}
+      </Text>
     </View>
   );
 }
@@ -671,6 +904,63 @@ const useStyles = makeStyles((color) => ({
     ...shadow,
   },
   dialogTitle: { ...type.title, color: color.ink, marginBottom: space.xs },
+  // A flow child, not absolutely placed: native layout ignores auto margins on an absolute box.
+  sheetFrame: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
+  sheet: {
+    width: '100%',
+    maxWidth: layout.maxWidth,
+    maxHeight: '94%',
+    backgroundColor: color.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    marginTop: space.sm + 2,
+    borderRadius: radius.pill,
+    backgroundColor: color.line,
+  },
+  sheetBody: { paddingHorizontal: space.lg + 4, paddingTop: space.md, paddingBottom: space.xl, gap: space.lg },
+  sheetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
+  sheetTitle: { fontSize: 20, fontWeight: '700', color: color.ink },
+  sheetSubtitle: { ...type.body, fontSize: 14, color: color.inkMuted },
+  glyphBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pill: {
+    minHeight: 44,
+    minWidth: 76,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.lineStrong,
+    backgroundColor: color.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pillPrimary: { backgroundColor: color.accent, borderColor: color.accent },
+  pillSoft: { backgroundColor: color.surfaceSunken, borderColor: color.surfaceSunken },
+  pillLabel: { fontSize: 14, fontWeight: '600', color: color.ink },
+  toast: {
+    position: 'absolute',
+    left: space.lg + 4,
+    right: space.lg + 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+    paddingVertical: space.md,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.md + 2,
+    backgroundColor: '#0B1426',
+    ...shadow,
+  },
+  toastText: { flex: 1, fontSize: 14, lineHeight: 20, color: '#FFFFFF' },
   btn: {
     height: 48,
     borderRadius: radius.md,

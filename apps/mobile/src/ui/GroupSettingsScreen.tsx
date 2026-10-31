@@ -1,7 +1,7 @@
 /**
  * Managing a group: its name, whether it simplifies its debts, its link, who
  * gets in by it, its backup, leaving it, deleting it.
- * Who is in it is on the group screen, under Members.
+ * Who is in it is on the group screen, under Add people.
  *
  * Everything here follows one rule, the server's (groupRules.ts): nobody can
  * undo what someone else is owed. So a group is deleted only once it's
@@ -239,7 +239,7 @@ function SettlingUp({
 }
 
 /**
- * The group's one link, which Invite on the group screen hands out.
+ * The group's one link, which Add people on the group screen hands out.
  * Whoever holds it sees the spends and who owes whom and can pay a debt, with
  * no app and no account, and can join, or ask to (Joining, below). This is
  * where it is replaced or turned off: that is how a link that went to the
@@ -312,7 +312,7 @@ function GroupLinkSection({
             />
           </>
         ) : (
-          <Text style={s.body}>No link yet. Invite on the group screen makes one.</Text>
+          <Text style={s.body}>No link yet. Add people, on the group screen, makes one.</Text>
         )}
 
         {upi && (

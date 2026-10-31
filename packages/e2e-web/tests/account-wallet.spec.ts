@@ -95,8 +95,8 @@ test.describe('Account', () => {
 
     await tab(page, 'Groups');
     await button(page, 'New group').click();
-    await expect(page.getByPlaceholder('Goa trip')).toBeVisible();
-    await expect(page.getByText('Kept in', { exact: true })).toHaveCount(0);
+    await expect(page.getByPlaceholder('Name your group')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Kept in / })).toHaveCount(0);
 
     // Kept on the device.
     await page.reload();
@@ -107,7 +107,7 @@ test.describe('Account', () => {
     await page.getByRole('radio', { name: 'Bitcoin', exact: true }).click();
     await tab(page, 'Groups');
     await button(page, 'New group').click();
-    await expect(page.getByRole('radio', { name: 'Bitcoin', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('button', { name: 'Kept in Bitcoin. Change' })).toBeVisible();
   });
 
   test('someone who uses bitcoin alone sees no UPI anywhere on Wallet', async ({ person }) => {
@@ -152,7 +152,7 @@ test.describe('Account', () => {
     await openGroup(anu.page, 'Shared flat');
     await groupTab(anu.page, 'Members');
     await expect(anu.page.getByText('Bob', { exact: true })).toBeVisible();
-    await expect(ancestor(anu.page.getByText('Bob', { exact: true }), 2).getByText('In app')).toBeVisible();
+    await expect(ancestor(anu.page.getByText('Bob', { exact: true }), 2).getByText('Joined', { exact: true })).toBeVisible();
 
     await tab(bob.page, 'Account');
     await expect(bob.page.getByText(/^This ends your account for good\./)).toBeVisible();
@@ -166,9 +166,8 @@ test.describe('Account', () => {
 
     // In the shared group his name and balance stay, as a ghost, within the screen's own refresh.
     const row = ancestor(anu.page.getByText('Bob', { exact: true }), 2);
-    await expect(row.getByText('Not joined')).toBeVisible({ timeout: 15_000 });
-    await expect(row.getByText('No app')).toBeVisible();
-    await expect(anu.page.getByText('2 members · 1 expense')).toBeVisible();
+    await expect(row.getByText('Hasn’t joined · pays from links')).toBeVisible({ timeout: 15_000 });
+    await expect(anu.page.getByText('In this group · 2')).toBeVisible();
     const members = await anu.api.members(group.id);
     expect(members.find((m) => m.displayName === 'Bob')).toMatchObject({ status: 'ghost' });
     expect(members.find((m) => m.displayName === 'Bob')!.claimedByUserId).toBeUndefined();

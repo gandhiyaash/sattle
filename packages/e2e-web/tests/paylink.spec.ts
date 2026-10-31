@@ -103,10 +103,10 @@ test.describe('The pay page', () => {
     await expect(guest.page.getByText('Yash has been paid. Nothing else to do — you can close this.')).toBeVisible();
 
     await openGroup(yash.page, 'Goa trip', { reload: true });
-    await expect(yash.page.getByText('All settled', { exact: true })).toBeVisible();
+    await expect(yash.page.getByText('All square', { exact: true })).toBeVisible();
     await groupTab(yash.page, 'Settle up');
-    await expect(yash.page.getByText('All settled.', { exact: true })).toBeVisible();
-    await button(yash.page, 'History').click();
+    await expect(yash.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
+    await button(yash.page, 'See all').click();
     await expect(yash.page.getByText('Om paid Yash', { exact: true })).toBeVisible();
     await expect(yash.page.getByText(/^Paid over Lightning · /)).toBeVisible();
   });
@@ -229,10 +229,10 @@ test.describe('A pay link paid by UPI', () => {
     await openGroup(yash.page, 'Goa trip', { reload: true });
     await groupTab(yash.page, 'Settle up');
     await expect(
-      yash.page.getByText('Someone on a shared link says Om paid you ₹300 by UPI. Did it arrive? Check your UPI app.')
+      yash.page.getByText('Someone on a shared link says Om paid you ₹300 by UPI', { exact: true })
     ).toBeVisible();
-    await button(yash.page, 'Yes, I got it').click();
-    await expect(yash.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await button(yash.page, 'Got it').click();
+    await expect(yash.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
 
     await expect(guest.page.getByText('Settled', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(guest.page.getByText('This has been settled. Nothing else to do — you can close this.')).toBeVisible();
@@ -259,7 +259,7 @@ test.describe('A pay link paid by UPI', () => {
 
     await openGroup(yash.page, 'Goa trip', { reload: true });
     await groupTab(yash.page, 'Settle up');
-    await button(yash.page, 'It didn’t arrive').click();
+    await button(yash.page, 'Didn’t arrive').click();
     await expect(yash.page.getByText('You said Om’s UPI payment of ₹300 didn’t arrive.')).toBeVisible();
 
     await expect(guest.page.getByText('The UPI payment didn’t arrive')).toBeVisible({ timeout: 20_000 });
@@ -274,7 +274,7 @@ test.describe('A pay link paid by UPI', () => {
     await expect(guest.page.getByText('Getting a fresh invoice…')).toBeVisible();
     await expect(button(guest.page, 'Open your wallet')).toBeVisible({ timeout: 15_000 });
     await expect(guest.page.getByText('Paid', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(yash.page.getByText('All settled.', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(yash.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible({ timeout: 15_000 });
   });
 });
 

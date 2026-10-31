@@ -17,6 +17,9 @@ import {
   groupHeader,
   groupTab,
   inviteLink,
+  keptIn,
+  memberLine,
+  closePeople,
   joinAs,
   memberRow,
   openGroup,
@@ -30,90 +33,112 @@ test.describe('New group', () => {
   test('refuses a group with no name', async ({ person }) => {
     const { page } = await person('Yash');
     await button(page, 'New group').click();
-    await button(page, 'Create group').click();
+    await button(page, 'Create and share the link').click();
     await expect(page.getByText('Give the group a name.')).toBeVisible();
-    await expect(page.getByPlaceholder('Goa trip')).toBeVisible();
+    await expect(page.getByPlaceholder('Name your group')).toBeVisible();
   });
 
-  test('trims the name and leaves out blank people', async ({ person }) => {
+  test('trims the name, and takes whoever is typed but not yet added', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;
     await button(page, 'New group').click();
-    await page.getByPlaceholder('Goa trip').fill('   Goa trip   ');
-    await page.getByPlaceholder('Their name').fill('Priya');
-    await button(page, 'Add another person').click();
-    await button(page, 'Add another person').click();
-    await page.getByPlaceholder('Their name').nth(2).fill('   ');
-    await button(page, 'Create group').click();
-    await expect(page.getByText('2 members · 0 expenses')).toBeVisible();
+    await page.getByPlaceholder('Name your group').fill('   Goa trip   ');
+    await page.getByPlaceholder('Add a name').fill('Priya');
+    await page.getByPlaceholder('Add a name').press('Enter');
+    await expect(page.getByText('Priya', { exact: true })).toBeVisible();
+    await page.getByPlaceholder('Add a name').fill('   ');
+    await page.getByPlaceholder('Add a name').press('Enter');
+    await page.getByPlaceholder('Add a name').fill('Aman');
+    await expect(page.getByText('3 people', { exact: true })).toBeVisible();
+    await button(page, 'Create and share the link').click();
+    await closePeople(page);
+    await expect(memberLine(page, 'You, Priya, Aman')).toBeVisible();
     const [group] = await yash.api.groups();
     expect(group.name).toBe('Goa trip');
-    expect((await yash.api.members(group.id)).map((m) => m.displayName)).toEqual(['Yash', 'Priya']);
+    expect((await yash.api.members(group.id)).map((m) => m.displayName)).toEqual(['Yash', 'Priya', 'Aman']);
   });
 
-  test('Enter goes from the name to the people, down the list, and adds a field after the last', async ({ person }) => {
+  test('the cover takes its colour and letter from the name as it’s typed', async ({ person }) => {
     const { page } = await person('Yash');
     await button(page, 'New group').click();
-    const names = page.getByPlaceholder('Their name');
-    await page.getByPlaceholder('Goa trip').fill('Goa trip');
-    await page.getByPlaceholder('Goa trip').press('Enter');
-    await expect(names.first()).toBeFocused();
-    await names.first().fill('Priya');
-    await names.first().press('Enter');
-    await expect(names).toHaveCount(2);
-    await expect(names.nth(1)).toBeFocused();
+    await expect(page.getByText('Just you', { exact: true })).toBeVisible();
+    await page.getByPlaceholder('Name your group').fill('Goa trip');
+    await expect(page.getByText('G', { exact: true })).toBeVisible();
+    // coverFor('Goa trip') is the red cover.
+    await expect(ancestor(page.getByText('New group', { exact: true }), 2)).toHaveCSS('background-color', 'rgb(155, 35, 53)');
+    await page.getByPlaceholder('Add a name').fill('Priya');
+    await button(page, 'Add').click();
+    await expect(page.getByText('2 people', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Remove Priya', exact: true }).click();
+    await expect(page.getByText('Just you', { exact: true })).toBeVisible();
+  });
+
+  test('Enter goes from the name to the people, and adds each one, staying for the next', async ({ person }) => {
+    const { page } = await person('Yash');
+    await button(page, 'New group').click();
+    const add = page.getByPlaceholder('Add a name');
+    await page.getByPlaceholder('Name your group').fill('Goa trip');
+    await page.getByPlaceholder('Name your group').press('Enter');
+    await expect(add).toBeFocused();
+    await add.fill('Priya');
+    await add.press('Enter');
+    await expect(page.getByText('Priya', { exact: true })).toBeVisible();
+    await expect(add).toHaveValue('');
+    await expect(add).toBeFocused();
     // Enter on an empty field is "done": nothing is added.
-    await names.nth(1).press('Enter');
-    await expect(names).toHaveCount(2);
+    await add.press('Enter');
+    await expect(page.getByText('2 people', { exact: true })).toBeVisible();
   });
 
   test('says what each currency means, and keeps the one picked', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;
     await button(page, 'New group').click();
-    await expect(page.getByRole('radio', { name: 'Rupees' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('button', { name: 'Kept in Rupees. Change' })).toBeVisible();
     await expect(
       page.getByText('Amounts are in rupees, and people settle up by UPI or over Lightning. This can’t be changed later.')
     ).toBeVisible();
-    await page.getByRole('radio', { name: 'Bitcoin' }).click();
+    await keptIn(page, 'Bitcoin');
+    await expect(page.getByText('Bitcoin, in sats', { exact: true })).toBeVisible();
     await expect(page.getByText('Amounts are in sats, and people settle up over Lightning. This can’t be changed later.')).toBeVisible();
-    await page.getByPlaceholder('Goa trip').fill('Sats trip');
-    await button(page, 'Create group').click();
-    await expect(groupHeader(page)).toBeVisible();
+    await page.getByPlaceholder('Name your group').fill('Sats trip');
+    await button(page, 'Create and share the link').click();
+    await closePeople(page);
     expect((await yash.api.groups())[0].currency).toBe('BTC');
   });
 
-  test('starts without simplifying debts, and explains it', async ({ person }) => {
+  test('starts without simplifying debts', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;
     await button(page, 'New group').click();
-    await expect(page.getByRole('switch', { name: 'Simplify debts' })).not.toBeChecked();
-    await expect(page.getByText('Everyone pays back the people who paid for them.')).toBeVisible();
-    await button(page, 'Learn more').click();
-    await expect(
-      page.getByText(
-        'Say Aman owes Priya, and Priya owes Om the same. Simplified, Aman pays Om and Priya is done: one payment instead of two. Nobody pays more or less either way, only to different people.'
-      )
-    ).toBeVisible();
-    await button(page, 'Show less').click();
-    await expect(page.getByText('Say Aman owes Priya', { exact: false })).toBeHidden();
-    await expect(page.getByText('Anyone in the group can change this later, under Manage.')).toBeVisible();
-    await page.getByPlaceholder('Goa trip').fill('Flat');
-    await button(page, 'Create group').click();
-    await expect(groupHeader(page)).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Simplify debts' })).toHaveCount(0);
+    await page.getByPlaceholder('Name your group').fill('Flat');
+    await button(page, 'Create and share the link').click();
+    await closePeople(page);
     expect((await yash.api.groups())[0].simplifyDebts).toBe(false);
   });
 
-  test('a new group is empty everywhere it shows', async ({ person }) => {
+  test('a new group opens on its link, and is empty everywhere it shows', async ({ person }) => {
     const { page } = await person('Yash');
-    await createGroup(page, { name: 'Goa trip', people: ['Priya', 'Aman'] });
+    await button(page, 'New group').click();
+    await page.getByPlaceholder('Name your group').fill('Goa trip');
+    await page.getByPlaceholder('Add a name').fill('Priya');
+    await page.getByPlaceholder('Add a name').press('Enter');
+    await page.getByPlaceholder('Add a name').fill('Aman');
+    await button(page, 'Create and share the link').click();
+    await expect(page.getByText('Share the group link', { exact: true })).toBeVisible();
+    await expect(page.getByText(/\/g\/[A-Za-z0-9_-]+$/)).toBeVisible();
+    await closePeople(page);
     await expect(page.getByText('Goa trip', { exact: true })).toBeVisible();
-    await expect(page.getByText('3 members · 0 expenses')).toBeVisible();
+    await expect(memberLine(page, 'You, Priya, Aman')).toBeVisible();
     await expect(page.getByText('No expenses yet')).toBeVisible();
-    await expect(page.getByText("Add the first one and you'll see who owes what.")).toBeVisible();
+    await expect(page.getByText('Add the first one and you’ll see who owes what.')).toBeVisible();
     await expect(page.getByText('Nothing yet. Add the first one below.')).toBeVisible();
-    await groupTab(page, 'Settle up');
-    await expect(page.getByText('All settled.')).toBeVisible();
+    await expect(page.getByText('Who pays whom', { exact: true })).toHaveCount(0);
+    // Back on the group later, Add people stays closed.
+    await openManage(page);
+    await back(page);
+    await expect(page.getByText('Share the group link', { exact: true })).toBeHidden();
     await back(page);
     await expect(page.getByText('Nothing to settle yet.', { exact: false })).toBeVisible();
     await expect(page.getByText('3 people', { exact: true })).toBeVisible();
@@ -122,13 +147,13 @@ test.describe('New group', () => {
     await expect(button(page, 'Join with a link')).toBeVisible();
   });
 
-  test('a double tap on Create group makes one group', async ({ person }) => {
+  test('a double tap on Create makes one group', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;
     await button(page, 'New group').click();
-    await page.getByPlaceholder('Goa trip').fill('Once');
-    await button(page, 'Create group').dblclick();
-    await expect(groupHeader(page)).toBeVisible();
+    await page.getByPlaceholder('Name your group').fill('Once');
+    await button(page, 'Create and share the link').dblclick();
+    await closePeople(page);
     expect(await yash.api.groups()).toHaveLength(1);
   });
 });
@@ -198,10 +223,8 @@ test.describe('Groups list', () => {
     const row = ancestor(page.getByText('Flat 4B', { exact: true }), 2);
     await expect(row.getByText('you owe')).toHaveCount(0);
     await openGroup(page, 'Flat 4B');
-    await expect(page.getByText('All settled', { exact: true })).toBeVisible();
-    await expect(page.getByText('settled', { exact: true })).toBeVisible();
-    await groupTab(page, 'Settle up');
-    await expect(page.getByText('All settled.')).toBeVisible();
+    await expect(page.getByText('All square', { exact: true })).toBeVisible();
+    await expect(page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
     await groupTab(page, 'Members');
     await expect(memberRow(page, 'Priya').getByText('settled', { exact: true })).toBeVisible();
   });
@@ -219,15 +242,13 @@ test.describe('Members', () => {
     await goToGroup(page, 'Goa trip');
     await groupTab(page, 'Members');
     const me = memberRow(page, 'Yash (you)');
-    await expect(me.getByText('In app')).toBeVisible();
+    await expect(me.getByText('Joined', { exact: true })).toBeVisible();
     await expect(me.getByText('gets back')).toBeVisible();
     await expect(me.getByText('₹200')).toBeVisible();
     const priya = memberRow(page, 'Priya');
-    await expect(priya.getByText('Not joined')).toBeVisible();
-    await expect(priya.getByText('No app')).toBeVisible();
+    await expect(priya.getByText('Hasn’t joined · pays from links')).toBeVisible();
     await expect(priya.getByText('owes')).toBeVisible();
     await expect(priya.getByText('₹100')).toBeVisible();
-    await expect(memberRow(page, 'Aman').getByText('No app')).toBeVisible();
   });
 
   test('before any expense, nobody owes or is owed anything', async ({ person }) => {
@@ -245,15 +266,14 @@ test.describe('Members', () => {
     const { group } = await alice.api.seedGroup({ name: 'Trip', people: ['Bob'] });
     await goToGroup(alice.page, 'Trip');
     await groupTab(alice.page, 'Members');
-    await expect(memberRow(alice.page, 'Bob').getByText('Not joined')).toBeVisible();
+    await expect(memberRow(alice.page, 'Bob').getByText('Hasn’t joined · pays from links')).toBeVisible();
     await joinAs(alice, group.id, bob, 'Bob');
     // The group screen keeps itself current every 4 s.
-    await expect(memberRow(alice.page, 'Bob').getByText('In app')).toBeVisible({ timeout: 15_000 });
-    await expect(memberRow(alice.page, 'Bob').getByText('No app')).toHaveCount(0);
+    await expect(memberRow(alice.page, 'Bob').getByText('Joined', { exact: true })).toBeVisible({ timeout: 15_000 });
     await goToGroup(bob.page, 'Trip');
     await groupTab(bob.page, 'Members');
-    await expect(memberRow(bob.page, 'Bob (you)').getByText('In app')).toBeVisible();
-    await expect(memberRow(bob.page, 'Alice').getByText('In app')).toBeVisible();
+    await expect(memberRow(bob.page, 'Bob (you)').getByText('Joined', { exact: true })).toBeVisible();
+    await expect(memberRow(bob.page, 'Alice').getByText('Joined', { exact: true })).toBeVisible();
   });
 
   test('adds someone by name', async ({ person }) => {
@@ -261,20 +281,22 @@ test.describe('Members', () => {
     await createGroup(page, { name: 'Goa trip', people: ['Priya'] });
     await groupTab(page, 'Members');
     await expectDisabled(button(page, 'Add'));
-    await button(page, 'Add').click();
-    await expect(page.getByText('2 members · 0 expenses')).toBeVisible();
-    const field = page.getByPlaceholder('Add someone by name');
+    await expect(page.getByText('In this group · 2')).toBeVisible();
+    const field = page.getByPlaceholder('Their name');
     await field.fill('  Aman  ');
     await button(page, 'Add').click();
-    await expect(memberRow(page, 'Aman').getByText('Not joined')).toBeVisible();
-    await expect(page.getByText('3 members · 0 expenses')).toBeVisible();
+    await expect(memberRow(page, 'Aman').getByText('Hasn’t joined · pays from links')).toBeVisible();
+    await expect(page.getByText('In this group · 3')).toBeVisible();
+    await expect(page.getByText('Aman starts at nothing owed and isn’t in earlier expenses. Add them to any they shared.')).toBeVisible();
     await expect(field).toHaveValue('');
     await expectDisabled(button(page, 'Add'));
     // Enter adds too.
     await field.fill('Riya');
     await field.press('Enter');
     await expect(memberRow(page, 'Riya')).toBeVisible();
-    await expect(page.getByText('4 members · 0 expenses')).toBeVisible();
+    await expect(page.getByText('In this group · 4')).toBeVisible();
+    await closePeople(page);
+    await expect(memberLine(page, 'You, Priya, Aman, Riya')).toBeVisible();
   });
 
   test('removes a ghost nobody has built on, with a second tap', async ({ person }) => {
@@ -288,7 +310,7 @@ test.describe('Members', () => {
     await expect(memberRow(page, 'Priya')).toBeVisible();
     await confirm(page, 'Remove Priya', 'Yes, remove Priya');
     await expect(memberRow(page, 'Priya')).toBeHidden();
-    await expect(page.getByText('2 members · 0 expenses')).toBeVisible();
+    await expect(page.getByText('In this group · 2')).toBeVisible();
     await expect(button(page, 'Remove Aman')).toBeVisible();
   });
 
@@ -321,10 +343,11 @@ test.describe('Members', () => {
     await expect(page.getByText('<b>x</b><img src=x onerror="document.title=\'pwned\'">', { exact: true })).toBeVisible();
     await groupTab(page, 'Members');
     for (const name of [long, 'प्रिया शर्मा', '🦊 Fox', html]) {
-      await expect(memberRow(page, name).getByText('Not joined')).toBeVisible();
+      await expect(memberRow(page, name).getByText('Hasn’t joined · pays from links')).toBeVisible();
     }
     expect(await page.locator('img[src="x"]').count()).toBe(0);
     expect(await page.title()).toBe('sattle');
+    await closePeople(page);
     await back(page);
     await expect(page.getByText('<b>x</b><img src=x onerror="document.title=\'pwned\'">', { exact: true })).toBeVisible();
     expect(await page.title()).toBe('sattle');
@@ -380,8 +403,8 @@ test.describe('Manage', () => {
     await goToGroup(page, 'Trip');
     await groupTab(page, 'Settle up');
     // Simplified: Carl pays Yash ₹200 and Bob ₹50. Bob owes Yash nothing.
-    await expect(debtCard(page, 'Carl owes you').getByText('₹200')).toBeVisible();
-    await expect(page.getByText('Bob owes you')).toHaveCount(0);
+    await expect(debtCard(page, 'Carl pays you').getByText('₹200')).toBeVisible();
+    await expect(page.getByText('Bob pays you')).toHaveCount(0);
     await openManage(page);
     await expect(page.getByText('Debts are combined, so everyone settles up in as few payments as possible.')).toBeVisible();
     await page.getByRole('switch', { name: 'Simplify debts' }).click();
@@ -389,14 +412,15 @@ test.describe('Manage', () => {
     expect((await yash.api.groups())[0].simplifyDebts).toBe(false);
     await back(page);
     // Direct: everyone pays back whoever paid for them. Bob and Carl each owe Yash ₹100 for the villa.
-    await expect(debtCard(page, 'Bob owes you').getByText('₹100')).toBeVisible();
-    await expect(debtCard(page, 'Carl owes you').getByText('₹100')).toBeVisible();
-    await expect(page.getByText('₹200', { exact: true })).toHaveCount(1); // the headline: still owed ₹200 in all
+    await expect(debtCard(page, 'Bob pays you').getByText('₹100')).toBeVisible();
+    await expect(debtCard(page, 'Carl pays you').getByText('₹100')).toBeVisible();
+    // The headline, still owed ₹200 in all, and what Yash lent for the villa.
+    await expect(page.getByText('₹200', { exact: true })).toHaveCount(2);
     await openManage(page);
     await page.getByRole('switch', { name: 'Simplify debts' }).click();
     await expect(page.getByText('Debts are combined, so everyone settles up in as few payments as possible.')).toBeVisible();
     await back(page);
-    await expect(debtCard(page, 'Carl owes you').getByText('₹200')).toBeVisible();
+    await expect(debtCard(page, 'Carl pays you').getByText('₹200')).toBeVisible();
   });
 
   test('approving who joins is a switch with its own words', async ({ person }) => {
@@ -416,11 +440,14 @@ test.describe('Manage', () => {
     await expect.poll(async () => (await yash.api.groups())[0].approveJoins).toBe(false);
   });
 
-  test('the group link section says when there is none, and shows it once Invite made one', async ({ person }) => {
-    const { page } = await person('Yash');
-    await createGroup(page, { name: 'Goa trip' });
+  test('the group link section says when there is none, and shows it once Add people made one', async ({ person }) => {
+    const yash = await person('Yash');
+    const { page } = yash;
+    // Made without the app, so nothing has opened Add people and there is no link yet.
+    await yash.api.seedGroup({ name: 'Goa trip', people: [] });
+    await goToGroup(page, 'Goa trip');
     await openManage(page);
-    await expect(page.getByText('No link yet. Invite on the group screen makes one.')).toBeVisible();
+    await expect(page.getByText('No link yet. Add people, on the group screen, makes one.')).toBeVisible();
     await expect(button(page, 'Make a new link')).toHaveCount(0);
     await back(page);
     const url = await inviteLink(page);
@@ -480,7 +507,7 @@ test.describe('Manage', () => {
     await addExpense(bob.page, { description: 'Cab', amount: '60', paidBy: 'Bob' });
     await goToGroup(alice.page, 'Trip');
     await groupTab(alice.page, 'Members');
-    await expect(memberRow(alice.page, 'Bob').getByText('In app')).toBeVisible();
+    await expect(memberRow(alice.page, 'Bob').getByText('Joined', { exact: true })).toBeVisible();
 
     await openManage(bob.page);
     await expect(button(bob.page, 'Delete this group')).toHaveCount(0); // Alice owes Bob ₹30
@@ -490,8 +517,8 @@ test.describe('Manage', () => {
     await expect(bob.page.getByText('What are you splitting?')).toBeVisible();
     expect(await bob.api.groups()).toHaveLength(0);
 
-    await expect(memberRow(alice.page, 'Bob').getByText('Not joined')).toBeVisible({ timeout: 15_000 });
-    await expect(alice.page.getByText('2 members · 1 expense')).toBeVisible();
+    await expect(memberRow(alice.page, 'Bob').getByText('Hasn’t joined · pays from links')).toBeVisible({ timeout: 15_000 });
+    await expect(alice.page.getByText('In this group · 2')).toBeVisible();
     await expect(memberRow(alice.page, 'Bob').getByText('gets back')).toBeVisible();
     await expect(memberRow(alice.page, 'Bob').getByText('₹30')).toBeVisible();
   });
@@ -550,13 +577,13 @@ test.describe('A group kept in bitcoin', () => {
     await expenseForm.amount(page).fill('1001');
     await expect(page.getByText('501 sats', { exact: true })).toBeVisible();
     await expect(page.getByText('500 sats', { exact: true })).toBeVisible();
-    await expect(page.getByText('Remainder is spread a sat at a time, so the split always adds up.')).toBeVisible();
+    await expect(page.getByText('about 500 sats each', { exact: true })).toBeVisible();
     await saveExpense(page);
-    await expect(page.getByText('1,001 sats', { exact: true })).toBeVisible();
-    await expect(page.getByText('You are owed', { exact: true })).toBeVisible();
-    await expect(page.getByText('500 sats', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^You paid 1,001 sats · /)).toBeVisible();
+    await expect(page.getByText(/^You’re owed/)).toBeVisible();
+    await expect(debtCard(page, 'Priya pays you').getByText('500 sats')).toBeVisible();
     await addExpense(page, { description: 'A sat', amount: '1' });
-    await expect(page.getByText('1 sat', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^You paid 1 sat · /)).toBeVisible();
     await back(page);
     await expect(page.getByText('500 sats', { exact: true })).toHaveCount(3); // the headline, owed to you, and the row
   });
