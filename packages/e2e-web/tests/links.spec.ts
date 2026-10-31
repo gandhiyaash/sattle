@@ -470,7 +470,10 @@ test.describe('Joining through the link on a brand-new device', () => {
 
     // The page still reads Priya as nobody's, from before the first joined: joining anyway adds this device to her.
     await button(second.page, 'Join as Priya').click();
-    await expect(second.page.getByText('Goa trip', { exact: true })).toBeVisible();
+    // The join page already says Goa trip, so wait on the server, not on the screen.
+    await expect
+      .poll(async () => (await yash.memberNamed(group.id, 'Priya')).alsoHeldBy?.length ?? 0, { timeout: 15_000 })
+      .toBe(1);
     const priyas = (await yash.members(group.id)).filter((m) => m.displayName === 'Priya');
     expect(priyas).toHaveLength(1);
     expect(priyas[0].claimedByUserId).toEqual(expect.any(String));
@@ -656,7 +659,7 @@ test.describe('A group that approves joins', () => {
     // The page still says asking; the tap finds the group lets people in now.
     await who(guest.page, 'Priya').click();
     await button(guest.page, 'Ask to join as Priya').click();
-    await expect(guest.page.getByText('2 members', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText('2 people', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Asked to join')).toBeHidden();
     expect((await yash.api.memberNamed(group.id, 'Priya')).claimedByUserId).toBeDefined();
     expect(await yash.api.pendingJoins(group.id)).toEqual([]);

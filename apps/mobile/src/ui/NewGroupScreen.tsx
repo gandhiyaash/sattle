@@ -38,14 +38,16 @@ import { useActionKeys, useClient } from '../react/SattleProvider';
 import { CoverArt } from './CoverArt';
 import { currencyNames } from './CurrencyPicker';
 import { Avatar, Button, ErrorState, Glyph, Pill } from './primitives';
-import { coverFor, makeStyles, radius, shadow, space, type, useColors } from './theme';
+import { coverFor, initialOf, makeStyles, radius, shadow, space, type, useColors } from './theme';
 
 export interface NewGroupScreenProps {
+  /** A name of the kind picked on Home, suggested in the name field. */
+  example?: string;
   onBack: () => void;
   onCreated: (groupId: string) => void;
 }
 
-export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
+export function NewGroupScreen({ example, onBack, onCreated }: NewGroupScreenProps) {
   useScreenView('New group');
   const color = useColors();
   const s = useStyles();
@@ -74,8 +76,7 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
     if (!n) return;
     setPeople((prev) => [...prev, n]);
     setDraft('');
-    // After the list has grown under it, which can take the cursor away.
-    setTimeout(() => draftField.current?.focus(), 0);
+    draftField.current?.focus();
   };
 
   const submit = async () => {
@@ -113,13 +114,13 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
           </View>
           <View style={s.nameRow}>
             <View style={s.tile} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <Text style={[s.tileLetter, { color: cover.bg }]}>{(name.trim()[0] ?? '?').toUpperCase()}</Text>
+              <Text style={[s.tileLetter, { color: cover.bg }]}>{initialOf(name)}</Text>
             </View>
             <TextInput
               style={s.nameInput}
               value={name}
               onChangeText={setName}
-              placeholder="Name your group"
+              placeholder={example ?? 'Name your group'}
               placeholderTextColor="#FFFFFFCC"
               accessibilityLabel="Group name"
               autoFocus
@@ -189,8 +190,10 @@ export function NewGroupScreen({ onBack, onCreated }: NewGroupScreenProps) {
                 onChangeText={setDraft}
                 onSubmitEditing={add}
                 returnKeyType={draft.trim() ? 'next' : 'done'}
-                // With a name in it the keyboard stays up for the next one.
+                // With a name in it the keyboard stays up for the next one. The browser reads
+                // blurOnSubmit, not submitBehavior, and blurs after Enter without it.
                 submitBehavior={draft.trim() ? 'submit' : 'blurAndSubmit'}
+                blurOnSubmit={!draft.trim()}
                 placeholder="Add a name"
                 placeholderTextColor={color.inkFaint}
                 accessibilityLabel="Add a name"

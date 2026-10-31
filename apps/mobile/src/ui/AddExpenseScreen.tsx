@@ -60,7 +60,7 @@ import {
   Sheet,
   SheetBody,
 } from './primitives';
-import { faceFor, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { faceFor, initialOf, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 export interface AddExpenseScreenProps {
   groupId: string;
@@ -690,7 +690,7 @@ function ItemSplit({
                         ]}
                       >
                         <Text style={[s.whoInitial, { color: on ? face.ink : color.inkMuted }]}>
-                          {(m.displayName.trim()[0] ?? '?').toUpperCase()}
+                          {initialOf(m.displayName)}
                         </Text>
                       </Pressable>
                     );

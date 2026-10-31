@@ -77,7 +77,7 @@ import {
 import { CoverArt } from './CoverArt';
 import { QrCode } from './QrCode';
 import { ShareVia } from './ShareVia';
-import { coverFor, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { coverFor, initialOf, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 export interface GroupDetailScreenProps {
   groupId: string;
@@ -528,7 +528,7 @@ function Cover({
       </View>
       <View style={s.coverTitle}>
         <View style={s.coverTile} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text style={[s.coverLetter, { color: cover.bg }]}>{(name.trim()[0] ?? '?').toUpperCase()}</Text>
+          <Text style={[s.coverLetter, { color: cover.bg }]}>{initialOf(name)}</Text>
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={s.coverName} accessibilityRole="header" numberOfLines={2}>
@@ -687,7 +687,7 @@ function Activity({
                   ]}
                 >
                   <View style={s.expenseTile} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                    <Text style={s.expenseLetter}>{(expense.description.trim()[0] ?? '?').toUpperCase()}</Text>
+                    <Text style={s.expenseLetter}>{initialOf(expense.description)}</Text>
                   </View>
                   <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text style={s.expenseName} numberOfLines={1}>

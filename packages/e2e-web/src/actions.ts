@@ -118,7 +118,7 @@ export async function openGroup(page: Page, name: string, { reload = false } = {
 /** Back, from the header: the group's cover, the expense form's ×, or ‹ on the rest. */
 export async function back(page: Page) {
   await page
-    .getByRole('button', { name: /^(Back to|Close without saving)/ })
+    .getByRole('button', { name: /^(Back|Back to .+|Close without saving)$/ })
     .or(page.getByText('‹', { exact: true }))
     .first()
     .click();

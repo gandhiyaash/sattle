@@ -147,6 +147,24 @@ test.describe('New group', () => {
     await expect(button(page, 'Join with a link')).toBeVisible();
   });
 
+  test('each kind on an empty Home suggests a name of that kind', async ({ person }) => {
+    const { page } = await person('Yash');
+    await page.getByRole('button', { name: /^A flat:/ }).click();
+    await expect(page.getByPlaceholder('Flat 4B')).toBeVisible();
+    await back(page);
+    await page.getByRole('button', { name: /^Something else:/ }).click();
+    await expect(page.getByPlaceholder('Name your group')).toBeVisible();
+  });
+
+  test('a name that starts with an emoji keeps it whole on its tile', async ({ person }) => {
+    const yash = await person('Yash');
+    await yash.api.seedGroup({ name: '🏖️ Goa', people: ['Priya'] });
+    await yash.page.goto('/');
+    await expect(yash.page.getByText('🏖', { exact: true })).toBeVisible();
+    await openGroup(yash.page, '🏖️ Goa');
+    await expect(yash.page.getByText('🏖', { exact: true })).toBeVisible();
+  });
+
   test('a double tap on Create makes one group', async ({ person }) => {
     const yash = await person('Yash');
     const { page } = yash;

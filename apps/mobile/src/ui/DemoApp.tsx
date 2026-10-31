@@ -38,7 +38,8 @@ import { makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
-  | { name: 'newGroup' }
+  /** `example`: a name of the kind picked on Home, suggested in the name field. */
+  | { name: 'newGroup'; example?: string }
   /** `sharing`: just made, so it opens on Add people with the link ready to send. */
   | { name: 'group'; groupId: string; sharing?: boolean }
   | { name: 'addExpense'; groupId: string; groupName: string; members: Member[]; currency: string; userId: string }
@@ -149,7 +150,7 @@ function Navigator({
           <GroupsListScreen
             key={nonce}
             onOpenGroup={openGroup}
-            onNewGroup={() => setRoute({ name: 'newGroup' })}
+            onNewGroup={(example) => setRoute({ name: 'newGroup', example })}
             onJoin={() => setRoute({ name: 'join' })}
           />
         );
@@ -206,6 +207,7 @@ function Navigator({
       case 'newGroup':
         return (
           <NewGroupScreen
+            example={route.example}
             onBack={() => setRoute({ name: 'groups' })}
             onCreated={(groupId) => {
               refresh();

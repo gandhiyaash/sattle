@@ -247,6 +247,13 @@ export type Cover = (typeof covers)[number];
  * the group sees the same colour, and New group can show it while the name
  * is being typed. Renaming a group can change it.
  */
+/**
+ * The letter that stands for a name on a tile: its first character, taken
+ * whole. A name can start with an emoji, which is two code units, and half
+ * of one draws as a broken glyph.
+ */
+export const initialOf = (name: string) => ([...name.trim()][0] ?? '?').toUpperCase();
+
 export function coverFor(name: string): Cover {
   let h = 0;
   for (const ch of name.trim() || 'Group') h = (h * 31 + ch.charCodeAt(0)) >>> 0;

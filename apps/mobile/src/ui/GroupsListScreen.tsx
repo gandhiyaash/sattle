@@ -9,7 +9,8 @@
  *
  * Each group's tile is its cover colour (coverFor) with its first letter, the
  * same colour its own screen opens on. With no groups yet, the list is
- * replaced by the kinds of thing people split, each starting a group.
+ * replaced by the kinds of thing people split, each starting a group with
+ * a name of that kind suggested.
  *
  * Groups they've asked to join sit above the list until someone there lets
  * them in, and the list checks back while one is waiting.
@@ -24,11 +25,13 @@ import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Amount, Avatar, Badge, Button, Card, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { coverFor, makeStyles, radius, space, type, useColors } from './theme';
+import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
+import { coverFor, initialOf, makeStyles, radius, space, type, useColors } from './theme';
 
 export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
-  onNewGroup?: () => void;
+  /** `example` is a name for the kind of group picked, for New group to suggest. */
+  onNewGroup?: (example?: string) => void;
   /** Opens the screen that takes a group's link. */
   onJoin?: () => void;
 }
@@ -50,6 +53,8 @@ export function GroupsListScreen({
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  // Before any group, nothing is owed in any currency: say it in the one they start groups in.
+  const prefs = useCurrencyPrefs();
 
   const { data, loading, error, reload, refresh } = useAsync<GroupRow[]>(async () => {
     const [user, groups] = await Promise.all([
@@ -113,7 +118,7 @@ export function GroupsListScreen({
         <Text style={s.balanceLabel}>Across all groups</Text>
         {totals.size === 0 ? (
           <>
-            <Text style={[s.big, { color: color.settled }]}>{formatAmount(0, 'INR')}</Text>
+            <Text style={[s.big, { color: color.settled }]}>{formatAmount(0, prefs.newGroups)}</Text>
             <Text style={s.nothingYet}>
               <Text style={s.strong}>Nothing to settle yet. </Text>
               Once you split a bill, what you’re owed and what you owe adds up here.
@@ -158,7 +163,7 @@ export function GroupsListScreen({
               Groups
             </Text>
             {onNewGroup && (
-              <Pressable onPress={onNewGroup} hitSlop={8} accessibilityRole="button" style={s.link}>
+              <Pressable onPress={() => onNewGroup()} hitSlop={8} accessibilityRole="button" style={s.link}>
                 <Text style={s.linkText}>New group</Text>
               </Pressable>
             )}
@@ -229,20 +234,21 @@ export function GroupTile({ name, size = 40 }: { name: string; size?: number }) 
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Text style={[s.tileLetter, { fontSize: Math.round(size * 0.45) }]}>{(name.trim()[0] ?? '?').toUpperCase()}</Text>
+      <Text style={[s.tileLetter, { fontSize: Math.round(size * 0.45) }]}>{initialOf(name)}</Text>
     </View>
   );
 }
 
+/** `example` is what New group suggests for the name, so picking one is a start on it. */
 const KINDS = [
-  { emoji: '🏖️', title: 'A trip', sub: 'Stays, food, travel' },
-  { emoji: '🏠', title: 'A flat', sub: 'Rent, groceries, bills' },
-  { emoji: '🍽️', title: 'One dinner', sub: 'Split tonight’s bill' },
-  { emoji: '✨', title: 'Something else', sub: 'Name it yourself' },
+  { emoji: '🏖️', title: 'A trip', sub: 'Stays, food, travel', example: 'Goa trip' },
+  { emoji: '🏠', title: 'A flat', sub: 'Rent, groceries, bills', example: 'Flat 4B' },
+  { emoji: '🍽️', title: 'One dinner', sub: 'Split tonight’s bill', example: 'Friday dinner' },
+  { emoji: '✨', title: 'Something else', sub: 'Name it yourself', example: undefined },
 ];
 
 /** In place of the list, for someone with no groups: what they might split, and the way in by a friend's link. */
-function FirstGroup({ onNewGroup, onJoin }: { onNewGroup?: () => void; onJoin?: () => void }) {
+function FirstGroup({ onNewGroup, onJoin }: { onNewGroup?: (example?: string) => void; onJoin?: () => void }) {
   const s = useStyles();
   const color = useColors();
   return (
@@ -259,7 +265,7 @@ function FirstGroup({ onNewGroup, onJoin }: { onNewGroup?: () => void; onJoin?: 
                 key={k.title}
                 onPress={() => {
                   analytics.tap('New group', { control: 'kind', kind: k.title });
-                  onNewGroup();
+                  onNewGroup(k.example);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`${k.title}: ${k.sub}`}

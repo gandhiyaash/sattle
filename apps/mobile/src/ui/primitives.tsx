@@ -680,7 +680,7 @@ export function Avatar({ name, dim, me, size = 36 }: { name: string; dim?: boole
   const initials = name
     .split(' ')
     .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
+    .map((w) => [...w][0]?.toUpperCase() ?? '')
     .join('');
   const face = me ? { bg: color.accentWash, ink: color.accent } : faceFor(name, mode);
   return (
