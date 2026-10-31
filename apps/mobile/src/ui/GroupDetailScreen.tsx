@@ -74,6 +74,7 @@ import {
   Toast,
   useToast,
 } from './primitives';
+import { useBack } from './backNavigation';
 import { CoverArt } from './CoverArt';
 import { QrCode } from './QrCode';
 import { ShareVia } from './ShareVia';
@@ -165,6 +166,11 @@ export function GroupDetailScreen({
   useEffect(() => (sharing ? onShared?.() : undefined), []);
   const [toast, showToast] = useToast();
   const [simplifying, setSimplifying] = useState(false);
+  // Its own header, so it says itself what Android's back button and the browser's do.
+  useBack(onBack);
+  // The switch shows what the server answered, held here until the group is read again: going by
+  // the last read alone, it would flick back between the answer and that read, and take a second tap.
+  const [simplifyOn, setSimplifyOn] = useState<boolean | null>(null);
 
   const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
     const [user, group, members, expenses, settlements, claims, waiting, upi] = await Promise.all([
@@ -215,6 +221,8 @@ export function GroupDetailScreen({
     };
   }, [groupId]);
   const ways = usePayWays(data?.currency);
+  // Someone else in the group can change it too: whatever is read next is what it is.
+  useEffect(() => setSimplifyOn(null), [data?.simplifyDebts]);
 
   // A payment can land while this is open: a guest paying a link, someone
   // else settling up. Keep the balances current without a loading flash.
@@ -267,10 +275,13 @@ export function GroupDetailScreen({
 
   const simplify = async (next: boolean) => {
     setSimplifying(true);
+    setSimplifyOn(next);
     try {
-      await keys.run('simplify-debts', { groupId, on: next }, (k) => client.setSimplifyDebts(groupId, next, k));
+      const group = await keys.run('simplify-debts', { groupId, on: next }, (k) => client.setSimplifyDebts(groupId, next, k));
+      setSimplifyOn(group.simplifyDebts);
       refresh();
     } catch (e) {
+      setSimplifyOn(null);
       showToast(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
     } finally {
       setSimplifying(false);
@@ -339,7 +350,7 @@ export function GroupDetailScreen({
                 <View style={s.switchWrap}>
                   <Text style={s.switchLabel}>Simplify debts</Text>
                   <Switch
-                    value={data.simplifyDebts}
+                    value={simplifyOn ?? data.simplifyDebts}
                     onValueChange={(next) => {
                       analytics.tap('Simplify debts', { control: 'switch', on: next });
                       void simplify(next);
@@ -447,7 +458,7 @@ export function GroupDetailScreen({
             name={nameOf(over.debt.fromMemberId)}
             amount={fmt(over.debt.amount)}
             onSent={(note) => {
-              reminded.set(remindKey(groupId, over.debt.fromMemberId), Date.now());
+              reminded.set(remindKey(data.userId, groupId, over.debt.fromMemberId), Date.now());
               setOver(null);
               showToast(note);
             }}
@@ -480,7 +491,8 @@ function listNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-const remindKey = (groupId: string, memberId: string) => `${groupId}:${memberId}`;
+/** By account as well, so signing in as someone else on the same device doesn't carry them over. */
+const remindKey = (userId: string, groupId: string, memberId: string) => `${userId}:${groupId}:${memberId}`;
 
 /**
  * The top of the group: its colour, with two shapes and a dotted line drawn
@@ -588,7 +600,7 @@ function DebtRow({
   const takesUpi = ways.upi && Boolean(payee?.upi);
   const takesLightning = ways.lightning && Boolean(payee && canReceive(payee, mode));
   const cannotReceive = mineOut && payee && !takesLightning && !takesUpi;
-  const sentAt = reminded.get(remindKey(debt.groupId, debt.fromMemberId));
+  const sentAt = reminded.get(remindKey(data.userId, debt.groupId, debt.fromMemberId));
 
   return (
     <View style={s.debt}>

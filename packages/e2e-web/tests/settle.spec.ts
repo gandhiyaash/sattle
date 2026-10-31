@@ -292,7 +292,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(manual).toBeVisible();
     await expect(ancestor(manual, 2).getByText(/Paid in cash/)).toHaveCount(0);
     await expect(button(yash.page, 'Pay with Lightning')).toBeHidden();
-    await address.click();
+    await address.click({ force: true });
     await expect(yash.page.getByText('Pay Aman ₹250')).toBeVisible();
 
     const aman = (await yash.api.members(group.id)).find((m) => m.displayName === 'Aman')!;

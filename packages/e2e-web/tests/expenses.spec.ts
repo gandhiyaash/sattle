@@ -89,11 +89,14 @@ test.describe('Split by parts', () => {
     await expenseForm.description(page).fill('Villa');
     await expenseForm.amount(page).fill('300');
     await openSplit(page);
-    await expenseForm.split(page, 'By parts').click();
+    await expenseForm.split(page, 'Parts').click();
     await expect(sheet(page).getByText('Someone had twice as much? Give them 2 parts.')).toBeVisible();
     await expect(expenseForm.parts(page, 'Yash')).toHaveValue('1');
     await expect(sheet(page).getByText('₹100', { exact: true })).toHaveCount(3);
-    await expenseForm.parts(page, 'Yash').fill('2');
+    // Tapping a field that's filled in selects it, so what's typed replaces the 1 rather than adding to it.
+    await expenseForm.parts(page, 'Yash').click();
+    await expenseForm.parts(page, 'Yash').pressSequentially('2');
+    await expect(expenseForm.parts(page, 'Yash')).toHaveValue('2');
     await expect(sheet(page).getByText('₹150', { exact: true })).toHaveCount(1);
     await expect(sheet(page).getByText('₹75', { exact: true })).toHaveCount(2);
     // No parts is no share: it says so, and won't save.
@@ -125,7 +128,7 @@ test.describe('Split by percent', () => {
     await expenseForm.description(page).fill('Dinner');
     await expenseForm.amount(page).fill('200');
     await openSplit(page);
-    await expenseForm.split(page, 'By percent').click();
+    await expenseForm.split(page, 'Percent').click();
     await expect(expenseForm.percent(page, 'Yash')).toHaveValue('34');
     await expect(expenseForm.percent(page, 'Bob')).toHaveValue('33');
     await expect(sheet(page).getByText('Adds up to ₹200.', { exact: true })).toBeVisible();
@@ -155,7 +158,7 @@ test.describe('Split by percent, once a percent is typed', () => {
     await openForm(page);
     await expenseForm.amount(page).fill('200');
     await openSplit(page);
-    await expenseForm.split(page, 'By percent').click();
+    await expenseForm.split(page, 'Percent').click();
     // Before anything is typed, the even split follows who's in.
     await expenseForm.between(page, 'Carl').click();
     await expect(expenseForm.percent(page, 'Bob')).toHaveValue('50');
@@ -180,7 +183,7 @@ test.describe('Split by amount', () => {
     await expenseForm.description(page).fill('Dinner');
     await expenseForm.amount(page).fill('300');
     await openSplit(page);
-    await expenseForm.split(page, 'By amount').click();
+    await expenseForm.split(page, 'Amount').click();
     await expect(sheet(page).getByText('₹300 still to share out.')).toBeVisible();
     await expenseForm.exact(page, 'Yash').fill('100');
     await expect(sheet(page).getByText('₹200 still to share out.')).toBeVisible();
@@ -211,7 +214,7 @@ test.describe('Split by amount', () => {
     await createGroup(page, { name: 'Trip', people: ['Bob'] });
     await openForm(page);
     await openSplit(page);
-    await expenseForm.split(page, 'By amount').click();
+    await expenseForm.split(page, 'Amount').click();
     await expect(expenseForm.exact(page, 'Bob')).toBeVisible();
     await expenseForm.between(page, 'Bob').click();
     await expect(expenseForm.exact(page, 'Bob')).toHaveCount(0);
