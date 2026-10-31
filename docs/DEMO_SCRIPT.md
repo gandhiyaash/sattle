@@ -49,7 +49,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 2. **New group**: "Goa trip", with members Om and Aman. They're only names. Leave **Kept in** on Rupees: the demo is a rupee debt paid in sats.
 3. **Add expense**: "Chai", ₹100, paid by Yash, split equally. Pause on the live preview: Yash ₹33.34, Om ₹33.33, Aman ₹33.33. The extra paisa goes to the first person in the split.
 4. Add "Dinner", ₹900, paid by Yash, split equally. Save.
-5. Group screen: under **Members**, they show **Not joined**. Under **Settle up**, "Om owes you" and "Aman owes you" appear.
+5. Group screen: under **Who pays whom**, "Om pays you" and "Aman pays you" appear. Tap **Add people** on the cover: at the bottom, both show **Hasn't joined · pays from links**. Close it.
 
 **Say:**
 > I'm the only one with the app. Om and Aman are just names; they never sign up. Expenses stay in rupees, because that's what dinner cost. A hundred rupees doesn't split three ways, so the leftover paisa goes to one person in a fixed order. Every share is whole, and they always add up to the total.
@@ -67,17 +67,17 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 ## Scene 4: Om pays from any wallet (1:10–1:55)
 
 **Screen:**
-1. Tap **Invite** in the group's header and copy the group link.
+1. Tap **Add people** on the group's cover and tap **Copy** to copy the group link.
 2. Open it on the phone, in a plain browser with no app. Hold a second on the group page: the spends, who owes what, and the **Join** card. On "Om owes Yash", tap **Pay with Lightning**. The pay page shows "Om, you owe Yash ₹333.33", the sats amount, and the breakdown under it. Hold on the breakdown for a beat: **Exchange rate** "1 BTC = ₹…", **Rate from** "CoinGecko, live", and the network fee. Then the QR code and "Rate and invoice locked for 1:29". If **Rate from** says "Demo rate", `PAYMENTS` isn't `nwc`; **Rate from** can also name Blockchain.com or Coinbase, if CoinGecko didn't answer.
 3. Scan the QR code with the paying wallet and pay.
-4. Cut back to browser A, on **Settle up**: Om's row clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
+4. Cut back to browser A, on the group screen: Om's row under **Who pays whom** clears and the balance changes. If it takes a couple of seconds, keep that in the take. It shows the app is waiting for proof.
 
 **Say:**
 > To collect, I post one link in the group chat. Om opens it in any browser, sees what he owes, and gets a Lightning invoice made by my wallet, at a rate pinned for ninety seconds, so nobody pays yesterday's price. He pays with whatever wallet he already has. Sattle checks with my wallet, and only when it says the invoice is paid, with a proof that matches, does the debt clear. Nothing is marked paid on hope.
 
 ## Scene 5: Cash still counts (1:55–2:10)
 
-**Screen:** under **Settle up**, on "Aman owes you", tap **Mark as settled**. The row clears.
+**Screen:** under **Who pays whom**, on "Aman pays you", tap **Mark as settled**. The row clears.
 
 **Say:**
 > Aman paid me in UPI. Only the person who's owed can mark that, because it's their word, and the app keeps it separate from Lightning payments that come with proof.

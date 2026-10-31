@@ -39,7 +39,7 @@ test.describe('Account', () => {
     const { page, token: old } = await person('Yash');
     const other = await device({ token: old });
     await other.page.goto('/');
-    await expect(other.page.getByText('No groups yet')).toBeVisible();
+    await expect(other.page.getByText('What are you splitting?')).toBeVisible();
 
     await tab(page, 'Account');
     await confirm(page, 'Replace sign-in key', 'Yes, sign out my other devices');
@@ -58,7 +58,7 @@ test.describe('Account', () => {
     await expect(other.page.getByText('What should your friends call you?')).toBeVisible();
     expect(await other.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
     await page.reload();
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
   });
 
   test('turning a currency off hides what goes with it, and the last one stays on', async ({ person }) => {
@@ -95,8 +95,8 @@ test.describe('Account', () => {
 
     await tab(page, 'Groups');
     await button(page, 'New group').click();
-    await expect(page.getByPlaceholder('Goa trip')).toBeVisible();
-    await expect(page.getByText('Kept in', { exact: true })).toHaveCount(0);
+    await expect(page.getByPlaceholder('Name your group')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Kept in / })).toHaveCount(0);
 
     // Kept on the device.
     await page.reload();
@@ -107,7 +107,7 @@ test.describe('Account', () => {
     await page.getByRole('radio', { name: 'Bitcoin', exact: true }).click();
     await tab(page, 'Groups');
     await button(page, 'New group').click();
-    await expect(page.getByRole('radio', { name: 'Bitcoin', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('button', { name: 'Kept in Bitcoin. Change' })).toBeVisible();
   });
 
   test('someone who uses bitcoin alone sees no UPI anywhere on Wallet', async ({ person }) => {
@@ -152,7 +152,7 @@ test.describe('Account', () => {
     await openGroup(anu.page, 'Shared flat');
     await groupTab(anu.page, 'Members');
     await expect(anu.page.getByText('Bob', { exact: true })).toBeVisible();
-    await expect(ancestor(anu.page.getByText('Bob', { exact: true }), 2).getByText('In app')).toBeVisible();
+    await expect(ancestor(anu.page.getByText('Bob', { exact: true }), 2).getByText('Joined', { exact: true })).toBeVisible();
 
     await tab(bob.page, 'Account');
     await expect(bob.page.getByText(/^This ends your account for good\./)).toBeVisible();
@@ -166,9 +166,8 @@ test.describe('Account', () => {
 
     // In the shared group his name and balance stay, as a ghost, within the screen's own refresh.
     const row = ancestor(anu.page.getByText('Bob', { exact: true }), 2);
-    await expect(row.getByText('Not joined')).toBeVisible({ timeout: 15_000 });
-    await expect(row.getByText('No app')).toBeVisible();
-    await expect(anu.page.getByText('2 members · 1 expense')).toBeVisible();
+    await expect(row.getByText('Hasn’t joined · pays from links')).toBeVisible({ timeout: 15_000 });
+    await expect(anu.page.getByText('In this group · 2')).toBeVisible();
     const members = await anu.api.members(group.id);
     expect(members.find((m) => m.displayName === 'Bob')).toMatchObject({ status: 'ghost' });
     expect(members.find((m) => m.displayName === 'Bob')!.claimedByUserId).toBeUndefined();
@@ -335,8 +334,8 @@ test.describe('Wallet', () => {
   test('appearance follows the choice, and the choice is kept', async ({ person }) => {
     const { page } = await person('Yash');
     await tab(page, 'Wallet');
-    const dark = 'rgb(21, 19, 17)';
-    const light = 'rgb(250, 248, 245)';
+    const dark = 'rgb(12, 16, 24)';
+    const light = 'rgb(245, 247, 250)';
     await expect(page.getByRole('radio', { name: 'System', exact: true })).toHaveAttribute('aria-checked', 'true');
     expect(await backgrounds(page)).toContain(light);
 

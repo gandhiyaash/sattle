@@ -17,7 +17,7 @@ test('a brand-new device gets the tour, then makes an account', async ({ device 
 
 test('a person the fixtures signed in is on their groups list, and is who the server says', async ({ person }) => {
   const yash = await person('Yash');
-  await expect(yash.page.getByText('No groups yet')).toBeVisible();
+  await expect(yash.page.getByText('What are you splitting?')).toBeVisible();
   expect((await yash.api.me()).displayName).toBe('Yash');
 });
 

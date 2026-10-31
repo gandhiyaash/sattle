@@ -14,6 +14,7 @@
 
 import {
   ancestor,
+  back,
   button,
   clipboard,
   closeSheet,
@@ -30,20 +31,16 @@ import { countdownOf, duo, enter, intoGroup } from '../src/settle.helpers';
 
 const PREIMAGE = /^[0-9a-f]{64}$/;
 
-test.describe('the Settle up tab', () => {
-  test('says all settled when nothing is owed, and swaps the footer button', async ({ api, device }) => {
+test.describe('who pays whom, on the group screen', () => {
+  test('says everyone’s square when nothing is owed, with Add expense and See all still there', async ({ api, device }) => {
     const { a, groupName } = await duo(api, device, {
       spends: [{ description: 'Cabs', amount: 60_000, paidBy: 'Yash', between: ['Yash'] }],
     });
     await intoGroup(a, groupName);
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('All square', { exact: true })).toBeVisible();
     await expect(button(a.page, 'Add expense')).toBeVisible();
-    await expect(button(a.page, 'History')).toBeHidden();
-    await groupTab(a.page, 'Settle up');
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
-    await expect(button(a.page, 'History')).toBeVisible();
-    await expect(button(a.page, 'Add expense')).toBeHidden();
-    await groupTab(a.page, 'Members');
-    await expect(button(a.page, 'Add expense')).toBeVisible();
+    await expect(button(a.page, 'See all')).toBeVisible();
   });
 
   test('shows what each side owes, from both devices', async ({ api, device }) => {
@@ -51,19 +48,20 @@ test.describe('the Settle up tab', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Settle up');
-    const owe = debtCard(a.page, 'You owe Priya');
+    const owe = debtCard(a.page, 'You pay Priya');
     await expect(owe.getByText('₹300')).toBeVisible();
     await expect(button(owe, 'Pay')).toBeVisible();
     // Not theirs to mark: only the person owed can.
     await expect(button(owe, 'Mark as settled')).toBeHidden();
-    await expect(a.page.getByText('You owe', { exact: true })).toBeVisible();
+    await expect(a.page.getByText(/^You owe ₹300/)).toBeVisible();
 
     await intoGroup(b, groupName, 'Settle up');
-    const owed = debtCard(b.page, 'Yash owes you');
+    const owed = debtCard(b.page, 'Yash pays you');
     await expect(owed.getByText('₹300')).toBeVisible();
     await expect(button(owed, 'Mark as settled')).toBeVisible();
     await expect(button(owed, 'Pay')).toBeHidden();
-    await expect(b.page.getByText('You are owed', { exact: true })).toBeVisible();
+    await expect(owed.getByRole('button', { name: 'Remind Yash', exact: true })).toBeVisible();
+    await expect(b.page.getByText(/^You’re owed ₹300/)).toBeVisible();
   });
 });
 
@@ -73,10 +71,10 @@ test.describe('paying someone who has joined, over Lightning', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(b, groupName, 'Settle up');
-    await expect(debtCard(b.page, 'Yash owes you')).toBeVisible();
+    await expect(debtCard(b.page, 'Yash pays you')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
-    await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
 
     // The one way to pay starts on its own: no rails to choose from.
     await expect(a.page.getByText('Pay with Lightning', { exact: true })).toBeHidden();
@@ -109,20 +107,19 @@ test.describe('paying someone who has joined, over Lightning', () => {
     const proof = (await a.page.getByText(PREIMAGE).textContent())!;
     await button(a.page, 'Done').click();
 
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
-    await expect(a.page.getByText('All settled', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('All square', { exact: true })).toBeVisible();
     // The payee's screen keeps itself current, every four seconds.
-    await expect(b.page.getByText('All settled.', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(b.page.getByText('All settled', { exact: true })).toBeVisible();
+    await expect(b.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(b.page.getByText('All square', { exact: true })).toBeVisible();
 
     const settlements = await a.api.settlements(group.id);
     expect(settlements).toHaveLength(1);
     expect(settlements[0]).toMatchObject({ status: 'confirmed', rail: 'invoice', amount: 60_000 / 2, preimage: proof });
 
     // The groups list's headline follows.
-    await a.page.getByText('‹', { exact: true }).first().click();
-    await expect(a.page.getByText('All settled', { exact: true })).toBeVisible();
-    await expect(a.page.getByText('settled', { exact: true }).first()).toBeVisible();
+    await back(a.page);
+    await expect(a.page.getByText('All square', { exact: true })).toHaveCount(2); // the headline and the row
   });
 
   test('history records the payment with its proof', async ({ api, device }) => {
@@ -130,10 +127,10 @@ test.describe('paying someone who has joined, over Lightning', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Settle up');
-    await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
     await waitForSettled(a.page);
 
-    await button(a.page, 'History').click();
+    await button(a.page, 'See all').click();
     await expect(a.page.getByText('History', { exact: true })).toBeVisible();
     const row = a.page.getByText('Yash paid Priya', { exact: true });
     await expect(row).toBeVisible();
@@ -164,7 +161,7 @@ test.describe('paying someone who has joined, over Lightning', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Settle up');
-    const pay = button(debtCard(a.page, 'You owe Priya'), 'Pay');
+    const pay = button(debtCard(a.page, 'You pay Priya'), 'Pay');
     await pay.click();
     await expect(a.page.getByText('Waiting for payment').or(a.page.getByText('Pay Priya', { exact: true }))).toBeVisible();
     await closeSheet(a.page);
@@ -187,12 +184,12 @@ test.describe('paying someone who has joined, over Lightning', () => {
     const { page: other } = await device({ token: a.token });
     const twin = { ...a, page: other };
     await intoGroup(twin, groupName, 'Settle up');
-    await expect(button(debtCard(other, 'You owe Priya'), 'Pay')).toBeVisible();
+    await expect(button(debtCard(other, 'You pay Priya'), 'Pay')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
-    await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
     await expect(a.page.getByText('Waiting for payment').or(a.page.getByText('Pay Priya', { exact: true }))).toBeVisible();
-    await button(debtCard(other, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(other, 'You pay Priya'), 'Pay').click();
 
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(other.getByText('Settled', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -206,11 +203,11 @@ test.describe('paying someone who has joined, over Lightning', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(b, groupName, 'Settle up');
-    const owed = debtCard(b.page, 'Yash owes you');
+    const owed = debtCard(b.page, 'Yash pays you');
     await expect(button(owed, 'Mark as settled')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
-    await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
     await expect(a.page.getByText('Waiting for payment').or(a.page.getByText('Pay Priya', { exact: true }))).toBeVisible();
 
     await button(owed, 'Mark as settled').click();
@@ -231,7 +228,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     const yash = await enter(api, device, 'Yash');
     await yash.api.seedGroup({ name: 'Goa trip', people: ['Aman'], ...seed });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    const card = debtCard(yash.page, 'You owe Aman');
+    const card = debtCard(yash.page, 'You pay Aman');
     await expect(card.getByText('₹250')).toBeVisible();
     await expect(button(card, 'Options')).toBeVisible();
     await expect(button(card, 'Pay')).toBeHidden();
@@ -257,7 +254,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     const yash = await enter(api, device, 'Yash');
     const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Aman'], ...seed });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    await button(debtCard(yash.page, 'You owe Aman'), 'Options').click();
+    await button(debtCard(yash.page, 'You pay Aman'), 'Options').click();
     await button(yash.page, 'Add their Lightning address').click();
     await expect(yash.page.getByText('Where should this go?')).toBeVisible();
     await expect(yash.page.getByText('Ask Aman for their Lightning address.')).toBeVisible();
@@ -303,7 +300,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
 
     // Once it's saved the debt can be paid, so the card offers Pay.
     await closeSheet(yash.page);
-    await expect(button(debtCard(yash.page, 'You owe Aman'), 'Pay')).toBeVisible({ timeout: 15_000 });
+    await expect(button(debtCard(yash.page, 'You pay Aman'), 'Pay')).toBeVisible({ timeout: 15_000 });
     await groupTab(yash.page, 'Members');
     await expect(memberRow(yash.page, 'Aman').getByText('aman@walletofsatoshi.com')).toBeVisible();
     await expect(memberRow(yash.page, 'Aman').getByText('Payable')).toBeVisible();
@@ -313,7 +310,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     const yash = await enter(api, device, 'Yash');
     const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Aman'], ...seed });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    await button(debtCard(yash.page, 'You owe Aman'), 'Options').click();
+    await button(debtCard(yash.page, 'You pay Aman'), 'Options').click();
     await button(yash.page, 'Invite Aman').click();
     await expect(yash.page.getByText('Copied. Paste it in a chat.')).toBeVisible();
     await expect(button(yash.page, 'Invite Aman again')).toBeVisible();
@@ -331,24 +328,23 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     const yash = await enter(api, device, 'Yash');
     const { group } = await yash.api.seedGroup({ name: 'Goa trip', people: ['Aman'], ...seed });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    await button(debtCard(yash.page, 'You owe Aman'), 'Options').click();
+    await button(debtCard(yash.page, 'You pay Aman'), 'Options').click();
     await button(yash.page, 'Mark as settled').click();
     await expect(yash.page.getByText('Settled', { exact: true })).toBeVisible();
     await expect(yash.page.getByText('₹250 to Aman is settled.')).toBeVisible();
     await expect(yash.page.getByText('Payment proof')).toBeHidden();
     await button(yash.page, 'Done').click();
-    await expect(yash.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await expect(yash.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
 
     await groupTab(yash.page, 'Members');
     const aman = memberRow(yash.page, 'Aman');
     await expect(aman.getByText('settled', { exact: true })).toBeVisible();
-    await expect(aman.getByText('Not joined')).toBeVisible();
-    await expect(aman.getByText('No app')).toBeVisible();
+    await expect(aman.getByText('Hasn’t joined · pays from links')).toBeVisible();
 
     const [settlement] = await yash.api.settlements(group.id);
     expect(settlement).toMatchObject({ rail: 'manual', status: 'manually_confirmed', amount: 25_000, note: 'Settled outside the app' });
     await groupTab(yash.page, 'Settle up');
-    await button(yash.page, 'History').click();
+    await button(yash.page, 'See all').click();
     await expect(yash.page.getByText('Yash settled with Aman')).toBeVisible();
     await expect(yash.page.getByText(/^Marked as settled by Yash · /)).toBeVisible();
   });
@@ -360,18 +356,18 @@ test.describe('the payee’s side', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Settle up');
-    await expect(debtCard(a.page, 'You owe Priya')).toBeVisible();
+    await expect(debtCard(a.page, 'You pay Priya')).toBeVisible();
 
     await intoGroup(b, groupName, 'Settle up');
-    const owed = debtCard(b.page, 'Yash owes you');
+    const owed = debtCard(b.page, 'Yash pays you');
     await button(owed, 'Mark as settled').dblclick();
-    await expect(b.page.getByText('All settled.', { exact: true })).toBeVisible();
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(b.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible({ timeout: 15_000 });
 
     const settlements = await a.api.settlements(group.id);
     expect(settlements).toHaveLength(1);
     expect(settlements[0]).toMatchObject({ rail: 'manual', status: 'manually_confirmed' });
-    await button(b.page, 'History').click();
+    await button(b.page, 'See all').click();
     await expect(b.page.getByText('Yash settled with Priya')).toBeVisible();
     await expect(b.page.getByText(/^Marked as settled by Priya · /)).toBeVisible();
     await b.page.getByText('Yash settled with Priya').click();
@@ -389,9 +385,9 @@ test.describe('a payer who uses only rupees', () => {
       spends: [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Members');
-    await expect(memberRow(a.page, 'Priya').getByText('In app')).toBeVisible();
+    await expect(memberRow(a.page, 'Priya').getByText('Joined', { exact: true })).toBeVisible();
     await groupTab(a.page, 'Settle up');
-    const card = debtCard(a.page, 'You owe Priya');
+    const card = debtCard(a.page, 'You pay Priya');
     await expect(button(card, 'Options')).toBeVisible();
     await expect(card.getByText('Priya hasn’t added a UPI ID yet.')).toBeVisible();
     await button(card, 'Options').click();
@@ -418,7 +414,7 @@ test.describe('a payer who uses only rupees', () => {
       spends: [{ description: 'Villa', amount: 50_000, paidBy: 'Aman' }],
     });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    const card = debtCard(yash.page, 'You owe Aman');
+    const card = debtCard(yash.page, 'You pay Aman');
     await expect(card.getByText('Aman hasn’t joined yet.')).toBeVisible();
     await button(card, 'Options').click();
     await expect(
@@ -439,10 +435,10 @@ test.describe('a payer who uses only rupees', () => {
     });
     await b.api.setUpiId('priya@okaxis');
     await intoGroup(a, groupName, 'Members');
-    await expect(memberRow(a.page, 'Priya').getByText('Takes UPI')).toBeVisible();
-    await expect(memberRow(a.page, 'Yash (you)').getByText('In app')).toBeVisible();
+    await expect(memberRow(a.page, 'Priya').getByText('Joined · takes UPI')).toBeVisible();
+    await expect(memberRow(a.page, 'Yash (you)').getByText('Joined', { exact: true })).toBeVisible();
     await groupTab(a.page, 'Settle up');
-    await expect(button(debtCard(a.page, 'You owe Priya'), 'Pay')).toBeVisible();
+    await expect(button(debtCard(a.page, 'You pay Priya'), 'Pay')).toBeVisible();
   });
 });
 
@@ -458,8 +454,8 @@ test.describe('simplifying debts', () => {
     await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya', 'Kabir'], spends });
     await intoGroup(yash, 'Goa trip', 'Settle up');
     // Simplified: Kabir pays Yash 200 and Priya 50. Yash sees only his.
-    await expect(debtCard(yash.page, 'Kabir owes you').getByText('₹200')).toBeVisible();
-    await expect(yash.page.getByText('Priya owes you')).toBeHidden();
+    await expect(debtCard(yash.page, 'Kabir pays you').getByText('₹200')).toBeVisible();
+    await expect(yash.page.getByText('Priya pays you')).toBeHidden();
 
     await openManage(yash.page);
     const switchOn = yash.page.getByRole('switch', { name: 'Simplify debts' });
@@ -471,8 +467,8 @@ test.describe('simplifying debts', () => {
     await yash.page.getByText('‹', { exact: true }).first().click();
 
     // Direct: everyone pays back whoever paid for them.
-    await expect(debtCard(yash.page, 'Priya owes you').getByText('₹100')).toBeVisible();
-    await expect(debtCard(yash.page, 'Kabir owes you').getByText('₹100')).toBeVisible();
+    await expect(debtCard(yash.page, 'Priya pays you').getByText('₹100')).toBeVisible();
+    await expect(debtCard(yash.page, 'Kabir pays you').getByText('₹100')).toBeVisible();
     expect((await yash.api.groups())[0].simplifyDebts).toBe(false);
   });
 
@@ -480,9 +476,9 @@ test.describe('simplifying debts', () => {
     const yash = await enter(api, device, 'Yash');
     await yash.api.seedGroup({ name: 'Goa trip', people: ['Priya', 'Kabir'], simplifyDebts: false, spends });
     await intoGroup(yash, 'Goa trip', 'Settle up');
-    await expect(debtCard(yash.page, 'Priya owes you').getByText('₹100')).toBeVisible();
-    await expect(debtCard(yash.page, 'Kabir owes you').getByText('₹100')).toBeVisible();
-    await expect(yash.page.getByText('Kabir owes you').locator('../..').getByText('₹200')).toBeHidden();
+    await expect(debtCard(yash.page, 'Priya pays you').getByText('₹100')).toBeVisible();
+    await expect(debtCard(yash.page, 'Kabir pays you').getByText('₹100')).toBeVisible();
+    await expect(yash.page.getByText('Kabir pays you').locator('../..').getByText('₹200')).toBeHidden();
   });
 });
 
@@ -493,7 +489,7 @@ test.describe('a group kept in bitcoin', () => {
       spends: [{ description: 'Villa', amount: 10_000, paidBy: 'Priya' }],
     });
     await intoGroup(a, groupName, 'Settle up');
-    const card = debtCard(a.page, 'You owe Priya');
+    const card = debtCard(a.page, 'You pay Priya');
     await expect(card.getByText('5,000 sats')).toBeVisible();
     await button(card, 'Pay').click();
     await expect(button(a.page, 'Open your wallet')).toBeVisible({ timeout: 8_000 });
@@ -509,13 +505,13 @@ test.describe('a group kept in bitcoin', () => {
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(a.page.getByText('5,000 sats to Priya is settled.')).toBeVisible();
     await button(a.page, 'Done').click();
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
 
     const [settlement] = await b.api.settlements(group.id);
     expect(settlement).toMatchObject({ currency: 'BTC', amount: 5_000, status: 'confirmed' });
     expect(settlement.quote).toMatchObject({ amountSat: 5_000, rateFiatPerBtc: 1, feeSat: 15 });
 
-    await button(a.page, 'History').click();
+    await button(a.page, 'See all').click();
     await a.page.getByText('Yash paid Priya').click();
     await expect(a.page.getByText('Sent', { exact: true })).toBeHidden();
     await expect(a.page.getByText('Exchange rate')).toBeHidden();
