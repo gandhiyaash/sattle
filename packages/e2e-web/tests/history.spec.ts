@@ -4,15 +4,14 @@
  * debt settled by hand.
  */
 
-import { breakdownRow, button, goToGroup, groupTab, sheet } from '../src/actions';
+import { breakdownRow, button, goToGroup, groupHeader, sheet } from '../src/actions';
 import { expect, test, type Person } from '../src/fixtures';
 
 import type { Page } from '@playwright/test';
 
-/** From a group screen to its history: Settle up has the button. */
+/** From a group screen to its history: See all, beside Activity. */
 async function openHistory(page: Page) {
-  await groupTab(page, 'Settle up');
-  await button(page, 'History').click();
+  await button(page, 'See all').click();
   await expect(page.getByText('History', { exact: true }).first()).toBeVisible();
 }
 
@@ -93,19 +92,16 @@ test.describe('The list', () => {
     await expect(rows.nth(4).getByText('₹300')).toBeVisible();
   });
 
-  test('is reached from Settle up and Back returns there', async ({ person }) => {
+  test('is reached from See all, beside Activity, and Back returns to the group', async ({ person }) => {
     const yash = await person('Yash');
     await yash.api.seedGroup({ name: 'Trip', people: ['Bob'] });
     await goToGroup(yash.page, 'Trip');
-    await expect(button(yash.page, 'History')).toHaveCount(0);
-    await expect(button(yash.page, 'Add expense')).toBeVisible();
-    await groupTab(yash.page, 'Settle up');
-    await expect(button(yash.page, 'Add expense')).toHaveCount(0);
-    await button(yash.page, 'History').click();
+    await expect(yash.page.getByRole('link', { name: 'See all activity' })).toBeVisible();
+    await button(yash.page, 'See all').click();
     await expect(yash.page.getByText('Nothing yet. What gets added, changed and paid in this group shows up here.')).toBeVisible();
     await button(yash.page, '‹').click();
-    await expect(yash.page.getByRole('radio', { name: 'Settle up' })).toHaveAttribute('aria-checked', 'true');
-    await expect(button(yash.page, 'History')).toBeVisible();
+    await expect(groupHeader(yash.page)).toBeVisible();
+    await expect(button(yash.page, 'See all')).toBeVisible();
   });
 });
 

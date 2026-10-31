@@ -89,14 +89,14 @@ test.describe('welcome', () => {
     await page.goto('/');
     await expect(page.getByText('Split bills in sats. Only one of you needs the app.')).toBeVisible();
     await makeAccount(page, 'Yash');
-    await expect(page.getByText('Add one to a group and what you owe or are owed shows here.')).toBeVisible();
+    await expect(page.getByText('Nothing to settle yet.', { exact: false })).toBeVisible();
 
     const token = await page.evaluate(() => localStorage.getItem('sattle.token'));
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect((await api.as(token).me()).displayName).toBe('Yash');
 
     await page.reload();
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
   });
 
   test('Get started does nothing without a name', async ({ device }) => {
@@ -110,7 +110,7 @@ test.describe('welcome', () => {
     await expect(pressable(page, 'Get started')).toHaveCSS('opacity', '0.4');
     await button(page, 'Get started').click();
     await expect(page.getByText('What should your friends call you?')).toBeVisible();
-    await expect(page.getByText('No groups yet')).toHaveCount(0);
+    await expect(page.getByText('What are you splitting?')).toHaveCount(0);
 
     await page.getByPlaceholder('Your name').fill('Y');
     await expect(pressable(page, 'Get started')).toHaveCSS('opacity', '1');
@@ -126,7 +126,7 @@ test.describe('welcome', () => {
 
     await field.fill('   Yash Gandhi   ');
     await button(page, 'Get started').click();
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
     await tab(page, 'Account');
     await expect(page.getByText('Signed in as')).toBeVisible();
     await expect(page.getByText('Yash Gandhi', { exact: true })).toBeVisible();
@@ -226,7 +226,7 @@ test.describe('I have a sign-in key', () => {
     await button(page, 'I have a sign-in key').click();
     await page.getByPlaceholder('sattle-signin:…').fill(`  ${token}  `);
     await page.getByPlaceholder('sattle-signin:…').press('Enter');
-    await expect(page.getByText('No groups yet')).toBeVisible();
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
   });
 });
 

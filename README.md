@@ -155,16 +155,16 @@ apps/mobile/                 @sattle/mobile: Expo
       useSettleFlow.ts       One settle attempt, from open to terminal.
       useAppUpdate.ts        Checks on every foreground; the banner's hook.
     ui/
-      theme.ts               Design tokens. Warm paper, ink, one amber accent.
+      theme.ts               Design tokens. Cool grey paper, navy ink, one blue accent, and each group's cover colour.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
       WelcomeScreen.tsx      First launch against the real API: your name, and a device account. Or a sign-in key from another device.
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
-      NewGroupScreen.tsx     A group's name, the people in it, and whether it simplifies debts.
+      NewGroupScreen.tsx     A group's name on its own cover, and the people in it. Opens on the link to share.
       SimplifyDebts.tsx      The Simplify debts switch, on New group and under Manage.
-      GroupDetailScreen.tsx  The balance, then three tabs: expenses, members and their states, settle up.
+      GroupDetailScreen.tsx  The group's cover, where you stand, who pays whom (with Simplify debts), the activity by day; Add people and Remind sheets.
       HistoryScreen.tsx      Everything added, changed, removed and settled, and the sheet one entry opens in.
-      AddExpenseScreen.tsx   Live split preview as you type.
+      AddExpenseScreen.tsx   Amount first, a live split preview, and split equally, by amount, parts, percent or item.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
@@ -310,7 +310,7 @@ The remote-signer code and the restore code load with one `import()` (`src/nostr
 
 ### Joining a group
 
-A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. The group's link turns ghosts into members. It is the group's one link, `/g/<token>`: anyone already in the group taps **Invite** at the top of the group, shows it as a QR code or sends it to the chat everyone is in. It opens the group's page, where anyone can see what's been split and pay what they owe (see [The group link](#the-group-link)), and that page has **Join** on it. Join opens `/join/<token>`, with the same token: whoever taps it sees which group it is and the people in it, picks the one they are, and is in. Picking someone nobody has joined as takes over that row as it is: same name, same history, same balance. Picking someone who has joined makes this device that person too, alongside the devices they already have: that is how one person is in a group from a phone and a laptop, and how someone who lost the device they joined with gets back in. Someone who isn't on the list taps **+**, gives their name, and is added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they picked. Someone already in the group is one of those people on this device already, so for them Join opens the group.
+A group starts with one person who has the app; everyone else is a ghost, a name on the ledger. The group's link turns ghosts into members. It is the group's one link, `/g/<token>`: anyone already in the group taps **Add people** on the group's cover and sends it from WhatsApp, their messages or any other app, or shows it as a QR code. It opens the group's page, where anyone can see what's been split and pay what they owe (see [The group link](#the-group-link)), and that page has **Join** on it. Join opens `/join/<token>`, with the same token: whoever taps it sees which group it is and the people in it, picks the one they are, and is in. Picking someone nobody has joined as takes over that row as it is: same name, same history, same balance. Picking someone who has joined makes this device that person too, alongside the devices they already have: that is how one person is in a group from a phone and a laptop, and how someone who lost the device they joined with gets back in. Someone who isn't on the list taps **+**, gives their name, and is added as a new member with nothing owed either way. Someone with no account gets one in the same tap, under the name they picked. Someone already in the group is one of those people on this device already, so for them Join opens the group.
 
 A group can ask to look first: **Manage → Joining → Approve who joins**, off until someone in the group turns it on (`approve_joins`). Then picking a name asks to join instead of joining. Someone already in the group sees "Someone wants to join as Kabir" at the top of the group, with a four-digit code, and taps **Let in** or **Not them**. Until they're let in, the group sits on the asker's groups list as **Asked to join**, showing their code, and they can do no more than anyone else holding the link.
 
@@ -392,11 +392,11 @@ The group's shared page asks the same question when someone comes back to it fro
 
 `GET /s/:token/upi` gives the ID, only to a page that asks to pay. **I’ve paid** is `POST /s/:token/upi-claims`: a claim, marked as coming from a link, that the person owed confirms or turns down in the app like any other. Meanwhile the page waits and offers nothing, so nobody pays twice. When they confirm, the settlement is tied to the link (`upi_claims.pay_link_token`, migration 020), so the page shows **Paid** and the link can't be paid a second time. With an invoice out for the debt, UPI waits until it has lapsed.
 
-Nobody sends a pay link by hand: the person owed shares the group link from **Invite**, and choosing a debt on its page is what hands one out (`POST /g/:token/debts/:ref/pay-link`, see [The group link](#the-group-link)). A link nobody could pay is never made: for someone with nowhere to receive over Lightning the page answers `409 member_cannot_receive`, and in the app the card at the top of **Settle up** says what to add, in terms of the ways you use, with **Set up getting paid** going to Wallet.
+Nobody sends a pay link by hand: the person owed shares the group link from **Add people**, and choosing a debt on its page is what hands one out (`POST /g/:token/debts/:ref/pay-link`, see [The group link](#the-group-link)). A link nobody could pay is never made: for someone with nowhere to receive over Lightning the page answers `409 member_cannot_receive`, and in the app a card on the group screen, above who pays whom, says what to add, in terms of the ways you use, with **Set up getting paid** going to Wallet.
 
 ### The group link
 
-A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps **Invite** at the top of the group and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. **Join group**, at the top beside the group's name, is for the people who belong in it; see [Joining a group](#joining-a-group).
+A pay link covers one debt. The group link covers the group, and it is the only link a group has: someone in it taps **Add people** on the group's cover and posts `/g/<token>` in the chat everyone is already in. Whoever opens it, with no app and no account, sees every spend with each person's share and who owes whom, and taps **Pay with Lightning** on a debt to pay it. That opens the pay page for that one debt, which mints the invoice on the wallet of the person owed and offers **Open your wallet** and a QR code, exactly as a pay link does. **Join group**, at the top beside the group's name, is for the people who belong in it; see [Joining a group](#joining-a-group).
 
 A pay link deliberately shows nothing else about the group, and this shows all of it, so it is the group's own choice:
 
@@ -436,7 +436,7 @@ An edited or deleted expense can't be changed on Nostr, where entries are perman
 
 ### Simplifying debts
 
-A group simplifies its debts, as Splitwise does, unless whoever makes it turns that off with the **Simplify debts** switch on **New group** (`Group.simplifyDebts`). Anyone in it can change it later under **Manage**. Everyone's balance is the same either way; what changes is who pays whom.
+A group can simplify its debts, as Splitwise does (`Group.simplifyDebts`). It starts off: the app sends `false` when it makes a group, so debts first read the way they were spent. Anyone in it can turn it on or off with the **Simplify debts** switch beside who pays whom on the group screen, or under **Manage**. Everyone's balance is the same either way; what changes is who pays whom.
 
 - **On**: debts are combined into as few payments as there can be (`simplifyDebts`). If Aman owes Priya and Priya owes Om the same, Aman pays Om and Priya is done. Someone can end up paying a person they never split with.
 - **Off**: everyone pays back whoever paid for them (`directDebts`). Only what two people owe each other cancels out.

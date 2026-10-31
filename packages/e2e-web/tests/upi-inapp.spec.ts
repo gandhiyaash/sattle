@@ -13,7 +13,7 @@ import { ancestor, button, clipboard, debtCard, groupTab, memberRow, saveUpiId, 
 import { expect, test } from '../src/fixtures';
 import { duo, intoGroup, type Who } from '../src/settle.helpers';
 
-const ACCENT = 'rgb(194, 98, 28)';
+const ACCENT = 'rgb(11, 87, 208)';
 const spends = [{ description: 'Villa', amount: 60_000, paidBy: 'Priya' }];
 
 /** Yash owes Priya ₹300, and Priya can be paid by UPI. */
@@ -25,7 +25,7 @@ async function owingByUpi(api: Parameters<typeof duo>[0], device: Parameters<typ
 
 /** From the Settle up tab, through Pay by UPI to the panel. */
 async function openUpi(a: Who) {
-  await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+  await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
   await button(a.page, 'Pay by UPI').click();
   await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
 }
@@ -38,7 +38,7 @@ test.describe('the rails, once the payee has a UPI ID', () => {
     await expect(b.page.getByText('priya@okaxis')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
-    const card = debtCard(a.page, 'You owe Priya');
+    const card = debtCard(a.page, 'You pay Priya');
     await expect(button(card, 'Pay')).toBeVisible();
     await button(card, 'Pay').click();
     await expect(a.page.getByText('Pay Priya ₹300')).toBeVisible();
@@ -161,7 +161,7 @@ test.describe('I’ve paid', () => {
   test('yes, with no reference, settles it on the payer’s word', async ({ api, device }) => {
     const { a, b, group, groupName, idOf } = await owingByUpi(api, device);
     await intoGroup(b, groupName, 'Settle up');
-    await expect(debtCard(b.page, 'Yash owes you')).toBeVisible();
+    await expect(debtCard(b.page, 'Yash pays you')).toBeVisible();
 
     await intoGroup(a, groupName, 'Settle up');
     await openUpi(a);
@@ -172,8 +172,8 @@ test.describe('I’ve paid', () => {
     await expect(a.page.getByText('UPI reference')).toBeHidden();
     await expect(a.page.getByText('Payment proof')).toBeHidden();
     await button(a.page, 'Done').click();
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
-    await expect(b.page.getByText('All settled.', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
+    await expect(b.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible({ timeout: 15_000 });
 
     const [settlement] = await a.api.settlements(group.id);
     expect(settlement).toMatchObject({
@@ -186,7 +186,7 @@ test.describe('I’ve paid', () => {
     });
     expect(settlement.upi).not.toHaveProperty('reference');
 
-    await button(a.page, 'History').click();
+    await button(a.page, 'See all').click();
     await expect(a.page.getByText('Yash paid Priya')).toBeVisible();
     await expect(a.page.getByText(/^Paid by UPI, as Yash said · Today, /)).toBeVisible();
     await a.page.getByText('Yash paid Priya').click();
@@ -216,7 +216,7 @@ test.describe('I’ve paid', () => {
     const [settlement] = await a.api.settlements(group.id);
     expect(settlement.upi).toEqual({ byPayer: true, reference: '123456789012' });
 
-    await button(a.page, 'History').click();
+    await button(a.page, 'See all').click();
     await a.page.getByText('Yash paid Priya').click();
     await expect(a.page.getByText('123456789012')).toBeVisible();
     await expect(
@@ -234,7 +234,7 @@ test.describe('I’ve paid', () => {
     await button(a.page, 'Yes, it went through').dblclick();
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
     await button(a.page, 'Done').click();
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
     expect(await a.api.settlements(group.id)).toHaveLength(1);
   });
 
@@ -284,9 +284,9 @@ test.describe('a payer who uses only rupees', () => {
   test('is offered UPI alone', async ({ api, device }) => {
     const { a, groupName } = await owingByUpi(api, device, { currencies: ['INR'] });
     await intoGroup(a, groupName, 'Members');
-    await expect(memberRow(a.page, 'Priya').getByText('Takes UPI')).toBeVisible();
+    await expect(memberRow(a.page, 'Priya').getByText('Joined · takes UPI')).toBeVisible();
     await groupTab(a.page, 'Settle up');
-    await button(debtCard(a.page, 'You owe Priya'), 'Pay').click();
+    await button(debtCard(a.page, 'You pay Priya'), 'Pay').click();
     await expect(a.page.getByText('Pay Priya ₹300')).toBeVisible();
     const upi = button(a.page, 'Pay by UPI');
     await expect(ancestor(upi, 1)).toHaveCSS('background-color', ACCENT);
@@ -298,16 +298,16 @@ test.describe('a payer who uses only rupees', () => {
     await button(a.page, 'I’ve paid').click();
     await button(a.page, 'Yes, it went through').click();
     await waitForSettled(a.page);
-    await expect(a.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
   });
 });
 
 test.describe('what the members list and the debt say, by who uses what', () => {
   const cases = [
-    { payer: 'both currencies', payee: 'has a UPI ID', state: 'In app', action: 'Pay' },
-    { payer: 'both currencies', payee: 'has no UPI ID', state: 'In app', action: 'Pay' },
-    { payer: 'rupees only', payee: 'has a UPI ID', state: 'Takes UPI', action: 'Pay' },
-    { payer: 'rupees only', payee: 'has no UPI ID', state: 'In app', action: 'Options' },
+    { payer: 'both currencies', payee: 'has a UPI ID', state: 'Joined', action: 'Pay' },
+    { payer: 'both currencies', payee: 'has no UPI ID', state: 'Joined', action: 'Pay' },
+    { payer: 'rupees only', payee: 'has a UPI ID', state: 'Joined · takes UPI', action: 'Pay' },
+    { payer: 'rupees only', payee: 'has no UPI ID', state: 'Joined', action: 'Options' },
   ] as const;
 
   for (const c of cases) {
@@ -319,9 +319,9 @@ test.describe('what the members list and the debt say, by who uses what', () => 
       if (c.payee === 'has a UPI ID') await b.api.setUpiId('priya@okaxis');
       await intoGroup(a, groupName, 'Members');
       await expect(memberRow(a.page, 'Priya').getByText(c.state, { exact: true })).toBeVisible();
-      await expect(memberRow(a.page, 'Yash (you)').getByText('In app')).toBeVisible();
+      await expect(memberRow(a.page, 'Yash (you)').getByText('Joined', { exact: true })).toBeVisible();
       await groupTab(a.page, 'Settle up');
-      const card = debtCard(a.page, 'You owe Priya');
+      const card = debtCard(a.page, 'You pay Priya');
       await expect(button(card, c.action)).toBeVisible();
       await expect(button(card, c.action === 'Pay' ? 'Options' : 'Pay')).toBeHidden();
     });

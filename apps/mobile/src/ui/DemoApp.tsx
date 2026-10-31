@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core';
@@ -21,7 +21,7 @@ import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { FaqScreen } from './FaqScreen';
-import { GroupDetailScreen, type GroupTab } from './GroupDetailScreen';
+import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupGuestScreen } from './GroupGuestScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
 import { GroupsListScreen } from './GroupsListScreen';
@@ -29,19 +29,29 @@ import { GuestPayScreen } from './GuestPayScreen';
 import { HistoryEntrySheet, HistoryScreen } from './HistoryScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
-import { AboveBottomBar, Loading, Screen } from './primitives';
+import { AboveBottomBar, Loading, Screen, Sheet } from './primitives';
 import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
-import { layout, makeStyles, radius, space, type } from './theme';
+import { makeStyles, radius, space, type } from './theme';
 
 type Route =
   | { name: 'groups' }
-  | { name: 'newGroup' }
-  | { name: 'group'; groupId: string }
-  | { name: 'addExpense'; groupId: string; members: Member[]; currency: string; userId: string }
-  | { name: 'editExpense'; groupId: string; members: Member[]; currency: string; expense: Expense; userId: string }
+  /** `example`: a name of the kind picked on Home, suggested in the name field. */
+  | { name: 'newGroup'; example?: string }
+  /** `sharing`: just made, so it opens on Add people with the link ready to send. */
+  | { name: 'group'; groupId: string; sharing?: boolean }
+  | { name: 'addExpense'; groupId: string; groupName: string; members: Member[]; currency: string; userId: string }
+  | {
+      name: 'editExpense';
+      groupId: string;
+      groupName: string;
+      members: Member[];
+      currency: string;
+      expense: Expense;
+      userId: string;
+    }
   | { name: 'groupSettings'; groupId: string }
   | { name: 'history'; groupId: string }
   | { name: 'wallet' }
@@ -121,8 +131,6 @@ function Navigator({
   // The entry of a group's history that is open in full, over the list it was tapped in.
   const [viewing, setViewing] = useState<{ entry: HistoryEntry; members: Member[]; currency: string } | null>(null);
   const [nonce, setNonce] = useState(0);
-  // Held here, not in the group screen, which is built again after every payment and every change.
-  const [groupTab, setGroupTab] = useState<GroupTab>('expenses');
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
@@ -133,11 +141,7 @@ function Navigator({
 
   const refresh = () => setNonce((n) => n + 1);
 
-  /** Into a group from outside it, which starts on its expenses. Coming back from one of its own screens keeps the tab. */
-  const openGroup = (groupId: string) => {
-    setGroupTab('expenses');
-    setRoute({ name: 'group', groupId });
-  };
+  const openGroup = (groupId: string) => setRoute({ name: 'group', groupId });
 
   const body = (() => {
     switch (route.name) {
@@ -146,7 +150,7 @@ function Navigator({
           <GroupsListScreen
             key={nonce}
             onOpenGroup={openGroup}
-            onNewGroup={() => setRoute({ name: 'newGroup' })}
+            onNewGroup={(example) => setRoute({ name: 'newGroup', example })}
             onJoin={() => setRoute({ name: 'join' })}
           />
         );
@@ -157,10 +161,9 @@ function Navigator({
             // A second link starts over.
             key={route.token}
             token={route.token}
-            // Already in it. The link is the one for seeing what's owed and paying it, so that is the tab.
+            // Already in it: the group, where who pays whom is near the top.
             onIn={(groupId) => {
               onSharedDone?.();
-              setGroupTab('settle');
               setRoute({ name: 'group', groupId });
             }}
             onJoin={() => {
@@ -204,10 +207,11 @@ function Navigator({
       case 'newGroup':
         return (
           <NewGroupScreen
+            example={route.example}
             onBack={() => setRoute({ name: 'groups' })}
             onCreated={(groupId) => {
               refresh();
-              openGroup(groupId);
+              setRoute({ name: 'group', groupId, sharing: true });
             }}
           />
         );
@@ -217,14 +221,15 @@ function Navigator({
           <GroupDetailScreen
             key={`${route.groupId}-${nonce}`}
             groupId={route.groupId}
-            tab={groupTab}
-            onTab={setGroupTab}
+            sharing={route.sharing}
+            // Once, on arriving: coming back to the group later shouldn't open it again.
+            onShared={() => route.sharing && setRoute({ name: 'group', groupId: route.groupId })}
             onBack={() => setRoute({ name: 'groups' })}
-            onAddExpense={(members, currency, userId) =>
-              setRoute({ name: 'addExpense', groupId: route.groupId, members, currency, userId })
+            onAddExpense={(members, currency, userId, groupName) =>
+              setRoute({ name: 'addExpense', groupId: route.groupId, groupName, members, currency, userId })
             }
-            onEditExpense={(expense, members, currency, userId) =>
-              setRoute({ name: 'editExpense', groupId: route.groupId, members, currency, expense, userId })
+            onEditExpense={(expense, members, currency, userId, groupName) =>
+              setRoute({ name: 'editExpense', groupId: route.groupId, groupName, members, currency, expense, userId })
             }
             onManage={() => setRoute({ name: 'groupSettings', groupId: route.groupId })}
             onHistory={() => setRoute({ name: 'history', groupId: route.groupId })}
@@ -245,6 +250,7 @@ function Navigator({
         return (
           <AddExpenseScreen
             groupId={route.groupId}
+            groupName={route.groupName}
             members={route.members}
             currency={route.currency}
             expense={route.expense}
@@ -280,7 +286,6 @@ function Navigator({
         return (
           <HistoryScreen
             groupId={route.groupId}
-            // Back to Settle up, which is where it was opened from: the tab is still held above.
             onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
             onOpen={(entry, members, currency) => setViewing({ entry, members, currency })}
           />
@@ -290,13 +295,13 @@ function Navigator({
         return (
           <AddExpenseScreen
             groupId={route.groupId}
+            groupName={route.groupName}
             members={route.members}
             currency={route.currency}
             userId={route.userId}
             onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
             onAdded={() => {
               refresh();
-              // Whichever tab Add expense was tapped from, the new one is what they came back to see.
               openGroup(route.groupId);
             }}
           />
@@ -426,28 +431,6 @@ function SharedGroup({
   return <GroupGuestScreen token={token} onBack={onBack} onJoin={onJoin} />;
 }
 
-/** Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button. */
-function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
-  const sheet = useSheet();
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable
-        style={sheet.backdrop}
-        onPress={() => {
-          analytics.tap('Dismiss', { control: 'backdrop' });
-          onClose();
-        }}
-      />
-      {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
-      <View style={sheet.frame} pointerEvents="box-none">
-        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
-        <View style={[sheet.container, { paddingBottom: insets.bottom }]}>{children}</View>
-      </View>
-    </Modal>
-  );
-}
-
 /**
  * Groups, Wallet and Account. In demo mode, also a Guest link tab, so a judge can jump
  * straight to the guest page without a second device. It opens the seeded
@@ -562,16 +545,6 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
 }
 
 const useSheet = makeStyles((color) => ({
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: color.scrim },
-  // A flow child, not absolutely placed: native layout ignores auto margins on an absolute box.
-  frame: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
-  container: {
-    width: '100%',
-    maxWidth: layout.maxWidth,
-    backgroundColor: color.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-  },
   bar: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
