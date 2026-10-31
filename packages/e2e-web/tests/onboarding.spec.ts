@@ -103,12 +103,12 @@ test.describe('welcome', () => {
     const { page } = await device();
     await page.goto('/');
     await expect(pressable(page, 'Get started')).toHaveCSS('opacity', '0.4');
-    await button(page, 'Get started').click();
+    await button(page, 'Get started').click({ force: true });
     await expect(page.getByText('What should your friends call you?')).toBeVisible();
 
     await page.getByPlaceholder('Your name').fill('   ');
     await expect(pressable(page, 'Get started')).toHaveCSS('opacity', '0.4');
-    await button(page, 'Get started').click();
+    await button(page, 'Get started').click({ force: true });
     await expect(page.getByText('What should your friends call you?')).toBeVisible();
     await expect(page.getByText('What are you splitting?')).toHaveCount(0);
 
