@@ -20,6 +20,9 @@
 #
 # Output lands in dist-ios/: the archive always, which Xcode's Organizer can open to upload by
 # hand if the upload fails, and the .ipa with UPLOAD=0.
+#
+# It deletes and regenerates apps/mobile/ios, so build nothing else from there while it runs:
+# Xcode or `just ios` working in the same folder pulls files out from under the archive.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,7 +39,7 @@ command -v pod > /dev/null || die 'CocoaPods not found: brew install cocoapods'
 # As in the Android release: nothing here names a host.
 for name in EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL; do
   [ -n "${!name:-}" ] || die "set $name to https://<host>"
-  [[ "${!name}" =~ ^https://[^/]+$ ]] || die "$name must be https://<host>, with no path and no trailing slash, got '${!name}'"
+  [[ "${!name}" =~ ^https://[^/[:space:]]+$ ]] || die "$name must be https://<host>, with no path, no trailing slash and no whitespace, got '${!name}'"
 done
 export EXPO_PUBLIC_API_URL EXPO_PUBLIC_APP_URL
 
@@ -109,9 +112,12 @@ NAME="sattle-$VERSION_NAME-$BUILD_NUMBER"
 ARCHIVE="$OUT/$NAME.xcarchive"
 rm -rf "$ARCHIVE"
 
+# DerivedData of its own, shared with no dev build or open Xcode: the shared one remembers the
+# ios/ that prebuild just replaced, and fails with "failed to find blueprint corresponding to PIF
+# GUID" on the new project's ids. It goes with $WORK at the end.
 xcodebuild archive -quiet \
   -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
-  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
+  -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" -derivedDataPath "$WORK/DerivedData" \
   "${SIGN_ARCHIVE[@]}"
 
 # --- export -------------------------------------------------------------------------------
