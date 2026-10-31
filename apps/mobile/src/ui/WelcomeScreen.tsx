@@ -10,6 +10,8 @@
  * data was cleared, pastes the sign-in key they saved from Account instead,
  * or signs in with the Nostr key they linked there.
  * And a group can be read back from its backup key with no account at all.
+ * Those three wait under Other ways to sign in, so a first launch sees one
+ * way in: a name.
  */
 
 import React, { useState } from 'react';
@@ -34,19 +36,28 @@ export interface WelcomeScreenProps {
 export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
   useScreenView('Welcome');
   const [signingIn, setSigningIn] = useState<'key' | 'nostr' | null>(null);
+  // Kept here, so Back from signing in with a key or Nostr finds the other ways still showing.
+  const [others, setOthers] = useState(false);
   if (signingIn === 'key') return <SignInWithKey onReady={onReady} onBack={() => setSigningIn(null)} />;
   if (signingIn === 'nostr') return <SignInWithNostr onReady={onReady} onBack={() => setSigningIn(null)} />;
-  return <NewAccount onReady={onReady} onSignIn={setSigningIn} onRestore={onRestore} />;
+  return (
+    <NewAccount onReady={onReady} onSignIn={setSigningIn} onRestore={onRestore} others={others} setOthers={setOthers} />
+  );
 }
 
 function NewAccount({
   onReady,
   onSignIn,
   onRestore,
+  others,
+  setOthers,
 }: {
   onReady: (token: string) => void;
   onSignIn: (how: 'key' | 'nostr') => void;
   onRestore: () => void;
+  /** Whether the ways in for someone who already has an account, or a group, are showing. */
+  others: boolean;
+  setOthers: (others: boolean) => void;
 }) {
   const color = useColors();
   const s = useStyles();
@@ -94,9 +105,14 @@ function NewAccount({
       <Button label="Get started" variant="primary" busy={busy} disabled={!name.trim()} onPress={submit} />
 
       <View style={s.others}>
-        <Button label="I have a sign-in key" variant="quiet" onPress={() => onSignIn('key')} />
-        <Button label="Sign in with Nostr" variant="quiet" onPress={() => onSignIn('nostr')} />
-        <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />
+        <Button label="Other ways to sign in" variant="quiet" expanded={others} onPress={() => setOthers(!others)} />
+        {others && (
+          <>
+            <Button label="I have a sign-in key" variant="quiet" onPress={() => onSignIn('key')} />
+            <Button label="Sign in with Nostr" variant="quiet" onPress={() => onSignIn('nostr')} />
+            <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />
+          </>
+        )}
       </View>
     </Screen>
   );
