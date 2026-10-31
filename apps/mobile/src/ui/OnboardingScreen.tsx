@@ -98,7 +98,7 @@ function Split() {
           <Owes name="Riya" amount={40_000} />
         </View>
       </Card>
-      <Text style={s.note}>Split equally, by shares, or by exact amounts. Every split shows each person’s part before you save it.</Text>
+      <Text style={s.note}>Split equally, by amount, by parts, by percent or by item. Every split shows each person’s part before you save it.</Text>
     </Step>
   );
 }

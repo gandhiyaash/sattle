@@ -77,7 +77,7 @@ import {
 import { CoverArt } from './CoverArt';
 import { QrCode } from './QrCode';
 import { ShareVia } from './ShareVia';
-import { coverFor, initialOf, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { coverFor, initialOf, makeStyles, radius, shadow, space, type, useColorMode, useColors, wash } from './theme';
 
 export interface GroupDetailScreenProps {
   groupId: string;
@@ -250,6 +250,9 @@ export function GroupDetailScreen({
   const iCanReceive = me ? canReceive(me, mode) : false;
   const owingMe = data.debts.filter((d) => d.toMemberId === data.myMemberId).map((d) => nameOf(d.fromMemberId));
   const rupees = data.currency === UPI_CURRENCY;
+  // Somewhere for what's owed to the user to land. Without it, paying from a link fails, so
+  // there's nothing to remind anyone about until it's set up.
+  const canBePaid = iCanReceive || Boolean(rupees && data.upi.upiId);
   // A group kept in bitcoin, joined by someone who said they don't use it. Getting paid here takes
   // Lightning, and Wallet only shows that to someone who uses bitcoin, so setting it up turns it on.
   const turnsOnBitcoin = isBitcoin(data.currency) && !prefs.uses.includes('BTC');
@@ -325,7 +328,7 @@ export function GroupDetailScreen({
             )}
           </View>
 
-          {owingMe.length > 0 && !iCanReceive && !(rupees && data.upi.upiId) && (
+          {owingMe.length > 0 && !canBePaid && (
             <GetPaidCard names={owingMe} ways={ways} turnsOnBitcoin={turnsOnBitcoin} onSetUp={setUpGettingPaid} />
           )}
 
@@ -363,7 +366,7 @@ export function GroupDetailScreen({
                     mode={mode}
                     ways={ways}
                     onPay={() => onSettle(debt, data.members, data.name, data.currency)}
-                    onRemind={() => setOver({ kind: 'remind', debt })}
+                    onRemind={canBePaid ? () => setOver({ kind: 'remind', debt }) : undefined}
                     onChanged={refresh}
                     onToast={showToast}
                   />
@@ -565,7 +568,8 @@ function DebtRow({
   mode: PaymentMode;
   ways: PayWays;
   onPay: () => void;
-  onRemind: () => void;
+  /** Absent while the user has nowhere to be paid: the card above says to set that up first. */
+  onRemind?: () => void;
   onChanged: () => void;
   onToast: (line: string) => void;
 }) {
@@ -605,7 +609,7 @@ function DebtRow({
             onPress={onPay}
           />
         )}
-        {mineIn && !claimWaiting && (
+        {mineIn && !claimWaiting && onRemind && (
           <Pill
             label={sentAt ? 'Reminded' : 'Remind'}
             variant={sentAt ? 'soft' : 'outline'}
@@ -920,28 +924,31 @@ function AddPeopleSheet({
   }, [client, groupId]);
 
   // People from the user's other groups, to add with a tap. Names only: Sattle has no contacts.
+  // Read once each time the sheet opens. The group is read again every few seconds while it's
+  // open, so who's already here is left out as it's drawn, not by reading the other groups again.
   useEffect(() => {
     let live = true;
     (async () => {
       const groups = (await client.getGroups()).filter((g) => g.id !== groupId).slice(0, 8);
       const lists = await Promise.all(groups.map((g) => client.getMembers(g.id).then((ms) => ({ g, ms }))));
-      const here = new Set(data.members.map((m) => m.displayName.toLowerCase()));
       const seen = new Set<string>();
       const out: Array<{ name: string; from: string }> = [];
       for (const { g, ms } of lists) {
         for (const m of ms) {
           const key = m.displayName.toLowerCase();
-          if (m.claimedByUserId === data.userId || here.has(key) || seen.has(key)) continue;
+          if (m.claimedByUserId === data.userId || seen.has(key)) continue;
           seen.add(key);
           out.push({ name: m.displayName, from: g.name });
         }
       }
-      if (live) setSuggest(out.slice(0, 6));
+      if (live) setSuggest(out);
     })().catch(() => {});
     return () => {
       live = false;
     };
-  }, [client, groupId, data.members, data.userId]);
+  }, [client, groupId, data.userId]);
+  const here = new Set(data.members.map((m) => m.displayName.toLowerCase()));
+  const shown = suggest.filter((x) => !here.has(x.name.toLowerCase())).slice(0, 6);
 
   const message =
     link && 'url' in link
@@ -1005,10 +1012,9 @@ function AddPeopleSheet({
         <Text style={s.h3}>Add someone yourself</Text>
         <AddMember
           groupId={groupId}
-          suggest={suggest}
+          suggest={shown}
           onAdded={(name) => {
             setLastAdded(name);
-            setSuggest((prev) => prev.filter((x) => x.name.toLowerCase() !== name.toLowerCase()));
             onChanged();
           }}
         />
@@ -1099,7 +1105,7 @@ function JoinRequestCard({
   };
 
   return (
-    <View style={[s.waitCard, { backgroundColor: mode === 'dark' ? '#3D2C10' : '#FBEFD9' }]}>
+    <View style={[s.waitCard, { backgroundColor: wash('waiting', mode) }]}>
       <View style={s.waitHead}>
         {/* Ringed, since a face's tint can be the card's own. */}
         <View style={s.ring}>
@@ -1171,13 +1177,13 @@ function ago(iso: string): string {
   return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }
 
-/** How an expense was divided, e.g. "split by shares, 3 ways". */
+/** How an expense was divided, e.g. "split by parts, 3 ways". Parts are what the API calls shares. */
 export function splitSummary(expense: Expense, nameOf: (id: string) => string): string {
   const n = expense.parts.length;
   if (n === 1) return `all for ${nameOf(expense.parts[0].memberId)}`;
   switch (expense.splitMode) {
     case 'shares':
-      return `split by shares, ${n} ways`;
+      return `split by parts, ${n} ways`;
     case 'exact':
       return `exact amounts, ${n} ways`;
     default:
@@ -1472,7 +1478,7 @@ function UpiClaimPanel({
   }
 
   return (
-    <View style={[s.claim, { backgroundColor: mode === 'dark' ? '#173A28' : '#E4F1EA' }]}>
+    <View style={[s.claim, { backgroundColor: wash('paid', mode) }]}>
       <View style={{ gap: 2 }}>
         <Text style={s.claimTitle}>
           {claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you {amount} by UPI

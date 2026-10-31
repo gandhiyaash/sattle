@@ -243,17 +243,17 @@ export const covers = [
 export type Cover = (typeof covers)[number];
 
 /**
- * The cover for a group, from its name. Nothing is stored, so everyone in
- * the group sees the same colour, and New group can show it while the name
- * is being typed. Renaming a group can change it.
- */
-/**
  * The letter that stands for a name on a tile: its first character, taken
  * whole. A name can start with an emoji, which is two code units, and half
  * of one draws as a broken glyph.
  */
 export const initialOf = (name: string) => ([...name.trim()][0] ?? '?').toUpperCase();
 
+/**
+ * The cover for a group, from its name. Nothing is stored, so everyone in
+ * the group sees the same colour, and New group can show it while the name
+ * is being typed. Renaming a group can change it.
+ */
 export function coverFor(name: string): Cover {
   let h = 0;
   for (const ch of name.trim() || 'Group') h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -284,6 +284,14 @@ const faces = {
     ['#3F1C1C', '#F2B3B3'],
   ],
 } as const;
+
+/**
+ * Two of the faces' washes, by what they mean on a card: green behind money
+ * someone says they paid, amber behind someone waiting to be let in.
+ */
+export function wash(kind: 'paid' | 'waiting', mode: 'light' | 'dark'): string {
+  return faces[mode][kind === 'paid' ? 2 : 3]![0];
+}
 
 export function faceFor(name: string, mode: 'light' | 'dark'): { bg: string; ink: string } {
   let h = 0;

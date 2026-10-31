@@ -111,7 +111,7 @@ test.describe('Split by parts', () => {
     await expect(page.getByText('Split by parts between 2', { exact: true })).toBeVisible();
     await saveExpense(page);
     await expect(paidLine(page, 'You', '₹300')).toBeVisible();
-    await expect(page.getByText('split by shares, 2 ways', { exact: true })).toBeVisible();
+    await expect(page.getByText('split by parts, 2 ways', { exact: true })).toBeVisible();
     // 300 × 98/99 = ₹296.97 to Yash, ₹3.03 to Bob, which Bob owes.
     await expect(debtCard(page, 'Bob pays you').getByText('₹3.03')).toBeVisible();
   });
@@ -145,6 +145,30 @@ test.describe('Split by percent', () => {
     await groupTab(page, 'Members');
     await expect(memberRow(page, 'Bob').getByText('₹50')).toBeVisible();
     await expect(memberRow(page, 'Yash (you)').getByText('₹100')).toBeVisible();
+  });
+});
+
+test.describe('Split by percent, once a percent is typed', () => {
+  test('nobody else’s percent moves when someone is left out or let back in', async ({ person }) => {
+    const { page } = await person('Yash');
+    await createGroup(page, { name: 'Trip', people: ['Bob', 'Carl'] });
+    await openForm(page);
+    await expenseForm.amount(page).fill('200');
+    await openSplit(page);
+    await expenseForm.split(page, 'By percent').click();
+    // Before anything is typed, the even split follows who's in.
+    await expenseForm.between(page, 'Carl').click();
+    await expect(expenseForm.percent(page, 'Bob')).toHaveValue('50');
+    await expenseForm.between(page, 'Carl').click();
+    await expect(expenseForm.percent(page, 'Bob')).toHaveValue('33');
+    // After, it stays where it was put.
+    await expenseForm.percent(page, 'Yash').fill('50');
+    await expenseForm.between(page, 'Carl').click();
+    await expect(expenseForm.percent(page, 'Bob')).toHaveValue('33');
+    await expect(sheet(page).getByText('83% of 100% so far.', { exact: true })).toBeVisible();
+    await expenseForm.between(page, 'Carl').click();
+    await expect(expenseForm.percent(page, 'Carl')).toHaveValue('33');
+    await expect(sheet(page).getByText('116% of 100% so far.', { exact: true })).toBeVisible();
   });
 });
 
@@ -233,6 +257,25 @@ test.describe('Split by item', () => {
     const [expense] = await yash.api.expenses(group.id);
     expect(expense).toMatchObject({ description: 'Seafood dinner', amount: 74_000, splitMode: 'exact' });
     expect(expense.parts.map((p) => p.amount).sort((a, b) => a - b)).toEqual([3_333, 35_333, 35_334]);
+  });
+
+  test('the bill’s lines are still there after going back to the form', async ({ person }) => {
+    const { page } = await person('Yash');
+    await createGroup(page, { name: 'Trip', people: ['Bob'] });
+    await openForm(page);
+    await openSplit(page);
+    await button(sheet(page), 'Split by item').click();
+    await page.getByRole('textbox', { name: 'Item 1', exact: true }).fill('Thali');
+    await page.getByRole('textbox', { name: 'Price of Thali', exact: true }).fill('640');
+    await page.getByRole('checkbox', { name: 'Bob had Thali', exact: true }).click();
+    await back(page);
+    await expenseForm.description(page).fill('Lunch');
+    await openSplit(page);
+    await button(sheet(page), 'Split by item').click();
+    await expect(page.getByRole('textbox', { name: 'Item 1', exact: true })).toHaveValue('Thali');
+    await expect(page.getByRole('textbox', { name: 'Price of Thali', exact: true })).toHaveValue('640');
+    await expect(page.getByRole('checkbox', { name: 'Bob had Thali', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Lunch · tap who had what', { exact: true })).toBeVisible();
   });
 
   test('won’t save a line nobody had, and back keeps the form as it was', async ({ person }) => {
@@ -472,7 +515,7 @@ test.describe('Changing an expense', () => {
       ],
     });
     await goToGroup(page, 'Trip');
-    await expect(page.getByText('split by shares, 2 ways', { exact: true })).toBeVisible();
+    await expect(page.getByText('split by parts, 2 ways', { exact: true })).toBeVisible();
     await page.getByText('Villa', { exact: true }).click();
     await expect(page.getByText('This was split by parts. It opens as the amounts each person owes.')).toBeVisible();
     await expect(page.getByText('Split by amount between 2', { exact: true })).toBeVisible();

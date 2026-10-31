@@ -140,6 +140,8 @@ export function AddExpenseScreen({
   }));
   const [details, setDetails] = useState(false);
   const [byItem, setByItem] = useState(false);
+  // Held here, not in ItemSplit, so the bill's lines are still there after going back to the form.
+  const [items, setItems] = useState<Item[]>([{ key: 0, name: '', price: '', who: [] }]);
 
   const payer = expense && members.find((m) => m.id === expense.paidByMemberId);
   // Someone else's to change: the server would refuse, so don't offer.
@@ -153,16 +155,22 @@ export function AddExpenseScreen({
   // Members in group order, so the remainder lands the same way every time.
   const inSplit = members.filter((m) => included.includes(m.id));
 
-  /** Before anything is typed: one part each, and the percents shared out evenly with the odd one to the first. */
+  /** The percents shared out evenly between whoever's in, with the odd one to the first. */
+  const evenPercent = (id: string): string => {
+    const n = Math.max(inSplit.length, 1);
+    const even = Math.floor(100 / n);
+    return String(inSplit[0]?.id === id ? 100 - even * (n - 1) : even);
+  };
+  // Until a percent is typed they follow who's in, so the even split stays even. After, what's on
+  // screen stays put: someone let in starts at 0, and nobody else's number moves under the user.
+  const percentTyped = Object.keys(typed.percent).length > 0;
+
+  /** Before anything is typed: one part each, and the percents shared out evenly. */
   const raw = (w: 'exact' | 'shares' | 'percent', id: string): string => {
     const t = typed[w][id];
     if (t !== undefined) return t;
     if (w === 'shares') return '1';
-    if (w === 'percent') {
-      const n = Math.max(inSplit.length, 1);
-      const even = Math.floor(100 / n);
-      return String(inSplit[0]?.id === id ? 100 - even * (n - 1) : even);
-    }
+    if (w === 'percent') return percentTyped ? '0' : evenPercent(id);
     return '';
   };
   const num = (text: string) => {
@@ -211,7 +219,14 @@ export function AddExpenseScreen({
     setIncluded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const typeFor = (w: 'exact' | 'shares' | 'percent', id: string, value: string) =>
-    setTyped((prev) => ({ ...prev, [w]: { ...prev[w], [id]: value } }));
+    setTyped((prev) => {
+      // The first percent typed fixes everyone else's where they're showing.
+      const start =
+        w === 'percent' && Object.keys(prev.percent).length === 0
+          ? Object.fromEntries(inSplit.map((m) => [m.id, evenPercent(m.id)]))
+          : prev[w];
+      return { ...prev, [w]: { ...start, [id]: value } };
+    });
 
   /** What goes to the server: equal and parts as they are, amounts and percents as the amounts they resolved to. */
   const toInput = (): ExpenseInput => {
@@ -271,6 +286,8 @@ export function AddExpenseScreen({
   if (byItem) {
     return (
       <ItemSplit
+        items={items}
+        setItems={setItems}
         description={description}
         members={members}
         meId={me?.id}
@@ -560,6 +577,8 @@ function Faces({ names }: { names: Array<{ name: string; me: boolean }> }) {
  * amounts as an exact split of the bill's total.
  */
 function ItemSplit({
+  items,
+  setItems,
   description,
   members,
   meId,
@@ -569,6 +588,8 @@ function ItemSplit({
   onBack,
   onSave,
 }: {
+  items: Item[];
+  setItems: React.Dispatch<React.SetStateAction<Item[]>>;
   description: string;
   members: Member[];
   meId: string | undefined;
@@ -584,8 +605,6 @@ function ItemSplit({
   const insets = useSafeAreaInsets();
   const sats = isBitcoin(currency);
   const fmt = (minor: number) => formatAmount(minor, currency);
-  const next = useRef(1);
-  const [items, setItems] = useState<Item[]>([{ key: 0, name: '', price: '', who: [] }]);
 
   const change = (key: number, patch: Partial<Item>) =>
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
@@ -703,7 +722,9 @@ function ItemSplit({
             );
           })}
           <Pressable
-            onPress={() => setItems((prev) => [...prev, { key: next.current++, name: '', price: '', who: [] }])}
+            onPress={() =>
+              setItems((prev) => [...prev, { key: Math.max(-1, ...prev.map((x) => x.key)) + 1, name: '', price: '', who: [] }])
+            }
             accessibilityRole="button"
             style={s.addItem}
           >
