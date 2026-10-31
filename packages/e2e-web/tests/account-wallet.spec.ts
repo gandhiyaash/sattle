@@ -394,9 +394,9 @@ test.describe('FAQ', () => {
     await page.getByRole('button', { name: /^What if I lose this phone\?/ }).click();
     await expect(page.getByText(/called the preimage: 64 letters and digits/)).toBeVisible();
     await expect(page.getByText(/Copy sign-in key gives it to you/)).toBeVisible();
-    await expect(page.getByText(/pay a debt over Lightning or by UPI\./)).toHaveCount(0);
+    await expect(page.getByText(/pay a debt over Lightning or by UPI, or mark it as paid/)).toHaveCount(0);
     await page.getByRole('button', { name: /^What can someone with the group’s link do\?/ }).click();
-    await expect(page.getByText(/can pay a debt over Lightning or by UPI\./)).toBeVisible();
+    await expect(page.getByText(/can pay a debt over Lightning or by UPI, or mark it as paid if they paid another way/)).toBeVisible();
 
     await page.getByText('‹', { exact: true }).click();
     await expect(page.getByText('Wallet', { exact: true }).first()).toBeVisible();
@@ -411,6 +411,10 @@ test.describe('FAQ', () => {
     await expect(page.getByText('Lightning', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^How do I get paid over Lightning\?/ })).toHaveCount(0);
     await page.getByRole('button', { name: /^What can someone with the group’s link do\?/ }).click();
-    await expect(page.getByText(/can pay a debt by UPI\. They can’t add or change anything, and a UPI payment they say they made counts only once/)).toBeVisible();
+    await expect(
+      page.getByText(
+        /can pay a debt by UPI, or mark it as paid if they paid another way, like cash\. They can’t add or change anything, and a payment they say they made counts only once/
+      )
+    ).toBeVisible();
   });
 });

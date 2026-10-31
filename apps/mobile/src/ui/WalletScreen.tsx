@@ -592,7 +592,8 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
  *   Group data          migrations/001_init.sql: plain columns, no encryption
  *   Who can see what    routes/groupLinks.ts: no row in group_links until POST
  *                       /groups/:id/link, guestView, and nothing under /g/ that
- *                       writes; routes/payLinks.ts guestView, and its randomBytes(16)
+ *                       writes to the group; /paid-another-way makes a claim, which
+ *                       the payee confirms in routes/upi.ts; routes/payLinks.ts guestView, and its randomBytes(16)
  *                       token; walletStore.ts upi_id, and
  *                       GET /groups/:id/members/:memberId/upi refuses anyone who
  *                       doesn't owe them; routes/groupLinks.ts gives it under /g/
@@ -678,7 +679,7 @@ export function TrustModel({ ways }: { ways: PayWays }) {
         <Divider />
         <Row
           title="Who can see what"
-          body={`Anyone holding a group’s link sees every expense, every name and who owes whom, and can pay a debt, but can’t change anything. A pay link shows one debt: who owes whom, the group’s name, the amount and whether it’s paid.${
+          body={`Anyone holding a group’s link sees every expense, every name and who owes whom. They can pay a debt, or mark it as paid, which counts only once the person owed confirms it, but they can’t change anything. A pay link shows one debt: who owes whom, the group’s name, the amount and whether it’s paid.${
             upi ? ' Your UPI ID is shown to people who owe you, and to anyone holding one of your groups’ links unless you turn that off.' : ''
           } Neither link can be guessed, but both can be forwarded.`}
         />

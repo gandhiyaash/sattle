@@ -1,7 +1,8 @@
 /**
  * The group's one link: the Invite dialog that hands it out, Manage where it
  * is replaced or turned off, the page it opens for someone with no app
- * (/g/<token>), paying from that page over Lightning and by UPI, and joining
+ * (/g/<token>), paying from that page over Lightning and by UPI, marking a
+ * debt there as paid another way, and joining
  * through it: straight in, with someone letting you in, and taking a name
  * back from a device you lost.
  */
@@ -212,6 +213,8 @@ test.describe('The group page', () => {
     await expect(guest.page.getByText('Om can’t be paid here yet. Settle with them directly.')).toBeVisible();
     await expect(button(guest.page, 'Pay with Lightning')).toBeHidden();
     await expect(button(guest.page, 'Pay by UPI')).toBeHidden();
+    // Om has no account to confirm a payment made another way, so the page can't mark it paid either.
+    await expect(button(guest.page, 'Mark as paid')).toBeHidden();
   });
 
   test('keeps itself current: a spend added in the app shows up without a reload', async ({ api, device }) => {
@@ -924,5 +927,74 @@ test.describe('Paying from the group page by UPI', () => {
     await button(link, 'Use my Wallet setting here').click();
     await expect(link.getByText('On, as in Wallet for all your groups.')).toBeVisible();
     await expect(button(guest.page, 'Pay by UPI')).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+test.describe('Marking a debt as paid from the group page', () => {
+  test('Mark as paid is a claim the person owed confirms, and then everyone sees it settled', async ({ person, device }) => {
+    test.slow();
+    const yash = await person('Yash');
+    // Yash has no UPI ID: the only ways the page offers are Lightning, which the simulator takes, and this.
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const token = await groupLinkToken(yash.api, group.id);
+
+    const guest = await device();
+    await openGroupPage(guest.page, token);
+    await expect(button(guest.page, 'Pay by UPI')).toBeHidden();
+    await button(guest.page, 'Mark as paid').click();
+    await expect(guest.page.getByText('Paid Yash another way?')).toBeVisible();
+    await expect(
+      guest.page.getByText(
+        'Cash, UPI to their number, anything outside Sattle. If you paid Yash the ₹300, say so here. Yash confirms it arrived, and then it’s settled.'
+      )
+    ).toBeVisible();
+
+    await button(guest.page, 'Yes, I’ve paid').click();
+    await expect(guest.page.getByText('Someone said this was paid another way. Waiting for Yash to confirm it arrived.')).toBeVisible();
+    await expect(button(guest.page, 'Pay with Lightning')).toBeHidden();
+    await expect(button(guest.page, 'Mark as paid')).toBeHidden();
+
+    await openGroup(yash.page, 'Goa trip', { reload: true });
+    await groupTab(yash.page, 'Settle up');
+    await expect(
+      yash.page.getByText('Someone on the group’s link says Om paid you ₹300 another way, like cash or UPI to your number. Did you get it?')
+    ).toBeVisible({ timeout: 15_000 });
+    await button(yash.page, 'Yes, I got it').click();
+    await expect(yash.page.getByText('All settled.', { exact: true })).toBeVisible();
+    await expect(guest.page.getByText('All settled. Nobody owes anything.')).toBeVisible({ timeout: 15_000 });
+
+    await button(yash.page, 'History').click();
+    await expect(yash.page.getByText('Om settled with Yash', { exact: true })).toBeVisible();
+    await expect(yash.page.getByText(/^Marked as settled by Yash · /)).toBeVisible();
+  });
+
+  test('Cancel asks nothing, and It didn’t arrive sends the guest back with the right words', async ({ person, device }) => {
+    test.slow();
+    const yash = await person('Yash');
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const token = await groupLinkToken(yash.api, group.id);
+
+    const guest = await device();
+    await openGroupPage(guest.page, token);
+    await button(guest.page, 'Mark as paid').click();
+    await button(guest.page, 'Cancel').click();
+    await expect(guest.page.getByText('Paid Yash another way?')).toBeHidden();
+    expect(await yash.api.upiClaims(group.id)).toEqual([]);
+
+    await button(guest.page, 'Mark as paid').click();
+    await button(guest.page, 'Yes, I’ve paid').click();
+    await expect(guest.page.getByText(/^Someone said this was paid another way\./)).toBeVisible();
+
+    await openGroup(yash.page, 'Goa trip', { reload: true });
+    await groupTab(yash.page, 'Settle up');
+    await expect(yash.page.getByText(/^Someone on the group’s link says Om paid you/)).toBeVisible({ timeout: 15_000 });
+    await button(yash.page, 'It didn’t arrive').click();
+    await expect(yash.page.getByText('You said Om’s payment of ₹300 didn’t arrive.')).toBeVisible();
+
+    await expect(guest.page.getByText('Yash says the payment didn’t arrive. Check with them before paying again.')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(button(guest.page, 'Mark as paid')).toBeVisible();
+    await expect(button(guest.page, 'Pay with Lightning')).toBeVisible();
   });
 });

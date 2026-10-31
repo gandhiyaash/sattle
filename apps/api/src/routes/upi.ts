@@ -21,6 +21,11 @@
  * route, marked as theirs, with the reference their UPI app showed if they
  * typed it in. It settles the debt the same way, on their word.
  *
+ * The group's page also makes claims that say a debt was paid another way,
+ * cash or UPI to a phone number (`anotherWay`, groupLinks.ts). They are
+ * answered here like the rest; confirmed, the debt is settled outside the
+ * app (rail `manual`) rather than paid by UPI.
+ *
  * A UPI ID often holds a phone number, so it isn't in the member list.
  * Someone who owes that person right now can read it, and so can whoever
  * holds one of their groups' shared links, for the debt they choose to pay
@@ -331,8 +336,9 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
 
   /**
    * The person owed says it arrived. The claim becomes a settlement, already
-   * counted (`manually_confirmed`, rail `upi`), and is gone. One they'd said
-   * didn't arrive can still be confirmed, if it turned up after all. For a
+   * counted (`manually_confirmed`, rail `upi`, or `manual` for one marked as
+   * paid another way), and is gone. One they'd said didn't arrive can still
+   * be confirmed, if it turned up after all. For a
    * claim said from a pay link, the settlement is tied to that link, which
    * then shows it paid.
    *   not the person owed                       → 400 invalid_input
@@ -354,8 +360,8 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
       const link = repo.payLinkOfUpiClaim(claim.id);
       repo.deleteUpiClaim(claim.id);
       const settled = repo.insertSettlement({
-        ...newSettlement(g, claim, 'upi', 'manually_confirmed'),
-        note: claim.reference ? `Paid by UPI, ref ${claim.reference}` : 'Paid by UPI',
+        ...newSettlement(g, claim, claim.anotherWay ? 'manual' : 'upi', 'manually_confirmed'),
+        note: claim.anotherWay ? 'Paid another way' : claim.reference ? `Paid by UPI, ref ${claim.reference}` : 'Paid by UPI',
         recordedByMemberId: payee.id,
       });
       if (link) repo.attachToPayLink(settled.id, link.token);

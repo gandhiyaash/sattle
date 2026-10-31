@@ -436,7 +436,7 @@ export function GroupDetailScreen({
                 const claim = data.claims.find(
                   (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId
                 );
-                // They've said they paid by UPI. Paying again would pay twice, so Pay waits with the claim.
+                // They've said they paid, by UPI or another way. Paying again would pay twice, so Pay waits with the claim.
                 const waiting = owedByMe && claim?.status === 'pending';
 
                 return (
@@ -814,10 +814,11 @@ function MarkSettled({ debt, onSettled }: { debt: Debt; onSettled: () => void })
 }
 
 /**
- * A UPI payment someone says they made, on the debt it is for. Sattle can't
- * see it, so the person owed is asked whether it arrived; that is what
- * settles it. The payer sees that it is waiting, or that it was turned down,
- * and can take it back.
+ * A UPI payment someone says they made, on the debt it is for, or one the
+ * group's page marked as paid another way (`anotherWay`: cash, UPI to a phone
+ * number). Sattle can't see either, so the person owed is asked whether it
+ * arrived; that is what settles it. The payer sees that it is waiting, or
+ * that it was turned down, and can take it back.
  */
 function UpiClaimNote({
   claim,
@@ -840,6 +841,9 @@ function UpiClaimNote({
   const [error, setError] = useState<string | null>(null);
   const amount = formatAmount(claim.amount, currency);
   const declined = claim.status === 'declined';
+  // Marked as paid another way, which only the group's page does, so it is always from a link.
+  const another = Boolean(claim.anotherWay);
+  const payment = another ? 'payment' : 'UPI payment';
 
   const act = async (action: string, fn: (key: string) => Promise<unknown>) => {
     setBusy(action);
@@ -859,10 +863,12 @@ function UpiClaimNote({
       <View style={s.linkBlock}>
         <Text style={declined ? s.linkError : s.linkNote}>
           {declined
-            ? `${otherName} says the UPI payment of ${amount} didn’t arrive.`
-            : claim.viaLink
-              ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
-              : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
+            ? `${otherName} says the ${payment} of ${amount} didn’t arrive.`
+            : another
+              ? `Marked as paid another way from the group’s link. Waiting for ${otherName} to confirm they got ${amount}.`
+              : claim.viaLink
+                ? `Waiting for ${otherName} to confirm this UPI payment of ${amount}.`
+                : `Waiting for ${otherName} to confirm your UPI payment of ${amount}.`}
         </Text>
         <Button
           label={declined ? 'OK' : 'I didn’t pay after all'}
@@ -879,10 +885,12 @@ function UpiClaimNote({
     <View style={s.linkBlock}>
       <Text style={s.linkNote}>
         {declined
-          ? `You said ${otherName}’s UPI payment of ${amount} didn’t arrive.`
-          : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
-              claim.reference ? ` Ref ${claim.reference}.` : ''
-            } Did it arrive? Check your UPI app.`}
+          ? `You said ${otherName}’s ${payment} of ${amount} didn’t arrive.`
+          : another
+            ? `Someone on the group’s link says ${otherName} paid you ${amount} another way, like cash or UPI to your number. Did you get it?`
+            : `${claim.viaLink ? `Someone on a shared link says ${otherName} paid` : `${otherName} says they paid`} you ${amount} by UPI.${
+                claim.reference ? ` Ref ${claim.reference}.` : ''
+              } Did it arrive? Check your UPI app.`}
       </Text>
       <Button
         label={declined ? 'It arrived after all' : 'Yes, I got it'}

@@ -77,15 +77,15 @@ export function checkGroupCanGo(repo: Repo, g: Group) {
 
 /**
  * Turning simplifying debts on or off changes who owes whom. A payment under
- * way, or a UPI payment waiting for the person owed to confirm it, is for a
- * debt that might not be there afterwards, so the change waits for them.
+ * way, or one someone said they made that the person owed hasn't confirmed,
+ * is for a debt that might not be there afterwards, so the change waits for them.
  */
 export function checkDebtsCanChange(repo: Repo, g: Group) {
   if (repo.settlements(g.id).some(isInProgress)) {
     throw conflict('A payment in this group is still in progress. Wait for it to finish.');
   }
   if (repo.upiClaims(g.id).some((c) => c.status === 'pending')) {
-    throw conflict('A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
+    throw conflict('A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.');
   }
 }
 

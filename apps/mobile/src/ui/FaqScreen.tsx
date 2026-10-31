@@ -164,9 +164,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
     {
       question: 'What can someone with the group’s link do?',
       answer: [
-        `A group has no link until someone in it makes one, under Manage. Whoever opens it sees every expense, each person’s share, everyone’s name and who owes whom, and can pay a debt ${pay}. They can’t add or change anything${
-          upi ? ', and a UPI payment they say they made counts only once the person owed confirms it' : ''
-        }. They can join, or ask to, as the group chooses under Manage.`,
+        `A group has no link until someone in it makes one, under Manage. Whoever opens it sees every expense, each person’s share, everyone’s name and who owes whom, and can pay a debt ${pay}, or mark it as paid if they paid another way, like cash. They can’t add or change anything, and a payment they say they made counts only once the person owed confirms it. They can join, or ask to, as the group chooses under Manage.`,
         'Anyone in the group can replace the link or turn it off. It can’t be guessed, but it can be forwarded.',
         'A pay link, opened from there for one debt, shows less: who owes whom, the group’s name, the amount and whether it’s paid.',
       ],
@@ -184,6 +182,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
       question: 'Who can mark a debt settled by hand?',
       answer: [
         'The person who is owed. It is their money, so it is their word to give: on a debt owed to you, Mark as settled records it, with no proof asked. The person paying can do it only when the one they owe hasn’t joined Sattle, since there is nobody else to.',
+        'Someone paying from the group’s link who paid another way, in cash or by UPI to a phone number, can tap Mark as paid there. It needs nothing set up by the person owed, only that they’ve joined, and it counts once they confirm it in the app.',
         'Either way it shows in the group’s history as settled outside the app.',
       ],
     },

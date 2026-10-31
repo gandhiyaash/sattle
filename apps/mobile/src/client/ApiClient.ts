@@ -280,6 +280,14 @@ export class ApiClient implements SattleClient {
       idempotencyKey
     );
   }
+  async markPaidFromGroupLink(token: string, ref: string, idempotencyKey = newIdempotencyKey()) {
+    await this.request(
+      'POST',
+      `/g/${encodeURIComponent(token)}/debts/${encodeURIComponent(ref)}/paid-another-way`,
+      undefined,
+      idempotencyKey
+    );
+  }
 
   updateExpense(expenseId: string, input: ExpenseInput, idempotencyKey = newIdempotencyKey()) {
     return this.request<Expense>('PUT', `/groups/${input.groupId}/expenses/${expenseId}`, input, idempotencyKey);

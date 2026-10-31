@@ -274,12 +274,27 @@ describe('Group links', () => {
     const view = (await call<GroupGuestView>('GET', '/g/demo-group')).body;
     expect(Object.keys(view).sort()).toEqual(['approveJoins', 'currency', 'debts', 'expenses', 'groupName']);
     expect(Object.keys(view.expenses[0]).sort()).toEqual(['amount', 'createdAt', 'description', 'paidBy', 'shares']);
-    expect(Object.keys(view.debts[0]).sort()).toEqual(['amount', 'from', 'payable', 'ref', 'to']);
+    // `markable` says the person owed has joined, which /join/<token> shows the same link's holder anyway.
+    expect(Object.keys(view.debts[0]).sort()).toEqual(['amount', 'from', 'markable', 'payable', 'ref', 'to']);
     const names = new Set(view.expenses.flatMap((e) => e.shares.map((sh) => sh.name)));
     expect([...names].sort()).toEqual(['Om', 'Priya', 'Yash']);
   });
 
-  it('"and can pay a debt. They can’t change anything": the link reads, and starts a payment, nothing else', async () => {
+  it('"They can pay a debt, or mark it as paid, which counts only once the person owed confirms it"', async () => {
+    const { db, call } = setup();
+    const settlements = () => JSON.stringify(db.prepare('SELECT * FROM settlements ORDER BY id').all());
+    const before = settlements();
+    // Priya's: Om's has the demo's invoice out, and a debt being paid over Lightning can't be marked.
+    const debt = (await call<GroupGuestView>('GET', '/g/demo-group')).body.debts.find((d) => d.from === 'Priya')!;
+    expect(debt.markable).toBe(true);
+    expect((await call('POST', `/g/demo-group/debts/${debt.ref}/paid-another-way`)).status).toBe(201);
+    // A claim, waiting on the person owed. Nothing is settled.
+    expect(settlements()).toBe(before);
+    const after = (await call<GroupGuestView>('GET', '/g/demo-group')).body.debts.find((d) => d.ref === debt.ref)!;
+    expect(after).toMatchObject({ amount: debt.amount, upiClaim: 'pending', claimAnotherWay: true });
+  });
+
+  it('"but they can’t change anything": the link reads, starts a payment or says one was made, nothing else', async () => {
     const { db, call } = setup();
     const before = JSON.stringify(db.prepare('SELECT * FROM expenses ORDER BY id').all());
     for (const method of ['PUT', 'PATCH', 'DELETE']) {

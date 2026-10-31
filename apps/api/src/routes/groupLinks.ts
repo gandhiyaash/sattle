@@ -15,6 +15,12 @@
  * page says it was paid (a claim, as in upi.ts), and the person owed is the
  * one who confirms it, so holding the link still can't settle anything.
  *
+ * Any debt to someone who has joined can also be marked as paid from here,
+ * for money that went another way: cash, or UPI to their phone number. It
+ * needs no UPI ID or Lightning address, and in any currency. It is a claim
+ * too (`anotherWay`), confirmed or turned down by the person owed the same
+ * way. A ghost has nobody to confirm it, so a debt to one isn't markable.
+ *
  * /g/ responses carry names and amounts only, never member or group ids. A
  * UPI ID is given only for one debt at a time, when someone asks to pay it.
  */
@@ -23,7 +29,15 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import { SattleError, settledOutsideLink, type Debt, type Group, type GroupGuestView, type GroupLink, type UpiPayee } from '@sattle/core';
+import {
+  SattleError,
+  settledOutsideLink,
+  type Debt,
+  type Group,
+  type GroupGuestView,
+  type GroupLink,
+  type UpiPayee,
+} from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -102,6 +116,8 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
           payable: receivable(payments, members.get(d.toMemberId)!),
           ...(upiHere(g, d.toMemberId) ? { upi: true } : {}),
           ...(claim ? { upiClaim: claim.status } : {}),
+          ...(claim?.anotherWay ? { claimAnotherWay: true as const } : {}),
+          ...(members.get(d.toMemberId)!.claimedByUserId ? { markable: true as const } : {}),
         };
       }),
     };
@@ -191,35 +207,73 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
   });
 
   /**
+   * The page's word on a debt, as a claim marked as coming from the link. Not
+   * while a Lightning payment for it is under way, and nothing at all when a
+   * claim for it is already waiting, from the page or from the payer in the
+   * app: the link can't replace what the payer said.
+   */
+  const sayPaid = (g: Group, debt: Debt, anotherWay: boolean) => {
+    if (inProgressFor(repo, g, debt)) {
+      throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+    }
+    const waiting = repo
+      .upiClaims(g.id)
+      .find((x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId && x.status === 'pending');
+    if (waiting) return;
+    repo.replaceUpiClaim({
+      id: newId('uc'),
+      groupId: g.id,
+      fromMemberId: debt.fromMemberId,
+      toMemberId: debt.toMemberId,
+      amount: debt.amount,
+      status: 'pending',
+      viaLink: true,
+      ...(anotherWay ? { anotherWay: true as const } : {}),
+      createdAt: nowIso(),
+    });
+  };
+
+  /**
    * Public. Someone on the page says the debt was paid by UPI. It moves
    * nothing: the person owed sees it, marked as coming from the link, and
    * confirms it or says it didn't arrive. Returns 201 `{ ok: true }`.
    *   as for /upi above
    *   a Lightning payment for it is under way    → 409 conflict
-   * A claim already waiting for this debt, from the page or from the payer
-   * in the app, is left as it is: the link can't replace what the payer said.
+   * A claim already waiting for this debt is left as it is (sayPaid).
    */
   r.post('/g/:token/debts/:ref/upi-claims', once, (c) => {
     const link = findLink(c.req.param('token'));
     transaction(db, () => {
       const { g, debt } = upiPayee(link, c.req.param('ref'));
-      if (inProgressFor(repo, g, debt)) {
-        throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+      sayPaid(g, debt, false);
+    });
+    return c.json({ ok: true }, 201);
+  });
+
+  /**
+   * Public. Someone on the page marks the debt as paid, for money that went
+   * another way: cash, or UPI to the person's phone number. It needs no UPI
+   * ID or Lightning address. Like a UPI claim it moves nothing: the person
+   * owed sees it and confirms it or says it didn't arrive. Returns 201
+   * `{ ok: true }`.
+   *   unknown group link                         → 404 not_found
+   *   that debt is no longer owed                → 410 link_expired
+   *   the person owed hasn't joined              → 409 conflict: nobody could confirm it
+   *   a Lightning payment for it is under way    → 409 conflict
+   * A claim already waiting for this debt is left as it is (sayPaid).
+   */
+  r.post('/g/:token/debts/:ref/paid-another-way', once, (c) => {
+    const link = findLink(c.req.param('token'));
+    transaction(db, () => {
+      const { g, debt } = findDebt(link, c.req.param('ref'));
+      const payee = repo.member(debt.toMemberId)!;
+      if (!payee.claimedByUserId) {
+        throw new SattleError(
+          'conflict',
+          `${payee.displayName} hasn’t joined Sattle, so nobody can confirm it here. Settle with them directly.`
+        );
       }
-      const waiting = repo
-        .upiClaims(g.id)
-        .find((x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId && x.status === 'pending');
-      if (waiting) return;
-      repo.replaceUpiClaim({
-        id: newId('uc'),
-        groupId: g.id,
-        fromMemberId: debt.fromMemberId,
-        toMemberId: debt.toMemberId,
-        amount: debt.amount,
-        status: 'pending',
-        viaLink: true,
-        createdAt: nowIso(),
-      });
+      sayPaid(g, debt, true);
     });
     return c.json({ ok: true }, 201);
   });
