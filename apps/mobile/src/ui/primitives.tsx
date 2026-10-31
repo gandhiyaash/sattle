@@ -175,6 +175,7 @@ export function Button({
   disabled,
   busy,
   danger,
+  expanded,
 }: {
   label: string;
   /**
@@ -200,6 +201,8 @@ export function Button({
   busy?: boolean;
   /** For something that can't be undone. */
   danger?: boolean;
+  /** For a button that shows more under it: whether that is showing now. */
+  expanded?: boolean;
 }) {
   const color = useColors();
   const s = useStyles();
@@ -210,6 +213,9 @@ export function Button({
     <View>
       <Pressable
         {...link}
+        accessibilityState={expanded === undefined ? undefined : { expanded }}
+        // A browser is told separately: react-native-web doesn't read accessibilityState.
+        aria-expanded={expanded}
         onPress={() => {
           analytics.tap(track ?? label, { control: 'button', ...(href ? { link: true } : {}) });
           onPress?.();
