@@ -27,7 +27,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, SattleError, type Quote } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
-import { useBack } from './backNavigation';
+import { useBack, useTapped } from './backNavigation';
 import { brandBlue, faceFor, layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 /** The app icon's S, on no background; Logo puts it on its blue tile. */
@@ -363,8 +363,9 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
   const insets = useSafeAreaInsets();
   // On an iPhone the keyboard comes up over the sheet, so the sheet rides up on it: what's being typed stays in view.
   const keyboard = useKeyboardHeightIos();
-  // The back button closes it before it goes back a screen.
-  useBack(visible ? onClose : undefined, true);
+  // The back button closes it before it goes back a screen. One that opened by itself, with no tap, waits for one: see useTapped.
+  const tapped = useTapped();
+  useBack(visible && tapped ? onClose : undefined, true);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable

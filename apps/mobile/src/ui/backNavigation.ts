@@ -16,7 +16,7 @@
  * address doesn't change, except to the one `keepAddress` asks for.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BackHandler, Platform } from 'react-native';
 
 type Entry = { run: () => void; overlay: boolean };
@@ -127,3 +127,29 @@ export function useHistoryDepth(steps: number) {
     reconcile();
   }, [steps]);
 }
+
+/**
+ * Whether the page has had a tap or a key press since it loaded. Always, on
+ * Android and iOS. An entry added before then is one Chrome's back button
+ * passes over (see the top), so a sheet that opens by itself, at launch, takes
+ * the back button only once there's been one.
+ */
+export function useTapped(): boolean {
+  const [tapped, setTapped] = useState(hasBeenTapped);
+  useEffect(() => {
+    if (tapped) return;
+    const check = () => {
+      if (hasBeenTapped()) setTapped(true);
+    };
+    window.addEventListener('click', check, true);
+    window.addEventListener('keydown', check, true);
+    return () => {
+      window.removeEventListener('click', check, true);
+      window.removeEventListener('keydown', check, true);
+    };
+  }, [tapped]);
+  return tapped;
+}
+
+/** A browser that can't say counts as tapped, as every sheet that opens on a tap has been. */
+const hasBeenTapped = () => !web || (navigator.userActivation?.hasBeenActive ?? true);
