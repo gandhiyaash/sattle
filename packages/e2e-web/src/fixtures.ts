@@ -23,6 +23,8 @@ export type Currency = 'INR' | 'BTC';
 export interface DeviceOptions {
   /** Whether this device has seen the first-launch tour. Default true: most tests start past it. */
   toured?: boolean;
+  /** Whether this device has asked, at launch, where its owner is paid (GetPaidSheet). Default true, like `toured`. */
+  getPaidAsked?: boolean;
   /** An account's token, as a device signed in with it holds it. */
   token?: string;
   /** The currencies this device's owner uses, as the Account screen stores them. Default: both. */
@@ -79,6 +81,7 @@ export const test = base.extend<Fixtures>({
     await use(async (opts = {}) => {
       const stored: Array<{ name: string; value: string }> = [];
       if (opts.toured ?? true) stored.push({ name: 'sattle.toured', value: '1' });
+      if (opts.getPaidAsked ?? true) stored.push({ name: 'sattle.getPaidAsked', value: '1' });
       if (opts.token) stored.push({ name: 'sattle.token', value: opts.token });
       if (opts.currencies) {
         stored.push({ name: 'sattle.currencies', value: JSON.stringify({ uses: opts.currencies, newGroups: opts.currencies[0] }) });

@@ -178,6 +178,8 @@ apps/mobile/                 @sattle/mobile: Expo
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
+      GetPaidSheet.tsx       Asked once at launch, with nowhere yet to be paid: a Lightning address, a UPI ID, or Skip.
+      getPaidStore.ts        Whether this device has asked. SecureStore on native, localStorage on web.
       CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
@@ -257,6 +259,8 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 ## First launch and currencies
 
 The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+Someone signed in with nowhere yet to be paid (no Lightning address, no UPI ID, no wallet connected under Wallet) is asked where, once, in a sheet over the groups list at launch (`GetPaidSheet.tsx`). It takes a Lightning address to be paid in bitcoin and a UPI ID to be paid in rupees, only the ones that go with the currencies they use, and saves them as Wallet does: whatever the server refuses stays in its field with the reason, and the rest is saved. Saving, **Skip** and closing the sheet are all answers, and the device remembers (`getPaidStore`) and doesn't ask again. An app that opens on anything else, like a link, doesn't ask until a launch that opens on the groups list. Someone who already has somewhere to be paid isn't asked at all, unless they remove it later.
 
 Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
 
