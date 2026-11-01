@@ -11,6 +11,10 @@ concurrency:
 jobs:
   apk:
     name: release apk
+    # A pull request from a fork gets no secrets, so while the two addresses are kept as secrets its
+    # build could only fail at the config check. It runs once they are repository variables, as the
+    # README says they should be, and always for a branch in this repository.
+    if: github.event.pull_request.head.repo.full_name == github.repository || vars.EXPO_PUBLIC_API_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
