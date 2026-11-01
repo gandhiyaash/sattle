@@ -16,7 +16,7 @@
  * and not once the app has been anywhere else.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { parseUpiId, upiIdHasPhoneNumber, type PayWays } from '@sattle/core';
@@ -107,8 +107,11 @@ export function GetPaidSheet({ onDone }: { onDone: () => void }) {
   const [address, setAddress] = useState<Field>(EMPTY);
   const [upi, setUpi] = useState<Field>(EMPTY);
   const [busy, setBusy] = useState(false);
+  const upiInput = useRef<TextInput>(null);
 
   const both = ways.lightning && ways.upi;
+  // With the UPI ID still to fill in, Enter in the address goes on to it, rather than saving the address alone.
+  const toUpi = ways.upi && !upi.saved ? () => upiInput.current?.focus() : undefined;
   const toSave = {
     address: ways.lightning && !address.saved ? address.input.trim() : '',
     upi: ways.upi && !upi.saved ? upi.input.trim() : '',
@@ -139,6 +142,7 @@ export function GetPaidSheet({ onDone }: { onDone: () => void }) {
           field={address}
           onChange={(input) => setAddress({ ...EMPTY, input })}
           onSubmit={save}
+          onNext={toUpi}
           placeholder="you@walletofsatoshi.com"
           about="Wallet of Satoshi, Phoenix, Blink and most other wallets give you one. It looks like an email."
         />
@@ -150,6 +154,7 @@ export function GetPaidSheet({ onDone }: { onDone: () => void }) {
           field={upi}
           onChange={(input) => setUpi({ ...EMPTY, input })}
           onSubmit={save}
+          inputRef={upiInput}
           placeholder="name@okhdfcbank"
           // Before an ID is saved, shared links show it: that is where a new one starts.
           about="People who owe you see it, and so does anyone holding one of your groups’ shared links. You can turn that off under Wallet once it’s saved."
@@ -188,6 +193,8 @@ function WayField({
   field,
   onChange,
   onSubmit,
+  onNext,
+  inputRef,
   placeholder,
   about,
   children,
@@ -197,7 +204,11 @@ function WayField({
   use?: string;
   field: Field;
   onChange: (input: string) => void;
+  /** Save: what Enter does in the last field to fill in. */
   onSubmit: () => void;
+  /** There's another field to fill in after this one: Enter goes on to it, with the keyboard still up. */
+  onNext?: () => void;
+  inputRef?: React.Ref<TextInput>;
   placeholder: string;
   about: string;
   /** Under the input, while it's still one. */
@@ -219,10 +230,13 @@ function WayField({
       ) : (
         <>
           <TextInput
+            ref={inputRef}
             style={s.input}
             value={field.input}
             onChangeText={onChange}
-            onSubmitEditing={onSubmit}
+            returnKeyType={onNext ? 'next' : 'done'}
+            submitBehavior={onNext ? 'submit' : undefined}
+            onSubmitEditing={onNext ?? onSubmit}
             placeholder={placeholder}
             placeholderTextColor={color.inkFaint}
             accessibilityLabel={label}

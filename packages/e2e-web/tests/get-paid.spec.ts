@@ -38,7 +38,8 @@ function watchSettings(page: Page): string[] {
 /** Resolves once the page has had all three answers, and a moment to act on them. Start it before the page loads. */
 function answered(page: Page): Promise<void> {
   const each = SETTINGS.map((path) => page.waitForResponse((r) => isSetting(r.url()) && new URL(r.url()).pathname === path));
-  // A sheet that was coming is up within a frame of the last answer; this gives it many.
+  // A sheet that was coming is up within a frame of the last answer; this gives it many. Waiting
+  // can only let a test that says it never came miss a sheet that came late, not fail a right one.
   return Promise.all(each).then(() => page.waitForTimeout(500));
 }
 
@@ -82,9 +83,15 @@ test.describe('asked where to be paid', () => {
     const { page, api } = await person('Yash', { getPaidAsked: false });
     const ask = sheet(page);
     await expect(ask.getByText(TITLE)).toBeVisible();
+    // Enter in the address goes on to the UPI ID and saves nothing yet; Enter there saves both.
+    const sent = watchSettings(page);
     await ask.getByPlaceholder(ADDRESS).fill('  Yash@WalletOfSatoshi.com ');
+    await ask.getByPlaceholder(ADDRESS).press('Enter');
+    await expect(ask.getByPlaceholder(UPI)).toBeFocused();
+    await expect(ask.getByText(TITLE)).toBeVisible();
+    expect(sent).toEqual([]);
     await ask.getByPlaceholder(UPI).fill('Yash@OkHdfcBank');
-    await button(ask, 'Save').click();
+    await ask.getByPlaceholder(UPI).press('Enter');
 
     await expect(page.getByText(TITLE)).toHaveCount(0);
     expect(await api.get('/me/receive-address')).toEqual({ address: 'yash@walletofsatoshi.com' });
