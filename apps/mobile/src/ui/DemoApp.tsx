@@ -20,6 +20,7 @@ import type { SattleClient } from '../client/SattleClient';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
+import { useHistoryDepth } from './backNavigation';
 import { FaqScreen } from './FaqScreen';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupGuestScreen } from './GroupGuestScreen';
@@ -140,6 +141,9 @@ function Navigator({
   }, [shared]);
 
   const refresh = () => setNonce((n) => n + 1);
+
+  // The settling and history sheets are counted by the sheets themselves, as every open sheet is.
+  useHistoryDepth(depthOf(route));
 
   const openGroup = (groupId: string) => setRoute({ name: 'group', groupId });
 
@@ -454,28 +458,50 @@ function DemoBar({
 
   return (
     // The labels stay above the home indicator; the bar's colour runs under it to the edge.
-    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]}>
-      {tabs.map((tab) => (
-        <Pressable
-          key={tab.label}
-          onPress={() => {
-            analytics.tap(tab.label, { control: 'tab' });
-            onNavigate(tab.route);
-          }}
-          style={sheet.tab}
-        >
-          <Text
-            style={[
-              sheet.tabText,
-              route.name === tab.route.name && sheet.tabTextActive,
-            ]}
+    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]} accessibilityRole="tablist">
+      {tabs.map((tab) => {
+        const selected = route.name === tab.route.name;
+        return (
+          <Pressable
+            key={tab.label}
+            onPress={() => {
+              analytics.tap(tab.label, { control: 'tab' });
+              onNavigate(tab.route);
+            }}
+            style={sheet.tab}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            // A browser is told separately: react-native-web doesn't read accessibilityState.
+            aria-selected={selected}
           >
-            {tab.label}
-          </Text>
-        </Pressable>
-      ))}
+            <Text style={[sheet.tabText, selected && sheet.tabTextActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
+}
+
+/**
+ * How many backs it takes to reach the groups list, for the browser's back button to walk.
+ * The guest page has no way back in the app, so the browser's leaves from there.
+ */
+function depthOf(route: Route): number {
+  switch (route.name) {
+    case 'groups':
+    case 'guest':
+      return 0;
+    case 'addExpense':
+    case 'editExpense':
+    case 'groupSettings':
+    case 'history':
+    case 'faq':
+      return 2;
+    case 'restore':
+      return 3;
+    default:
+      return 1;
+  }
 }
 
 /**
@@ -535,7 +561,7 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
   return (
     <View style={sheet.scenarios}>
       {scenarios.map((sc) => (
-        <Pressable key={sc.label} disabled={busy} onPress={run(sc.make)} style={sheet.chip}>
+        <Pressable key={sc.label} disabled={busy} onPress={run(sc.make)} style={sheet.chip} accessibilityRole="button">
           <Text style={sheet.chipText}>{sc.label}</Text>
         </Pressable>
       ))}

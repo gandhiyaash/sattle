@@ -192,7 +192,7 @@ export async function joinAs(host: Person, groupId: string, guest: Person, asNam
   return guest.api.join(link.token, { ref: ghost.ref });
 }
 
-export type SplitWay = 'Equally' | 'By amount' | 'By parts' | 'By percent';
+export type SplitWay = 'Equal' | 'Amount' | 'Parts' | 'Percent';
 
 export interface SpendInput {
   description: string;

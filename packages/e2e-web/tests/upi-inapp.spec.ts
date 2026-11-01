@@ -56,8 +56,9 @@ test.describe('the rails, once the payee has a UPI ID', () => {
     const manual = button(a.page, 'Mark as settled');
     await expect(ancestor(manual, 2).getByText('Only Priya can confirm a payment made outside the app.')).toBeVisible();
     await expect(ancestor(manual, 1)).toHaveCSS('opacity', '0.4');
-    // Tapping a greyed-out rail does nothing.
-    await manual.click();
+    // Tapping a greyed-out rail does nothing. A forced tap doesn't scroll to it, so that's done first.
+    await manual.scrollIntoViewIfNeeded();
+    await manual.click({ force: true });
     await expect(a.page.getByText('Pay Priya ₹300')).toBeVisible();
     await expect(a.page.getByText('Settled', { exact: true })).toBeHidden();
   });
