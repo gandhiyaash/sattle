@@ -138,6 +138,25 @@ function useKeyboardUp() {
 }
 
 /**
+ * iOS only: how far up the screen the on-screen keyboard reaches, 0 while it's
+ * down. Android's window shrinks to the keyboard; on iOS nothing moves out of
+ * its way unless told to.
+ */
+function useKeyboardHeightIos() {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const shown = Keyboard.addListener('keyboardWillShow', (e) => setHeight(e.endCoordinates.height));
+    const hidden = Keyboard.addListener('keyboardWillHide', () => setHeight(0));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return height;
+}
+
+/**
  * For whatever sits above a bar that already clears the bottom of the display, like
  * the tab bar. The screens inside don't leave room for the home indicator a second time.
  */
@@ -342,6 +361,8 @@ export function Dialog({
 export function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
   const s = useStyles();
   const insets = useSafeAreaInsets();
+  // On an iPhone the keyboard comes up over the sheet, so the sheet rides up on it: what's being typed stays in view.
+  const keyboard = useKeyboardHeightIos();
   // The back button closes it before it goes back a screen.
   useBack(visible ? onClose : undefined, true);
   return (
@@ -357,8 +378,8 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
       />
       {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
       <View style={s.sheetFrame} pointerEvents="box-none">
-        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator. */}
-        <View style={[s.sheet, { paddingBottom: insets.bottom }]}>{children}</View>
+        {/* The sheet runs to the bottom edge; what's in it stops above the home indicator, or the keyboard. */}
+        <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, keyboard) }]}>{children}</View>
       </View>
     </Modal>
   );
