@@ -44,7 +44,7 @@ import { transaction } from '../db';
 import { idempotency } from '../middleware';
 import { receivable } from '../payments';
 import { newId, nowIso } from '../repo';
-import { debtsOf, inProgressFor } from '../settlementRules';
+import { debtsOf, inProgressFor, liveClaims } from '../settlementRules';
 import { newPayLinkToken } from './payLinks';
 import { upiIdFor, upiOnLink } from './upi';
 
@@ -94,7 +94,8 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
     const g = repo.group(link.groupId)!;
     const members = new Map(repo.members(g.id).map((m) => [m.id, m]));
     const name = (id: string) => members.get(id)!.displayName;
-    const claims = repo.upiClaims(g.id);
+    const debts = debtsOf(repo, g);
+    const claims = liveClaims(repo, g, debts);
     return {
       groupName: g.name,
       currency: g.currency,
@@ -106,7 +107,7 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
         shares: e.parts.map((p) => ({ name: name(p.memberId), amount: p.amount })),
         createdAt: e.createdAt,
       })),
-      debts: debtsOf(repo, g).map((d) => {
+      debts: debts.map((d) => {
         const claim = claims.find((x) => x.fromMemberId === d.fromMemberId && x.toMemberId === d.toMemberId);
         return {
           ref: debtRef(link.token, d),
@@ -210,15 +211,16 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    * The page's word on a debt, as a claim marked as coming from the link. Not
    * while a Lightning payment for it is under way, and nothing at all when a
    * claim for it is already waiting, from the page or from the payer in the
-   * app: the link can't replace what the payer said.
+   * app: the link can't replace what the payer said. A waiting claim the debt
+   * no longer has room for (liveClaims) is replaced, since it can't be confirmed.
    */
   const sayPaid = (g: Group, debt: Debt, anotherWay: boolean) => {
     if (inProgressFor(repo, g, debt)) {
       throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
     }
-    const waiting = repo
-      .upiClaims(g.id)
-      .find((x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId && x.status === 'pending');
+    const waiting = liveClaims(repo, g).find(
+      (x) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId && x.status === 'pending'
+    );
     if (waiting) return;
     repo.replaceUpiClaim({
       id: newId('uc'),

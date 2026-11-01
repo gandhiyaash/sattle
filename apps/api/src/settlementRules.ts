@@ -8,8 +8,10 @@ import {
   groupDebts,
   isHeldBy,
   isInProgress,
+  type Debt,
   type Group,
   type Settlement,
+  type UpiClaim,
 } from '@sattle/core';
 
 import { newId, nowIso, type Repo } from './repo';
@@ -23,6 +25,23 @@ export interface Pair {
 /** What is owed in the group right now, simplified or not as the group chose. */
 export function debtsOf(repo: Repo, g: Group) {
   return groupDebts(g, repo.expenses(g.id), repo.settlements(g.id));
+}
+
+/**
+ * The group's claims (UPI, or paid another way) that a debt still has room
+ * for: the pair owes at least what was claimed. A claim moves nothing, so the
+ * debt can change under it: an expense is edited or deleted, the debt turns
+ * round, or simplifying routes it through someone else. One with no room
+ * can't be confirmed (checkSettlement), so it isn't shown, waited on or held
+ * against turning simplifying on or off. It stays until the next claim for
+ * the pair replaces it, and counts again if the debt grows back to it.
+ */
+export function liveClaims(repo: Repo, g: Group, debts: Debt[] = debtsOf(repo, g)): UpiClaim[] {
+  return repo
+    .upiClaims(g.id)
+    .filter((c) =>
+      debts.some((d) => d.fromMemberId === c.fromMemberId && d.toMemberId === c.toMemberId && d.amount >= c.amount)
+    );
 }
 
 /**

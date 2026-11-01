@@ -556,10 +556,24 @@ export class MockClient implements SattleClient {
     );
   }
 
-  /** A UPI payment someone has said they made for the link's debt, from the link or anywhere else. */
+  /** A payment someone has said they made for the link's debt, from the link or anywhere else, that the debt still has room for. */
   private claimForLink(link: PayLink) {
-    return this.upiClaims.find(
-      (x) => x.groupId === link.groupId && x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId
+    return this.liveClaims(link.groupId).find(
+      (x) => x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId
+    );
+  }
+
+  /**
+   * The server's liveClaims: the group's claims a debt still has room for, the
+   * pair owing at least what was claimed. One without can't be confirmed, so it
+   * isn't shown, waited on or held against simplifying.
+   */
+  private liveClaims(groupId: string) {
+    const debts = this.debtsOf(groupId);
+    return this.upiClaims.filter(
+      (c) =>
+        c.groupId === groupId &&
+        debts.some((d) => d.fromMemberId === c.fromMemberId && d.toMemberId === c.toMemberId && d.amount >= c.amount)
     );
   }
 
@@ -954,7 +968,7 @@ export class MockClient implements SattleClient {
             createdAt: e.createdAt,
           })),
         debts: this.debtsOf(g.id).map((d) => {
-          const claim = this.upiClaims.find((x) => x.fromMemberId === d.fromMemberId && x.toMemberId === d.toMemberId);
+          const claim = this.liveClaims(g.id).find((x) => x.fromMemberId === d.fromMemberId && x.toMemberId === d.toMemberId);
           return {
             ref: this.debtRef(token, d),
             from: member(d.fromMemberId).displayName,
@@ -1052,8 +1066,12 @@ export class MockClient implements SattleClient {
 
   /** The page's word on a debt, as a claim from the link. What the payer said in the app stays. */
   private sayPaidFromGroupLink(debt: Debt, anotherWay: boolean) {
-    const pair = (x: UpiClaim) => x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId;
-    if (this.upiClaims.some((x) => pair(x) && x.status === 'pending')) return;
+    const pair = (x: { fromMemberId: string; toMemberId: string }) =>
+      x.fromMemberId === debt.fromMemberId && x.toMemberId === debt.toMemberId;
+    if (this.settlements.some((s) => s.groupId === debt.groupId && pair(s) && isInProgress(s))) {
+      throw new SattleError('conflict', 'A payment for this is already in progress. Wait for it to finish.');
+    }
+    if (this.liveClaims(debt.groupId).some((x) => pair(x) && x.status === 'pending')) return;
     this.upiClaims = [
       ...this.upiClaims.filter((x) => !pair(x)),
       {
@@ -1152,7 +1170,7 @@ export class MockClient implements SattleClient {
       if (this.settlements.some((s) => mine(s) && isInProgress(s))) {
         throw new SattleError('conflict', 'A payment in this group is still in progress. Wait for it to finish.');
       }
-      if (this.upiClaims.some((c) => mine(c) && c.status === 'pending')) {
+      if (this.liveClaims(groupId).some((c) => c.status === 'pending')) {
         throw new SattleError('conflict', 'A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.');
       }
       g.simplifyDebts = on;
@@ -1406,7 +1424,7 @@ export class MockClient implements SattleClient {
   getUpiClaims(groupId: string) {
     return this.call(() => {
       const me = this.myMember(groupId)?.id;
-      return this.upiClaims.filter((x) => x.groupId === groupId && (x.fromMemberId === me || x.toMemberId === me));
+      return this.liveClaims(groupId).filter((x) => x.fromMemberId === me || x.toMemberId === me);
     });
   }
 

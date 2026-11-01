@@ -409,6 +409,65 @@ describe('POST /g/:token/debts/:ref/paid-another-way', () => {
     expect((await debtOf('Aman')).claimAnotherWay).toBeUndefined();
   });
 
+  it('lets a claim go once its debt does: it isn’t shown or waited on, and doesn’t hold up simplifying', async () => {
+    const { call, base, riya, view, token, mark, claims, addExpense, mAman } = await marking();
+    await mark('Aman');
+    // Aman pays for dinner, so he doesn't owe Riya any more, and the claim has no debt left to be about.
+    await addExpense(mAman, 3000, 'Dinner');
+    expect((await view(token)).body.debts.filter((d) => d.from === 'Aman' && d.to === 'Riya')).toEqual([]);
+    expect(await claims()).toEqual([]);
+    expect((await call<Group>('PUT', base, { simplifyDebts: false }, riya.token)).body.simplifyDebts).toBe(false);
+  });
+
+  it('counts a claim again once its debt grows back to it', async () => {
+    const { call, riya, debtOf, mark, claims, addExpense, mAman, mRiya } = await marking();
+    await mark('Aman');
+    await addExpense(mAman, 3000, 'Dinner');
+    // Riya pays for the hotel, and Aman owes her ₹10 again: what the claim said fits once more.
+    await addExpense(mRiya, 6000, 'Hotel');
+    expect(await debtOf('Aman')).toMatchObject({ amount: 1000, upiClaim: 'pending', claimAnotherWay: true });
+    const [again] = await claims();
+    expect(again).toMatchObject({ fromMemberId: mAman, toMemberId: mRiya, amount: 1000 });
+    expect((await call('POST', `/upi-claims/${again.id}/confirm`, undefined, riya.token)).status).toBe(200);
+  });
+
+  it('replaces a claim its debt no longer has room for, at what is owed now', async () => {
+    const { call, base, riya, debtOf, mark, claims, mAman, mRiya } = await marking();
+    await mark('Aman');
+    // Aman buys Riya ₹6 of snacks, so he owes her ₹4: less than the ₹10 claimed, which can't be confirmed now.
+    await call(
+      'POST',
+      `${base}/expenses`,
+      { description: 'Snacks', amount: 600, paidByMemberId: mAman, splitMode: 'exact', parts: [{ memberId: mRiya, amount: 600 }] },
+      riya.token
+    );
+    const owed = await debtOf('Aman');
+    expect(owed.amount).toBe(400);
+    expect(owed.upiClaim).toBeUndefined();
+    expect(await claims()).toEqual([]);
+
+    expect((await mark('Aman')).status).toBe(201);
+    const [now] = await claims();
+    expect(now).toMatchObject({ amount: 400, status: 'pending', anotherWay: true });
+    expect((await call('POST', `/upi-claims/${now.id}/confirm`, undefined, riya.token)).status).toBe(200);
+    expect(await debtOf('Aman')).toBeUndefined();
+  });
+
+  it('lets a pay link mint past a claim its debt no longer has room for', async () => {
+    const { call, base, riya, token, debtOf, mark, mAman, mRiya } = await marking();
+    await mark('Aman');
+    await call(
+      'POST',
+      `${base}/expenses`,
+      { description: 'Snacks', amount: 600, paidByMemberId: mAman, splitMode: 'exact', parts: [{ memberId: mRiya, amount: 600 }] },
+      riya.token
+    );
+    const pay = (await call<{ token: string }>('POST', `/g/${token}/debts/${(await debtOf('Aman')).ref}/pay-link`)).body;
+    const opened = await call<GuestView>('POST', `/s/${pay.token}/open`);
+    expect(opened.body.upiClaim).toBeUndefined();
+    expect(opened.body.settlement).toMatchObject({ amount: 400 });
+  });
+
   it('waits for a Lightning payment under way, is 410 once the debt is settled, and 404 once the link is off', async () => {
     const { call, base, riya, token, debtOf, mark, mKabir, mRiya } = await marking();
     // Aman's page opened the pay page, which minted an invoice that hasn't been paid yet.

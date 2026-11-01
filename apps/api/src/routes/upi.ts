@@ -56,7 +56,15 @@ import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
 import { newId, nowIso } from '../repo';
-import { checkNoPaymentUnderWay, checkPayer, checkSettlement, debtsOf, inProgressFor, newSettlement } from '../settlementRules';
+import {
+  checkNoPaymentUnderWay,
+  checkPayer,
+  checkSettlement,
+  debtsOf,
+  inProgressFor,
+  liveClaims,
+  newSettlement,
+} from '../settlementRules';
 import type { WalletStore } from '../walletStore';
 
 const UpiBody = z.object({ upiId: z.string().max(320) });
@@ -234,12 +242,16 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     return c.json(body);
   });
 
-  /** The claims the user is part of in this group: the ones they made, and the ones waiting on them. */
+  /**
+   * The claims the user is part of in this group: the ones they made, and the
+   * ones waiting on them. Only those a debt still has room for (liveClaims):
+   * the app shows each on its debt, and one without could be neither seen nor answered.
+   */
   r.get('/groups/:id/upi-claims', (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
     const me = repo.memberForUser(g.id, user.id)!;
-    return c.json(repo.upiClaims(g.id).filter((x) => x.fromMemberId === me.id || x.toMemberId === me.id));
+    return c.json(liveClaims(repo, g).filter((x) => x.fromMemberId === me.id || x.toMemberId === me.id));
   });
 
   /**

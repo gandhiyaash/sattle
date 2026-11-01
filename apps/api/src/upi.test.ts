@@ -527,7 +527,7 @@ describe('POST /upi-claims/:id/confirm', () => {
     expect(count('upi_claims')).toBe(1);
   });
 
-  it('won’t settle more than is still owed, and keeps the claim', async () => {
+  it('won’t settle more than is still owed, and stops showing a claim the debt no longer has room for', async () => {
     const { call, claim, claims, kabirOwes, riya, base, mRiya, mKabir } = await setup();
     const { id } = (await claim(1000)).body;
     await call('POST', `${base}/settlements/manual`, { fromMemberId: mKabir, toMemberId: mRiya, amount: 600 }, riya.token);
@@ -535,7 +535,8 @@ describe('POST /upi-claims/:id/confirm', () => {
     const res = await call<Err>('POST', `/upi-claims/${id}/confirm`, undefined, riya.token);
     expect(res.status).toBe(409);
     expect(await kabirOwes()).toBe(400);
-    expect(await claims(riya.token)).toHaveLength(1);
+    // Shown, it could only be turned down, and it would keep Mark as settled off the ₹4 still owed.
+    expect(await claims(riya.token)).toEqual([]);
   });
 
   it('answers a retry with the same settlement, not a second one', async () => {
