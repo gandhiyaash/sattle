@@ -2,14 +2,16 @@
  * Where to be paid, asked once at launch: a sheet over the groups list for
  * someone with no Lightning address, UPI ID or wallet yet, that takes a
  * Lightning address for bitcoin and a UPI ID for rupees, either or both, or
- * is skipped. Whatever they do with it, the device doesn't ask again.
+ * is skipped. Whatever they do with it, the device doesn't ask again, and an
+ * account that has somewhere already isn't looked up again either.
  *
- * Every other test's device has already asked (DeviceOptions.getPaidAsked).
+ * Every other test's device is already done with it (DeviceOptions.getPaidDone).
  */
 
 import type { Page } from '@playwright/test';
 
 import { back, button, closeSheet, makeAccount, pressable, section, sheet, tab } from '../src/actions';
+import type { Api } from '../src/api';
 import { API_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
 import { groupLinkToken } from '../src/links.helpers';
@@ -18,7 +20,7 @@ const TITLE = 'How should people pay you?';
 const ADDRESS = 'you@walletofsatoshi.com';
 const UPI = 'name@okhdfcbank';
 
-/** What the question waits on. Nothing else on the groups list asks for these. */
+/** What the question looks up. Nothing else on the groups list asks for these. */
 const SETTINGS = ['/me/wallet', '/me/receive-address', '/me/upi'];
 
 const isSetting = (url: string) => {
@@ -43,11 +45,22 @@ function answered(page: Page): Promise<void> {
   return Promise.all(each).then(() => page.waitForTimeout(500));
 }
 
-const askedOnDevice = (page: Page) => page.evaluate(() => localStorage.getItem('sattle.getPaidAsked'));
+const doneOnDevice = (page: Page) => page.evaluate(() => localStorage.getItem('sattle.getPaidDone'));
+
+/** Our entries in the browser's history above the one the app opened on (backNavigation). */
+const historyDepth = (page: Page) =>
+  page.evaluate(() => (history.state as { sattleDepth?: number } | null)?.sattleDepth ?? 0);
+
+/** A group of Riya's, with Kabir not joined, and its link's token. */
+async function riyasGroup(api: Api) {
+  const riya = api.as((await api.account('Riya')).token);
+  const { group } = await riya.seedGroup({ name: 'Goa trip', people: ['Kabir'] });
+  return groupLinkToken(riya, group.id);
+}
 
 test.describe('asked where to be paid', () => {
   test('a new account is asked over the groups list, and Skip is an answer for good', async ({ device }) => {
-    const { page } = await device({ getPaidAsked: false });
+    const { page } = await device({ getPaidDone: false });
     await page.goto('/');
     await makeAccount(page, 'Yash');
 
@@ -60,6 +73,7 @@ test.describe('asked where to be paid', () => {
     await expect(ask.getByText('UPI ID · rupees', { exact: true })).toBeVisible();
     await expect(ask.getByPlaceholder(ADDRESS)).toBeVisible();
     await expect(ask.getByPlaceholder(UPI)).toBeVisible();
+    await expect(ask.getByText('Wallet of Satoshi, Blink and most other wallets give you one. It looks like an email.')).toBeVisible();
     // The UPI ID's reach is said before it's saved, since shared links show it from the start.
     await expect(ask.getByText(/so does anyone holding one of your groups’ shared links/)).toBeVisible();
     // Only those two: connecting a wallet is left to Wallet.
@@ -69,18 +83,18 @@ test.describe('asked where to be paid', () => {
 
     await button(ask, 'Skip').click();
     await expect(page.getByText(TITLE)).toHaveCount(0);
-    expect(await askedOnDevice(page)).toBe('1');
+    expect(await doneOnDevice(page)).toBe('1');
 
     // The next launch doesn't even look.
-    const asked = watchSettings(page);
+    const looked = watchSettings(page);
     await page.reload();
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     await expect(page.getByText(TITLE)).toHaveCount(0);
-    expect(asked).toEqual([]);
+    expect(looked).toEqual([]);
   });
 
   test('a Lightning address and a UPI ID are saved together, and Wallet has both', async ({ person }) => {
-    const { page, api } = await person('Yash', { getPaidAsked: false });
+    const { page, api } = await person('Yash', { getPaidDone: false });
     const ask = sheet(page);
     await expect(ask.getByText(TITLE)).toBeVisible();
     // Enter in the address goes on to the UPI ID and saves nothing yet; Enter there saves both.
@@ -96,7 +110,7 @@ test.describe('asked where to be paid', () => {
     await expect(page.getByText(TITLE)).toHaveCount(0);
     expect(await api.get('/me/receive-address')).toEqual({ address: 'yash@walletofsatoshi.com' });
     expect(await api.get('/me/upi')).toEqual({ upiId: 'yash@okhdfcbank', onGroupLinks: true });
-    expect(await askedOnDevice(page)).toBe('1');
+    expect(await doneOnDevice(page)).toBe('1');
 
     await tab(page, 'Wallet');
     await expect(section(page, 'Or a Lightning address').getByText('yash@walletofsatoshi.com', { exact: true })).toBeVisible();
@@ -106,7 +120,7 @@ test.describe('asked where to be paid', () => {
   test('what the server refuses stays to fix, what it took shows as saved, and Save sends only the rest', async ({
     person,
   }) => {
-    const { page, api } = await person('Yash', { getPaidAsked: false });
+    const { page, api } = await person('Yash', { getPaidDone: false });
     const ask = sheet(page);
     await ask.getByPlaceholder(ADDRESS).fill('nope');
     await ask.getByPlaceholder(UPI).fill('yash@okhdfcbank');
@@ -132,7 +146,7 @@ test.describe('asked where to be paid', () => {
   });
 
   test('a UPI ID with a phone number in it is warned about, and saved anyway on request', async ({ person }) => {
-    const { page, api } = await person('Yash', { getPaidAsked: false });
+    const { page, api } = await person('Yash', { getPaidDone: false });
     const ask = sheet(page);
     await ask.getByPlaceholder(UPI).fill('9876543210@ybl');
     await expect(ask.getByText('This UPI ID has a phone number in it')).toBeVisible();
@@ -154,11 +168,13 @@ test.describe('asked where to be paid', () => {
     await expect(page.getByText(TITLE)).toHaveCount(0);
     expect(await api.get('/me/upi')).toMatchObject({ upiId: '9876543210@ybl' });
     expect(await api.get('/me/receive-address')).toEqual({ address: null });
-    expect(await askedOnDevice(page)).toBe('1');
+    expect(await doneOnDevice(page)).toBe('1');
   });
 
-  test('only what goes with the currencies they use is asked for', async ({ person }) => {
-    const rupees = await person('Asha', { getPaidAsked: false, currencies: ['INR'] });
+  test('only what goes with the currencies they use is asked for, and tapping outside is an answer too', async ({
+    person,
+  }) => {
+    const rupees = await person('Asha', { getPaidDone: false, currencies: ['INR'] });
     const upiOnly = sheet(rupees.page);
     await expect(upiOnly.getByText(TITLE)).toBeVisible();
     await expect(
@@ -169,8 +185,10 @@ test.describe('asked where to be paid', () => {
     await expect(upiOnly.getByPlaceholder(ADDRESS)).toHaveCount(0);
     await expect(upiOnly.getByText(/lightning|bitcoin/i)).toHaveCount(0);
     await expect(upiOnly.getByText('You won’t be asked again. You can add or change it under Wallet.')).toBeVisible();
+    await closeSheet(rupees.page);
+    expect(await doneOnDevice(rupees.page)).toBe('1');
 
-    const sats = await person('Ben', { getPaidAsked: false, currencies: ['BTC'] });
+    const sats = await person('Ben', { getPaidDone: false, currencies: ['BTC'] });
     const lightningOnly = sheet(sats.page);
     await expect(lightningOnly.getByText(TITLE)).toBeVisible();
     await expect(
@@ -182,52 +200,106 @@ test.describe('asked where to be paid', () => {
     await expect(lightningOnly.getByText(/upi|rupee/i)).toHaveCount(0);
   });
 
-  test('somewhere to be paid already, and it isn’t asked until that’s gone; tapping outside is an answer too', async ({
+  test('an account with somewhere to be paid already isn’t asked, and the device doesn’t look again', async ({
     api,
     device,
   }) => {
     const { token } = await api.account('Yash');
     const yash = api.as(token);
     await yash.setUpiId('yash@okhdfcbank');
-    const { page } = await device({ token, getPaidAsked: false });
+    const { page } = await device({ token, getPaidDone: false });
 
     const settled = answered(page);
     await page.goto('/');
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     await settled;
     await expect(page.getByText(TITLE)).toHaveCount(0);
-    // Not asked isn't answered: the device keeps nothing.
-    expect(await askedOnDevice(page)).toBeNull();
+    expect(await doneOnDevice(page)).toBe('1');
 
+    // Removing the ID later doesn't bring the question back.
     await yash.del('/me/upi');
-    await page.reload();
-    await expect(sheet(page).getByText(TITLE)).toBeVisible();
-    await closeSheet(page);
-    expect(await askedOnDevice(page)).toBe('1');
+    const looked = watchSettings(page);
     await page.reload();
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     await expect(page.getByText(TITLE)).toHaveCount(0);
+    expect(looked).toEqual([]);
   });
 
-  test('opened by a link, the app goes where it leads, and asks at the next launch instead', async ({ api, device }) => {
-    const riya = api.as((await api.account('Riya')).token);
-    const { group } = await riya.seedGroup({ name: 'Goa trip', people: ['Kabir'] });
-    const link = await groupLinkToken(riya, group.id);
+  test('shared links turned off for an earlier UPI ID stay off, and the sheet says so', async ({ api, device }) => {
     const { token } = await api.account('Yash');
-    const { page } = await device({ token, getPaidAsked: false });
+    const yash = api.as(token);
+    await yash.setUpiId('old@okhdfcbank');
+    await yash.setUpiOnGroupLinks(false);
+    await yash.del('/me/upi');
+    const { page } = await device({ token, getPaidDone: false });
+    await page.goto('/');
 
-    const settled = answered(page);
+    const ask = sheet(page);
+    await expect(ask.getByText(TITLE)).toBeVisible();
+    await expect(
+      ask.getByText('People who owe you see it. A group’s shared link shows it only if you turned that on for the group.')
+    ).toBeVisible();
+    await expect(ask.getByText(/anyone holding one of your groups’ shared links/)).toHaveCount(0);
+    await ask.getByPlaceholder(UPI).fill('yash@okhdfcbank');
+    await button(ask, 'Save').click();
+    await expect(page.getByText(TITLE)).toHaveCount(0);
+    expect(await yash.get('/me/upi')).toEqual({ upiId: 'yash@okhdfcbank', onGroupLinks: false });
+  });
+
+  test('an account opened by a link goes where it leads, and is asked at the next launch instead', async ({
+    api,
+    device,
+  }) => {
+    const link = await riyasGroup(api);
+    const { token } = await api.account('Yash');
+    const { page } = await device({ token, getPaidDone: false });
+
+    const looked = watchSettings(page);
     await page.goto(`/join/${link}`);
     await expect(page.getByText('Who are you?')).toBeVisible();
-    await settled;
     await expect(page.getByText(TITLE)).toHaveCount(0);
 
-    // Back without joining: the groups list, and still not this time.
+    // Back without joining: the groups list, and still not this time. Nothing was even looked up.
     await back(page);
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     await expect(page.getByText(TITLE)).toHaveCount(0);
+    expect(looked).toEqual([]);
 
     await page.reload();
     await expect(sheet(page).getByText(TITLE)).toBeVisible();
+  });
+
+  test('someone who makes their account by joining from a link is asked once they’re in', async ({ api, device }) => {
+    const link = await riyasGroup(api);
+    const { page } = await device({ getPaidDone: false });
+    await page.goto(`/join/${link}`);
+    await page.getByText('I’m not on this list').click();
+    await page.getByPlaceholder('Your name').fill('Asha');
+    await button(page, 'Join as Asha').click();
+
+    await expect(page.getByText('Goa trip', { exact: true })).toBeVisible();
+    await expect(sheet(page).getByText(TITLE)).toBeVisible();
+  });
+
+  test('in a browser, the sheet takes the back button once the page has had a tap', async ({ api, device }) => {
+    const { token } = await api.account('Yash');
+    const { page } = await device({ token, getPaidDone: false });
+    // Read through DevTools until the tap: Playwright's own evaluating, its waiting included, counts as a tap.
+    const cdp = await page.context().newCDPSession(page);
+    const read = async (expression: string) =>
+      (await cdp.send('Runtime.evaluate', { expression, returnByValue: true })).result.value as unknown;
+    await page.goto('/');
+    await expect.poll(() => read(`document.body.innerText.includes(${JSON.stringify(TITLE)})`)).toBe(true);
+    // Up with no tap, it adds nothing to the history: Chrome's back button would pass over an entry added then.
+    await new Promise((settle) => setTimeout(settle, 500));
+    expect(await read('navigator.userActivation.hasBeenActive')).toBe(false);
+    expect(await read('history.state?.sattleDepth ?? 0')).toBe(0);
+
+    await sheet(page).getByPlaceholder(UPI).click();
+    await expect.poll(() => historyDepth(page)).toBe(1);
+    await page.goBack();
+    await expect(page.getByText(TITLE)).toHaveCount(0);
+    await expect(page.getByText('What are you splitting?')).toBeVisible();
+    expect(await doneOnDevice(page)).toBe('1');
   });
 });

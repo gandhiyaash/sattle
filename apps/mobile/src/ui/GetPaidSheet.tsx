@@ -9,62 +9,78 @@
  * that go with the currencies they use (payWays). Both are under Wallet
  * afterwards, to change or remove.
  *
- * Saving answers it, and so do Skip and closing the sheet any other way: the
- * device remembers (getPaidStore) and never asks again. Someone who leaves
- * the app with it up is asked at the next launch, and so is someone whose app
- * opened on something else, a link say: it's only asked over the groups list,
- * and not once the app has been anywhere else.
+ * Each device looks once, at the first launch that opens on the groups list,
+ * right after making an account included, whether on the welcome screen or by
+ * joining from a link. An account with somewhere to be paid already isn't
+ * asked, and isn't looked up again. Saving answers the question, and so do
+ * Skip and closing the sheet any other way; after that the device
+ * (getPaidStore) doesn't ask again. Someone who leaves the app with it up is
+ * asked at the next launch, and so is someone already signed in whose app
+ * opened on something else, a link say.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { parseUpiId, upiIdHasPhoneNumber, type PayWays } from '@sattle/core';
+import { parseUpiId, upiIdHasPhoneNumber, type PayWays, type UpiProfile } from '@sattle/core';
 import { useScreenView } from '../analytics/useScreenView';
 import type { SattleClient } from '../client/SattleClient';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
-import { useClient } from '../react/SattleProvider';
-import { readGetPaidAsked, writeGetPaidAsked } from './getPaidStore';
+import { useClient, useWallet } from '../react/SattleProvider';
+import type { WalletProvider } from '../wallet/WalletProvider';
+import { readGetPaidDone, writeGetPaidDone } from './getPaidStore';
 import { Button, Glyph, SheetBody } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 /**
- * Whether to ask now, and `done` for once it's answered. `home`: the groups
- * list is what's showing. The answers it waits on come a moment after launch,
- * and if the app has gone elsewhere by then, it's left for the next one.
+ * Whether to ask now, whether a UPI ID saved there would show on shared links,
+ * and `done` for once it's answered. `home`: the groups list is what's
+ * showing. Only a launch that opens on it looks, and the answers that takes
+ * come a moment later: if the app has gone elsewhere by then, it's left for
+ * the next launch.
  */
-export function useAskToGetPaid(home: boolean): { asking: boolean; done: () => void } {
+export function useAskToGetPaid(home: boolean): { asking: boolean; upiOnLinks: boolean; done: () => void } {
   const client = useClient();
-  const [due, setDue] = useState(false);
+  const wallet = useWallet();
+  // Their UPI profile, once it's known there's nowhere yet: what the sheet says about shared links.
+  const [due, setDue] = useState<UpiProfile | null>(null);
   const [launching, setLaunching] = useState(home);
   useEffect(() => {
     if (!home) setLaunching(false);
   }, [home]);
   useEffect(() => {
+    if (!launching) return;
     let live = true;
-    // Offline, or the server can't say: it's asked at a launch that can tell.
-    shouldAsk(client).then((ask) => live && ask && setDue(true), () => {});
+    // Offline, or the server can't say: it looks again at the next launch.
+    nowhereYet(client, wallet).then((upi) => live && upi && setDue(upi), () => {});
     return () => {
       live = false;
     };
-  }, [client]);
+  }, [client, wallet, launching]);
   const done = useCallback(() => {
-    setDue(false);
+    setDue(null);
     // If that can't be kept, it's asked once more.
-    void writeGetPaidAsked().catch(() => {});
+    void writeGetPaidDone().catch(() => {});
   }, []);
-  return { asking: due && launching && home, done };
+  return { asking: due !== null && launching && home, upiOnLinks: due?.onGroupLinks ?? true, done };
 }
 
-/** A device that hasn't asked, and an account with nowhere to be paid. */
-async function shouldAsk(client: SattleClient): Promise<boolean> {
-  if (await readGetPaidAsked()) return false;
-  const [wallet, address, upi] = await Promise.all([
+/**
+ * The account's UPI profile, when there's nowhere yet to be paid and this
+ * device hasn't asked; null otherwise. Somewhere already is kept as done, so
+ * the device doesn't look again, even once it's removed.
+ */
+async function nowhereYet(client: SattleClient, wallet: WalletProvider): Promise<UpiProfile | null> {
+  if (await readGetPaidDone()) return null;
+  const [connection, address, upi] = await Promise.all([
     client.getWalletConnection(),
     client.getReceiveAddress(),
     client.getUpiId(),
   ]);
-  return !wallet.connected && !address.address && !upi.upiId;
+  // The demo's in-app wallet is somewhere too.
+  if (!connection.connected && !address.address && !upi.upiId && !wallet.isAvailable) return upi;
+  await writeGetPaidDone().catch(() => {});
+  return null;
 }
 
 /** One way to be paid, as the sheet holds it. */
@@ -99,7 +115,14 @@ const subtitleFor = (ways: PayWays) => SUBTITLES[ways.lightning && ways.upi ? 'b
  * it kept. One it refused keeps what was typed, with why, to fix and save
  * again, or to leave: Skip, which becomes Done once something is saved.
  */
-export function GetPaidSheet({ onDone }: { onDone: () => void }) {
+export function GetPaidSheet({
+  upiOnLinks,
+  onDone,
+}: {
+  /** Whether shared group links would show a UPI ID saved here. On from the start, and kept when an ID is removed. */
+  upiOnLinks: boolean;
+  onDone: () => void;
+}) {
   useScreenView('Get paid');
   const s = useStyles();
   const client = useClient();
@@ -144,7 +167,8 @@ export function GetPaidSheet({ onDone }: { onDone: () => void }) {
           onSubmit={save}
           onNext={toUpi}
           placeholder="you@walletofsatoshi.com"
-          about="Wallet of Satoshi, Phoenix, Blink and most other wallets give you one. It looks like an email."
+          // Not Phoenix: its address is BIP-353, which the server's LNURL check can't reach.
+          about="Wallet of Satoshi, Blink and most other wallets give you one. It looks like an email."
         />
       )}
       {ways.upi && (
@@ -156,8 +180,11 @@ export function GetPaidSheet({ onDone }: { onDone: () => void }) {
           onSubmit={save}
           inputRef={upiInput}
           placeholder="name@okhdfcbank"
-          // Before an ID is saved, shared links show it: that is where a new one starts.
-          about="People who owe you see it, and so does anyone holding one of your groups’ shared links. You can turn that off under Wallet once it’s saved."
+          about={
+            upiOnLinks
+              ? 'People who owe you see it, and so does anyone holding one of your groups’ shared links. You can turn that off under Wallet once it’s saved.'
+              : 'People who owe you see it. A group’s shared link shows it only if you turned that on for the group.'
+          }
         >
           {hasPhone && (
             <View style={s.warning}>

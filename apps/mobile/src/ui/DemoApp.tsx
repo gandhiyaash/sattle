@@ -375,7 +375,7 @@ function Navigator({
       </Sheet>
 
       <Sheet visible={getPaid.asking} onClose={getPaid.done}>
-        {getPaid.asking && <GetPaidSheet onDone={getPaid.done} />}
+        {getPaid.asking && <GetPaidSheet upiOnLinks={getPaid.upiOnLinks} onDone={getPaid.done} />}
       </Sheet>
 
       <UpdateBanner />
