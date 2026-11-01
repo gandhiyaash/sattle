@@ -164,7 +164,7 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
     {
       question: 'What can someone with the group’s link do?',
       answer: [
-        `A group has no link until someone in it makes one, under Manage. Whoever opens it sees every expense, each person’s share, everyone’s name and who owes whom, and can pay a debt ${pay}, or mark it as paid if they paid another way, like cash. They can’t add or change anything, and a payment they say they made counts only once the person owed confirms it. They can join, or ask to, as the group chooses under Manage.`,
+        `A group has no link until someone in it makes one, from Add people on the group screen. Whoever opens it sees every expense, each person’s share, everyone’s name and who owes whom, and can pay a debt ${pay}, or mark it as paid if they paid another way, like cash. They can’t add or change anything, and a payment they say they made counts only once the person owed confirms it. They can join, or ask to, as the group chooses under Manage.`,
         'Anyone in the group can replace the link or turn it off. It can’t be guessed, but it can be forwarded.',
         'A pay link, opened from there for one debt, shows less: who owes whom, the group’s name, the amount and whether it’s paid.',
       ],
