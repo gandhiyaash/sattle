@@ -251,6 +251,25 @@ test.describe('The group page', () => {
 });
 
 test.describe('Paying from the group page over Lightning', () => {
+  test('goes back from the pay page to the group with the browser’s back button, without leaving the page', async ({ person, device }) => {
+    const yash = await person('Yash');
+    const { group } = await groupWhereGhostOwesMe(yash.api, { name: 'Goa trip', me: 'Yash', debtor: 'Om' });
+    const token = await groupLinkToken(yash.api, group.id);
+
+    const guest = await device();
+    await openGroupPage(guest.page, token);
+    await button(guest.page, 'Pay with Lightning').click();
+    await expect(button(guest.page, 'Back to Goa trip')).toBeVisible();
+    // The pay page is a step of its own in the browser's history, which going back takes off.
+    const step = () => guest.page.evaluate(() => (history.state as { sattleDepth?: number } | null)?.sattleDepth ?? 0);
+    await expect.poll(step).toBe(1);
+
+    await guest.page.goBack();
+    await expect(button(guest.page, 'Back to Goa trip')).toBeHidden();
+    await expect(guest.page.getByText(/shared by link$/)).toBeVisible();
+    await expect(guest.page).toHaveURL(new RegExp(`/g/${token}$`));
+  });
+
   test('opens the pay page in place, pays, and comes back to a settled group', async ({ person, device }) => {
     test.slow();
     const yash = await person('Yash');

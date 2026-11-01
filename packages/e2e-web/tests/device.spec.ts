@@ -7,7 +7,7 @@
 
 import { devices } from '@playwright/test';
 
-import { button, groupHeader, makeAccount, openGroup, skipTour } from '../src/actions';
+import { button, groupHeader, makeAccount, openGroup, openSplit, sheet, skipTour } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 
 const API = (url: URL) => url.hostname === '127.0.0.1' && url.port === '3900';
@@ -88,6 +88,30 @@ test.describe('the browser’s back button', () => {
     await expect(page.getByText('Share the group link', { exact: true })).toBeVisible();
     await page.goBack();
     await expect(page.getByText('Share the group link', { exact: true })).toBeHidden();
+    await expect(groupHeader(page)).toBeVisible();
+    await page.goBack();
+    await expect(page.getByText('Across all groups', { exact: true })).toBeVisible();
+  });
+
+  test('goes back from Split by item to the form, with the history still in step with the app', async ({ person }) => {
+    const { page, api } = await person('Yash');
+    await api.seedGroup({ name: 'Weekend', people: ['Riya'] });
+    await page.goto('/');
+    await openGroup(page, 'Weekend');
+    await button(page, 'Add expense').click();
+    await page.getByPlaceholder('What was it for?').fill('Dinner');
+    await openSplit(page);
+    await button(sheet(page), 'Split by item').click();
+    await expect(page.getByText('Dinner · tap who had what', { exact: true })).toBeVisible();
+    // The app's step in the browser's history: one per screen in, and Split by item is one more.
+    const step = () => page.evaluate(() => (history.state as { sattleDepth?: number } | null)?.sattleDepth ?? 0);
+    await expect.poll(step).toBe(3);
+
+    await page.goBack();
+    await expect(page.getByPlaceholder('What was it for?')).toBeVisible();
+    // One behind, the next entry would be pushed outside a tap, and Chrome's back button passes over those.
+    await expect.poll(step).toBe(2);
+    await page.goBack();
     await expect(groupHeader(page)).toBeVisible();
     await page.goBack();
     await expect(page.getByText('Across all groups', { exact: true })).toBeVisible();

@@ -623,8 +623,9 @@ function ItemSplit({
   const insets = useSafeAreaInsets();
   const sats = isBitcoin(currency);
   const fmt = (minor: number) => formatAmount(minor, currency);
-  // Back from the bill goes to the form, not out of it: this one is newer, so it's asked first.
-  useBack(onBack);
+  // Back from the bill goes to the form, not out of it. As an overlay it is asked first, and in a
+  // browser it has a history entry of its own, so going back from it keeps the history in step.
+  useBack(onBack, true);
 
   const change = (key: number, patch: Partial<Item>) =>
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));

@@ -46,6 +46,7 @@ import {
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { useBackFromUpi } from '../react/useBackFromUpi';
+import { useBack } from './backNavigation';
 import { GuestPayScreen } from './GuestPayScreen';
 import { UpiPanel } from './UpiPanel';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
@@ -81,6 +82,15 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
   const [marking, setMarking] = useState<string | null>(null);
   /** The debt someone left this page to pay in a UPI app, once they're back: the one to ask about. */
   const back = useBackFromUpi(`g/${token}`);
+
+  /** Back from the pay page to the group, by its button or the back button. */
+  const closePay = () => {
+    setPaying(null);
+    refresh();
+  };
+  // An overlay: it takes the back button before this page's own, and in a browser it has a history
+  // entry of its own, so going back from paying comes back here rather than leaving the page.
+  useBack(paying ? closePay : undefined, true);
 
   // Someone else in the chat may pay while this is open. Keep the list current.
   useEffect(() => {
@@ -194,10 +204,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
           <Button
             label={`Back to ${data?.groupName ?? 'the group'}`}
             track="Back to the group"
-            onPress={() => {
-              setPaying(null);
-              refresh();
-            }}
+            onPress={closePay}
           />
         </View>
       </View>
