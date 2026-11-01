@@ -14,7 +14,7 @@
 import { SattleError, canChangeExpense, type Expense, type Group, type Member, type User } from '@sattle/core';
 
 import type { Repo } from './repo';
-import { debtsOf, isInProgress } from './settlementRules';
+import { debtsOf, isInProgress, liveClaims } from './settlementRules';
 import type { WalletStore } from './walletStore';
 
 const conflict = (message: string) => new SattleError('conflict', message);
@@ -77,15 +77,17 @@ export function checkGroupCanGo(repo: Repo, g: Group) {
 
 /**
  * Turning simplifying debts on or off changes who owes whom. A payment under
- * way, or a UPI payment waiting for the person owed to confirm it, is for a
- * debt that might not be there afterwards, so the change waits for them.
+ * way, or one someone said they made that the person owed hasn't confirmed,
+ * is for a debt that might not be there afterwards, so the change waits for them.
+ * A claim whose debt has already gone (liveClaims) can't be answered, so it
+ * doesn't hold the change up.
  */
 export function checkDebtsCanChange(repo: Repo, g: Group) {
   if (repo.settlements(g.id).some(isInProgress)) {
     throw conflict('A payment in this group is still in progress. Wait for it to finish.');
   }
-  if (repo.upiClaims(g.id).some((c) => c.status === 'pending')) {
-    throw conflict('A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
+  if (liveClaims(repo, g).some((c) => c.status === 'pending')) {
+    throw conflict('A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.');
   }
 }
 

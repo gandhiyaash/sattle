@@ -50,7 +50,7 @@ import { receivable } from '../payments';
 import { idempotency } from '../middleware';
 import { applyProof, hashOfPreimage, ProofBody, readPreimage } from '../proof';
 import { newId, nowIso } from '../repo';
-import { debtsOf, inProgressFor, isInProgress, newSettlement } from '../settlementRules';
+import { debtsOf, inProgressFor, isInProgress, liveClaims, newSettlement } from '../settlementRules';
 import { upiIdFor, upiOnLink } from './upi';
 
 /** What the page sends once the payer has chosen Lightning over UPI. Nothing, until then. */
@@ -82,9 +82,11 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    */
   const settledElsewhere = (link: PayLink) => settledOutsideLink(repo.settlements(link.groupId), link);
 
-  /** A UPI payment someone has said they made for the link's debt, from here or anywhere else. */
+  /** A payment someone has said they made for the link's debt, from here or anywhere else, that the debt still has room for. */
   const claimFor = (link: PayLink) =>
-    repo.upiClaims(link.groupId).find((x) => x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId);
+    liveClaims(repo, repo.group(link.groupId)!).find(
+      (x) => x.fromMemberId === link.fromMemberId && x.toMemberId === link.toMemberId
+    );
 
   /** With `shown`, that settlement instead of the latest. */
   const guestView = (link: PayLink, shown?: Settlement): GuestView => {
@@ -104,6 +106,7 @@ export function payLinkRoutes({ db, repo, payments, wallets }: Ctx) {
       payable: receivable(payments, payee),
       ...(upiOnLink(wallets, g, payee) ? { upi: true } : {}),
       ...(claim ? { upiClaim: claim.status } : {}),
+      ...(claim?.anotherWay ? { claimAnotherWay: true as const } : {}),
       settlement: latest && (elsewhere ? toGuestSettlementFromElsewhere(latest) : toGuestSettlement(latest)),
     };
   };

@@ -12,9 +12,12 @@
  * the person owed confirms it in the app. A browser hears nothing back from
  * a UPI app, so when someone comes back from one the page asks whether the
  * payment went through, and it still asks if the tab was reloaded while they
- * were away (useBackFromUpi). Nothing here can change the group,
- * and the page can't tell who is looking, so every debt gets the same
- * buttons: paying someone else's is allowed and harmless.
+ * were away (useBackFromUpi). Mark as paid is for money that went another
+ * way, cash or UPI to a phone number: it needs nothing set up by the person
+ * owed, only that they've joined, and it too is a word they confirm. Nothing
+ * here can change the group, and the page can't tell who is looking, so
+ * every debt gets the same buttons: paying someone else's is allowed and
+ * harmless.
  *
  * It is also the way in. Join group, at the top beside the group's name,
  * opens /join/<token>, with the same token, where someone says which of the
@@ -43,6 +46,7 @@ import {
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { useBackFromUpi } from '../react/useBackFromUpi';
+import { useBack } from './backNavigation';
 import { GuestPayScreen } from './GuestPayScreen';
 import { UpiPanel } from './UpiPanel';
 import { Amount, Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
@@ -74,8 +78,19 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
   const [upi, setUpi] = useState<{ ref: string; payee: UpiPayee | null } | null>(null);
   const keys = useActionKeys();
   const [saying, setSaying] = useState(false);
+  /** The debt whose Mark as paid is asking "paid another way?". */
+  const [marking, setMarking] = useState<string | null>(null);
   /** The debt someone left this page to pay in a UPI app, once they're back: the one to ask about. */
   const back = useBackFromUpi(`g/${token}`);
+
+  /** Back from the pay page to the group, by its button or the back button. */
+  const closePay = () => {
+    setPaying(null);
+    refresh();
+  };
+  // An overlay: it takes the back button before this page's own, and in a browser it has a history
+  // entry of its own, so going back from paying comes back here rather than leaving the page.
+  useBack(paying ? closePay : undefined, true);
 
   // Someone else in the chat may pay while this is open. Keep the list current.
   useEffect(() => {
@@ -114,6 +129,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
     // one, the next refresh would open its panel again, over this one.
     if (back.back !== null && back.back !== ref) back.answered();
     setFailed(null);
+    setMarking(null);
     setUpi({ ref, payee: null });
     try {
       const payee = await client.getGroupLinkUpi(token, ref);
@@ -154,6 +170,32 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
     }
   };
 
+  // One question open at a time: paying by UPI and having paid another way are two answers for the same debt.
+  const openMarking = (ref: string) => {
+    if (marking === ref) return setMarking(null);
+    if (upi) {
+      setUpi(null);
+      back.answered();
+    }
+    setFailed(null);
+    setMarking(ref);
+  };
+
+  // Moves nothing either: the person owed is asked whether they got it.
+  const markPaid = async (ref: string) => {
+    setSaying(true);
+    setFailed(null);
+    try {
+      await keys.run('mark-paid', { token, ref }, (k) => client.markPaidFromGroupLink(token, ref, k));
+      setMarking(null);
+    } catch (e) {
+      setFailed({ ref, message: e instanceof Error ? e.message : 'Couldn’t send that. Try again.' });
+    } finally {
+      setSaying(false);
+      refresh();
+    }
+  };
+
   if (paying) {
     return (
       <View style={s.payPage}>
@@ -162,10 +204,7 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
           <Button
             label={`Back to ${data?.groupName ?? 'the group'}`}
             track="Back to the group"
-            onPress={() => {
-              setPaying(null);
-              refresh();
-            }}
+            onPress={closePay}
           />
         </View>
       </View>
@@ -231,6 +270,9 @@ export function GroupGuestScreen({ token, onBack, onJoin }: GroupGuestScreenProp
                 onLeftForUpi={() => back.leaving(debt.ref)}
                 onPaidByUpi={() => sayPaid(debt.ref)}
                 onNotPaid={back.answered}
+                marking={marking === debt.ref ? { saying } : null}
+                onMark={() => openMarking(debt.ref)}
+                onMarkedPaid={() => markPaid(debt.ref)}
               />
             ))}
           </View>
@@ -274,6 +316,9 @@ function DebtCard({
   onLeftForUpi,
   onPaidByUpi,
   onNotPaid,
+  marking,
+  onMark,
+  onMarkedPaid,
 }: {
   debt: GroupGuestDebt;
   currency: string;
@@ -294,12 +339,18 @@ function DebtCard({
   onPaidByUpi: () => void;
   /** They came back and the payment hadn't gone through. Back to paying. */
   onNotPaid: () => void;
+  /** Open when Mark as paid is asking whether it was paid another way. */
+  marking: { saying: boolean } | null;
+  /** Opens that question, or closes it. */
+  onMark: () => void;
+  onMarkedPaid: () => void;
 }) {
   const color = useColors();
   const s = useStyles();
-  // Someone said it was paid by UPI. Paying again would pay twice, so the buttons wait with it.
+  // Someone said it was paid, by UPI or another way. Paying again would pay twice, so the buttons wait with it.
   const claimed = debt.upiClaim === 'pending';
   const canPay = (debt.payable || debt.upi) && !claimed;
+  const canMark = debt.markable && !claimed;
   return (
     <Card style={{ padding: space.md, gap: space.sm }}>
       <View style={s.debtRow}>
@@ -313,26 +364,44 @@ function DebtCard({
       </View>
       {claimed && (
         <Text style={s.indented}>
-          Someone said this was paid by UPI. Waiting for {debt.to} to confirm it arrived.
+          Someone said this was {debt.claimAnotherWay ? 'paid another way' : 'paid by UPI'}. Waiting for {debt.to} to
+          confirm it arrived.
         </Text>
       )}
       {debt.upiClaim === 'declined' && (
         <Text style={[s.indented, { color: color.danger }]}>
-          {debt.to} says the UPI payment didn’t arrive. Check with them before paying again.
+          {debt.to} says the {debt.claimAnotherWay ? 'payment' : 'UPI payment'} didn’t arrive. Check with them before
+          paying again.
         </Text>
       )}
-      {canPay && (
+      {!debt.payable && !debt.upi && !claimed && (
+        <Text style={s.indented}>
+          {debt.markable
+            ? `${debt.to} can’t be paid here yet. If you’ve paid them another way, mark it as paid.`
+            : `${debt.to} can’t be paid here yet. Settle with them directly.`}
+        </Text>
+      )}
+      {(canPay || canMark) && (
         <View style={[s.payButtons, s.indentedBlock]}>
-          {debt.upi && (
+          {canPay && debt.upi && (
             <Button label="Pay by UPI" variant={upi ? 'secondary' : 'primary'} disabled={disabled} onPress={onUpi} />
           )}
-          {debt.payable && (
+          {canPay && debt.payable && (
             <Button
               label="Pay with Lightning"
               variant={debt.upi ? 'secondary' : 'primary'}
               busy={busy}
               disabled={disabled}
               onPress={onSettle}
+            />
+          )}
+          {/* Beside a way to pay, it stays out of the way; with none, it is what there is to do. */}
+          {canMark && (
+            <Button
+              label="Mark as paid"
+              variant={canPay ? 'quiet' : 'secondary'}
+              disabled={disabled}
+              onPress={onMark}
             />
           )}
         </View>
@@ -369,10 +438,17 @@ function DebtCard({
           )}
         </View>
       )}
-      {!debt.payable && !debt.upi && (
-        <Text style={s.indented}>
-          {debt.to} can’t be paid here yet. Settle with them directly.
-        </Text>
+      {marking && canMark && (
+        // Their yes is only their word, as with UPI: the page has no login, and the person owed confirms.
+        <View style={[s.indentedBlock, s.asked]}>
+          <Text style={s.askedTitle}>Paid {debt.to} another way?</Text>
+          <Text style={s.caption}>
+            Cash, UPI to their number, anything outside Sattle. If you paid {debt.to} the{' '}
+            {formatAmount(debt.amount, currency)}, say so here. {debt.to} confirms it arrived, and then it’s settled.
+          </Text>
+          <Button label="Yes, I’ve paid" variant="primary" busy={marking.saying} onPress={onMarkedPaid} />
+          <Button label="Cancel" variant="quiet" disabled={marking.saying} onPress={onMark} />
+        </View>
       )}
       {error && <Text style={[s.indented, { color: color.danger }]}>{error}</Text>}
     </Card>

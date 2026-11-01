@@ -381,7 +381,7 @@ test.describe('Groups', () => {
     await A.post(`/groups/${group.id}/upi-claims`, { fromMemberId: aMember.id, toMemberId: bMember.id, amount });
     const r = await refused(A.setSimplifyDebts(group.id, false));
     expect(r.status).toBe(409);
-    expect(r.message).toBe('A UPI payment in this group hasn’t been confirmed yet. Wait until it has.');
+    expect(r.message).toBe('A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.');
   });
 
   test('a group is deleted only once nothing is owed and no payment is under way', async ({ api }) => {
@@ -1330,10 +1330,19 @@ test.describe('Group links', () => {
       { description: 'Cab', amount: 600, paidBy: 'Aman', shares: [{ name: 'Yash', amount: 300 }, { name: 'Aman', amount: 300 }], createdAt: expect.any(String) },
     ]);
     const toPriya = view.debts.find((d) => d.to === 'Priya')!;
-    expect(toPriya).toEqual({ ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), from: 'Yash', to: 'Priya', amount: 10_000, payable: true });
+    // Priya has joined, so a payment made another way can be marked as paid for her to confirm.
+    expect(toPriya).toEqual({
+      ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/),
+      from: 'Yash',
+      to: 'Priya',
+      amount: 10_000,
+      payable: true,
+      markable: true,
+    });
     const toAman = view.debts.find((d) => d.to === 'Aman')!;
     expect(toAman).toMatchObject({ from: 'Yash', amount: 300, payable: false });
     expect(toAman.upi).toBeUndefined();
+    expect(toAman.markable).toBeUndefined();
     await B.setUpiId('priya@okhdfcbank');
     const withUpi = (await api.groupGuestView(link.token)).debts.find((d) => d.to === 'Priya')!;
     expect(withUpi.upi).toBe(true);
