@@ -27,6 +27,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { describeRateSource, formatAmount, formatRate, formatSats, isBitcoin, SattleError, type Quote } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
+import { useBack } from './backNavigation';
 import { brandBlue, faceFor, layout, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
 
 /** The app icon's S, on no background; Logo puts it on its blue tile. */
@@ -73,6 +74,8 @@ export function Screen({
   // While someone is typing, the footer steps aside: on Android the window shrinks to the
   // keyboard, and a bar fixed to its bottom would sit over what little is left to type in.
   const typing = useKeyboardUp();
+  // Android's back button and the browser's do what the arrow does.
+  useBack(onBack);
   const bar = typing ? null : footer;
   return (
     <View style={s.screen}>
@@ -88,6 +91,8 @@ export function Screen({
             }}
             hitSlop={12}
             style={s.back}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
           >
             <Text style={s.backText}>‹</Text>
           </Pressable>
@@ -211,13 +216,18 @@ export function Button({
   const isPrimary = variant === 'primary';
   // react-native-web draws anything with an href as <a>. React Native's own types don't have the prop.
   const link = href && Platform.OS === 'web' ? ({ href, accessibilityRole: 'link' } as object) : null;
+  const off = !!(disabled || busy);
   return (
     <View>
       <Pressable
+        accessibilityRole="button"
+        // While it spins there's no label to read, so say it here.
+        accessibilityLabel={label}
         {...link}
-        accessibilityState={expanded === undefined ? undefined : { expanded }}
+        accessibilityState={{ disabled: off, busy: !!busy, ...(expanded === undefined ? {} : { expanded }) }}
         // A browser is told separately: react-native-web doesn't read accessibilityState.
         aria-expanded={expanded}
+        aria-busy={!!busy}
         onPress={() => {
           analytics.tap(track ?? label, { control: 'button', ...(href ? { link: true } : {}) });
           onPress?.();
@@ -305,6 +315,8 @@ export function Dialog({
   children: React.ReactNode;
 }) {
   const s = useStyles();
+  // The back button closes it before it goes back a screen.
+  useBack(visible ? onClose : undefined, true);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
@@ -313,6 +325,7 @@ export function Dialog({
           analytics.tap('Dismiss', { control: 'backdrop' });
           onClose();
         }}
+        accessibilityRole="button"
         accessibilityLabel="Close"
       />
       <View style={s.dialogCenter} pointerEvents="box-none">
@@ -329,6 +342,8 @@ export function Dialog({
 export function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
   const s = useStyles();
   const insets = useSafeAreaInsets();
+  // The back button closes it before it goes back a screen.
+  useBack(visible ? onClose : undefined, true);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable
@@ -337,6 +352,8 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
           analytics.tap('Dismiss', { control: 'backdrop' });
           onClose();
         }}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
       />
       {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
       <View style={s.sheetFrame} pointerEvents="box-none">
@@ -684,7 +701,11 @@ export function Avatar({ name, dim, me, size = 36 }: { name: string; dim?: boole
     .join('');
   const face = me ? { bg: color.accentWash, ink: color.accent } : faceFor(name, mode);
   return (
+    // Initials beside the name they're from: a screen reader would only say the name twice.
     <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       style={[
         s.avatar,
         { width: size, height: size, backgroundColor: face.bg },

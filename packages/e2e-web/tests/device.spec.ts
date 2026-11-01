@@ -7,7 +7,7 @@
 
 import { devices } from '@playwright/test';
 
-import { button, groupHeader, makeAccount, skipTour } from '../src/actions';
+import { button, groupHeader, makeAccount, openGroup, skipTour } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 
 const API = (url: URL) => url.hostname === '127.0.0.1' && url.port === '3900';
@@ -71,6 +71,26 @@ test.describe('links on a brand-new device', () => {
     await expect(page).toHaveTitle('Sattle Privacy Policy');
     await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
     await expect(page.getByText('Split bills without the maths')).toHaveCount(0);
+  });
+});
+
+test.describe('the browser’s back button', () => {
+  test('closes a sheet first, then goes back a screen, then to the groups list', async ({ person }) => {
+    const { page, api } = await person('Yash');
+    await api.seedGroup({ name: 'Weekend', people: ['Riya'], spends: [{ description: 'Cab', amount: 30_000, paidBy: 'Yash' }] });
+    await page.goto('/');
+    await openGroup(page, 'Weekend');
+    await button(page, 'Add expense').click();
+    await expect(page.getByPlaceholder('What was it for?')).toBeVisible();
+    await page.goBack();
+    await expect(groupHeader(page)).toBeVisible();
+    await page.getByRole('button', { name: /^Add people/ }).click();
+    await expect(page.getByText('Share the group link', { exact: true })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByText('Share the group link', { exact: true })).toBeHidden();
+    await expect(groupHeader(page)).toBeVisible();
+    await page.goBack();
+    await expect(page.getByText('Across all groups', { exact: true })).toBeVisible();
   });
 });
 

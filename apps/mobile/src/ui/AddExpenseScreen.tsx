@@ -10,12 +10,12 @@
  * Who paid and how to split live in a sheet, opened from that card, since
  * most expenses are paid by whoever adds them and split equally:
  *
- *   Equally      everyone in it pays the same.
- *   By amount    each person's amount is typed, and it won't save until they
- *                add up to the total. Saved as exact amounts.
- *   By parts     someone who had twice as much has 2 parts. Saved as shares.
- *   By percent   each person's percent, reaching 100. Saved as the exact
- *                amounts they come to: the server keeps amounts, not percents.
+ *   Equal     everyone in it pays the same.
+ *   Amount    each person's amount is typed, and it won't save until they
+ *             add up to the total. Saved as exact amounts.
+ *   Parts     someone who had twice as much has 2 parts. Saved as shares.
+ *   Percent   each person's percent, reaching 100. Saved as the exact
+ *             amounts they come to: the server keeps amounts, not percents.
  *
  * Split by item, from the same sheet, is for a bill with lines on it: each
  * line's price, and who had it. It comes to exact amounts too, and saves.
@@ -31,7 +31,7 @@
  */
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -50,6 +50,7 @@ import {
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useClient } from '../react/SattleProvider';
+import { useBack } from './backNavigation';
 import {
   Avatar,
   ConfirmButton,
@@ -84,11 +85,12 @@ export interface AddExpenseScreenProps {
 /** How the form splits, which is one more than the server keeps: percent is saved as amounts. */
 type Way = 'equal' | 'exact' | 'shares' | 'percent';
 
-const WAYS: ReadonlyArray<{ value: Way; label: string; hint: string }> = [
-  { value: 'equal', label: 'Equally', hint: 'Everyone pays the same.' },
-  { value: 'exact', label: 'By amount', hint: 'Type what each person owes. It needs to add up to the total.' },
-  { value: 'shares', label: 'By parts', hint: 'Someone had twice as much? Give them 2 parts.' },
-  { value: 'percent', label: 'By percent', hint: 'Type each person’s percent. It needs to reach 100%.' },
+/** `label` is short enough for four side by side on a 320-point phone; `title` says it on the card. */
+const WAYS: ReadonlyArray<{ value: Way; label: string; title: string; hint: string }> = [
+  { value: 'equal', label: 'Equal', title: 'equally', hint: 'Everyone pays the same.' },
+  { value: 'exact', label: 'Amount', title: 'by amount', hint: 'Type what each person owes. It needs to add up to the total.' },
+  { value: 'shares', label: 'Parts', title: 'by parts', hint: 'Someone had twice as much? Give them 2 parts.' },
+  { value: 'percent', label: 'Percent', title: 'by percent', hint: 'Type each person’s percent. It needs to reach 100%.' },
 ];
 
 /** A line on a bill, for Split by item. `who` are the members who had it. */
@@ -119,6 +121,8 @@ export function AddExpenseScreen({
   // Sats are whole, so their keyboard has no point on it.
   const keyboard = sats ? 'number-pad' : 'decimal-pad';
   const fmt = (minor: number) => formatAmount(minor, currency);
+  // Its own header, so it says itself what Android's back button and the browser's do.
+  useBack(onBack);
 
   const [description, setDescription] = useState(expense?.description ?? '');
   const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
@@ -275,7 +279,7 @@ export function AddExpenseScreen({
       ? 'Nobody in the split yet'
       : way === 'equal'
         ? `Split equally between ${inSplit.length}`
-        : `Split ${wayLabel.label.toLowerCase()} between ${inSplit.length}`;
+        : `Split ${wayLabel.title} between ${inSplit.length}`;
   const splitSub = split.bad
     ? split.note
     : way === 'equal'
@@ -506,6 +510,9 @@ export function AddExpenseScreen({
                         placeholder="0"
                         placeholderTextColor={color.inkFaint}
                         keyboardType={way === 'exact' ? keyboard : 'decimal-pad'}
+                        // Parts and percents start filled in, so a tap selects them: typing replaces, not adds on.
+                        selectTextOnFocus
+                        onFocus={keepSelectedOnWeb}
                         accessibilityLabel={
                           way === 'exact'
                             ? `${m.displayName}'s amount${sats ? ' in sats' : ''}`
@@ -535,6 +542,17 @@ export function AddExpenseScreen({
       </Sheet>
     </View>
   );
+}
+
+/**
+ * A browser puts the caret where the field was clicked as the click ends, which is after
+ * selectTextOnFocus has selected it: that click's end is let go, so the selection stays.
+ */
+function keepSelectedOnWeb(e: { target: unknown }) {
+  if (Platform.OS !== 'web') return;
+  const field = e.target as HTMLInputElement;
+  field.select();
+  field.addEventListener('mouseup', (up) => up.preventDefault(), { once: true });
 }
 
 /** "today", "yesterday", or the date. */
@@ -605,6 +623,8 @@ function ItemSplit({
   const insets = useSafeAreaInsets();
   const sats = isBitcoin(currency);
   const fmt = (minor: number) => formatAmount(minor, currency);
+  // Back from the bill goes to the form, not out of it: this one is newer, so it's asked first.
+  useBack(onBack);
 
   const change = (key: number, patch: Partial<Item>) =>
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));

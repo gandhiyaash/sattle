@@ -11,6 +11,7 @@ import type { SattleClient } from './src/client/SattleClient';
 import { useCurrenciesRead } from './src/prefs/useCurrencyPrefs';
 import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
+import { keepAddress } from './src/ui/backNavigation';
 import { DemoApp } from './src/ui/DemoApp';
 import { GroupGuestScreen } from './src/ui/GroupGuestScreen';
 import { GuestPayScreen } from './src/ui/GuestPayScreen';
@@ -94,7 +95,7 @@ function Root() {
   // Off the address bar too, so a reload opens the app instead of a used link.
   const joinDone = () => {
     setJoining(null);
-    if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState(null, '', '/');
+    keepAddress('/');
   };
   // Native: the link that opened the app, or one tapped while it was already open. Either the
   // group's shared link, /g/, which is what Invite sends and where people see what they owe and

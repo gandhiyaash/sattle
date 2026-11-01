@@ -35,6 +35,7 @@ import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useClient } from '../react/SattleProvider';
+import { useBack } from './backNavigation';
 import { CoverArt } from './CoverArt';
 import { currencyNames } from './CurrencyPicker';
 import { Avatar, Button, ErrorState, Glyph, Pill } from './primitives';
@@ -63,6 +64,8 @@ export function NewGroupScreen({ example, onBack, onCreated }: NewGroupScreenPro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const draftField = useRef<TextInput>(null);
+  // Its own header, so it says itself what Android's back button and the browser's do.
+  useBack(onBack);
 
   const cover = coverFor(name);
   const choices = currencyNames(prefs.uses);
