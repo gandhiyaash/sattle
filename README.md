@@ -166,6 +166,8 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupDetailScreen.tsx  The group's cover, where you stand, who pays whom (with Simplify debts), the activity by day; Add people and Remind sheets.
       HistoryScreen.tsx      Everything added, changed, removed and settled, and the sheet one entry opens in.
       AddExpenseScreen.tsx   Amount first, a live split preview, and split equally, by amount, parts, percent or item.
+      Coachmarks.tsx         A tip over the screen: the dim with a spotlight cut out, an arrow drawn to it, and Skip, Back and Next.
+      coachmarkLayout.ts     Where the spotlight, the card and the arrow go. The geometry, under vitest.
       SettleUpSheet.tsx      Rails, the blocked screen, address entry, and paying by UPI.
       InvoicePanel.tsx       The invoice: Open your wallet, a QR code, copying it, and how long it has left.
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
@@ -178,6 +180,8 @@ apps/mobile/                 @sattle/mobile: Expo
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
+      tips.ts                The one-time tips (the split guide), and which this device has seen.
+      tipsStore.ts           Where the device keeps that. SecureStore on native, localStorage on web.
       CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
@@ -191,7 +195,7 @@ apps/mobile/                 @sattle/mobile: Expo
 
 The browser is a phone: Pixel 7's width, touch and user agent, in Chrome's own headless mode (not the headless shell), so what it renders is what Chrome renders. Headless always, in CI too; there is nothing in the app a window would change. To watch a test, `npx playwright test --ui` from the package; a failed run in CI uploads its report with a trace of each failure, which `npx playwright show-report` replays step by step.
 
-Tests sit under `tests/`, one file per area, built on three fixtures (`src/fixtures.ts`): `device()` is a browser in a given starting state, a brand-new phone or one that has seen the tour or holds a token; `person(name)` is an account made through the API and open in its own browser on the groups list, with the API bound to its token for seeding and checking; `api` is the API spoken to directly, which `tests/api.spec.ts` uses to abuse every route. The screens are driven through `src/actions.ts`, which finds buttons by their label and inputs by their placeholder, since react-native-web draws a Pressable as a plain div.
+Tests sit under `tests/`, one file per area, built on three fixtures (`src/fixtures.ts`): `device()` is a browser in a given starting state, a brand-new phone or one that has seen the tour and the tips or holds a token; `person(name)` is an account made through the API and open in its own browser on the groups list, with the API bound to its token for seeding and checking; `api` is the API spoken to directly, which `tests/api.spec.ts` uses to abuse every route. The screens are driven through `src/actions.ts`, which finds buttons by their label and inputs by their placeholder, since react-native-web draws a Pressable as a plain div.
 
 A test that shows up a bug in the app keeps its correct expectation and is marked `test.fail` with the bug in its reason, so the run stays green and the bug stays on record until it's fixed.
 
@@ -257,6 +261,8 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 ## First launch and currencies
 
 The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+The first time a device adds an expense, a tip over the split card points at **Split differently**: new expenses are split equally between everyone, and leaving someone out is in that sheet. **Show me** opens it on a five-step tour (`Coachmarks.tsx`) of who paid, leaving someone out, the ways to split, Split by item and Done. Each step dims everything but the one thing it's about, which shows through a spotlight with an arrow drawn to it, and taps reach only that thing: on the step about leaving someone out, the tap on the person is real, and the card says what it did. **Not now** leaves the tour for the first time the sheet opens. Skip or Got it ends it for good on that device (`tips.ts`), and the **i** beside Done plays it again.
 
 Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
 

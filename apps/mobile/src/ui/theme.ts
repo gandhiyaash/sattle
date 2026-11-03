@@ -60,6 +60,8 @@ const light = {
 
   // Dims the screen behind a sheet
   scrim: '#0B142666',
+  // Dims all but the one thing a tip is about, deep enough that the thing stands out
+  scrimStrong: '#0B1426BF',
 };
 
 export type Palette = typeof light;
@@ -89,6 +91,7 @@ const dark: Palette = {
   dangerWash: '#3A1F1B',
 
   scrim: '#000000A6',
+  scrimStrong: '#000000C2',
 };
 
 /** Follow the system, or always use one mode. */

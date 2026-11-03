@@ -3,7 +3,8 @@
  *
  *   api      the API, spoken to directly (src/api.ts)
  *   device   a browser with a given starting state: a brand-new phone, or one
- *            that has seen the tour, or one that holds an account's token
+ *            that has seen the tour and the tips, or one that holds an
+ *            account's token
  *   person   an account made through the API, open in its own browser on the
  *            groups list, with an Api bound to its token for seeding and
  *            checking. Two people in one test are two devices talking to the
@@ -20,9 +21,22 @@ import { API_URL, WEB_URL } from './env';
 
 export type Currency = 'INR' | 'BTC';
 
+/**
+ * Every one-time tip seen, as the app keeps it once Skip or Got it ends the
+ * split guide (apps/mobile/src/ui/tips.ts). A tip added to the app goes in
+ * here too, or it shows up in every test.
+ */
+export const TIPS_SEEN = JSON.stringify({ splitIntro: true, splitTour: true });
+
 export interface DeviceOptions {
   /** Whether this device has seen the first-launch tour. Default true: most tests start past it. */
   toured?: boolean;
+  /**
+   * Whether this device has seen the app's one-time tips: the intro on Add expense and the tour of
+   * Who paid, how to split. Default true, so they're in no test's way. Apart from `toured`:
+   * `{ toured: false, tips: false }` is a phone opening the app for the very first time.
+   */
+  tips?: boolean;
   /** An account's token, as a device signed in with it holds it. */
   token?: string;
   /** The currencies this device's owner uses, as the Account screen stores them. Default: both. */
@@ -79,6 +93,7 @@ export const test = base.extend<Fixtures>({
     await use(async (opts = {}) => {
       const stored: Array<{ name: string; value: string }> = [];
       if (opts.toured ?? true) stored.push({ name: 'sattle.toured', value: '1' });
+      if (opts.tips ?? true) stored.push({ name: 'sattle.tips', value: TIPS_SEEN });
       if (opts.token) stored.push({ name: 'sattle.token', value: opts.token });
       if (opts.currencies) {
         stored.push({ name: 'sattle.currencies', value: JSON.stringify({ uses: opts.currencies, newGroups: opts.currencies[0] }) });

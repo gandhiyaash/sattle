@@ -28,9 +28,17 @@
  *
  * Amounts are typed in the group's currency: rupees with paise after the
  * point, or whole sats in a group kept in bitcoin.
+ *
+ * A new expense is split equally between everyone, and leaving someone out
+ * is in the sheet, which people miss. So the first time a device adds one, a
+ * tip over the split card points at Split differently, and the first time
+ * the sheet opens, by either way in, a tour points at each thing in it in
+ * turn (Coachmarks, tips.ts). Its key step asks for a tap on a person and
+ * says what the tap did. The i beside Done plays it again. Neither shows
+ * where the form can't be used.
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -51,6 +59,7 @@ import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import { useBack } from './backNavigation';
+import { Coachmarks, type Coachmark } from './Coachmarks';
 import {
   Avatar,
   ConfirmButton,
@@ -62,6 +71,7 @@ import {
   SheetBody,
 } from './primitives';
 import { faceFor, initialOf, makeStyles, radius, shadow, space, type, useColorMode, useColors } from './theme';
+import { markTipSeen, useTipSeen } from './tips';
 
 export interface AddExpenseScreenProps {
   groupId: string;
@@ -154,6 +164,71 @@ export function AddExpenseScreen({
   const [error, setError] = useState<string | null>(null);
   const amountField = useRef<TextInput>(null);
   const nameField = useRef<TextInput>(null);
+
+  // The guide: the intro over the split card, and the tour of the sheet (see the top).
+  const adding = !expense;
+  const introSeen = useTipSeen('splitIntro');
+  const tourSeen = useTipSeen('splitTour');
+  const intro = adding && !locked && introSeen === false;
+  /** The tour's step while it's up, and how long it gives the sheet to finish sliding in first. */
+  const [tour, setTour] = useState<{ at: number; wait: number } | null>(null);
+  // Only a tour that showed is marked seen: one closed while it was still waiting comes round again.
+  const tourShown = useRef(false);
+  /** What a tap in the tour's hole just did, said back on its card. */
+  const [ack, setAck] = useState<string | null>(null);
+  const splitCard = useRef<View>(null);
+  const splitLink = useRef<View>(null);
+  const paidByBlock = useRef<View>(null);
+  const outRow = useRef<View>(null);
+  const waysBlock = useRef<View>(null);
+  const byItemButton = useRef<View>(null);
+  const doneButton = useRef<View>(null);
+  /** Who the tour leaves out, if asked: the first person who isn't the one adding it. */
+  const outMember = members.find((m) => m.id !== me?.id) ?? members[0];
+  // The amount is ready to type as the form opens, unless the intro is up: the keyboard would cover
+  // what it points at. A device that hadn't yet said whether it has seen the intro is waited for.
+  const [focusAtOnce] = useState(() => adding && introSeen !== undefined && !intro);
+  const askedFirst = useRef(introSeen !== undefined);
+  useEffect(() => {
+    if (askedFirst.current || introSeen === undefined) return;
+    askedFirst.current = true;
+    if (adding && !intro) amountField.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introSeen]);
+
+  const startTour = (wait: number) => {
+    tourShown.current = false;
+    setAck(null);
+    setTour({ at: 0, wait });
+  };
+  const endTour = (how: 'done' | 'skipped' | 'closed') => {
+    // Through the sheet, or done with it: the intro has nothing left to point at either.
+    if (tourShown.current) markTipSeen('splitIntro', 'splitTour');
+    analytics.action('split guide', { outcome: how, step: tour?.at ?? 0 });
+    setTour(null);
+    setAck(null);
+  };
+  /** Who paid and how to split. The first time on this device it brings the tour, and `guide` asks for it anyway. */
+  const openDetails = (guide = false) => {
+    setDetails(true);
+    // The sheet takes about 300 ms to slide in; the tour waits that out, then for it to be still.
+    if (!locked && (guide || tourSeen === false)) startTour(350);
+  };
+  const closeDetails = () => {
+    if (tour) endTour('closed');
+    setDetails(false);
+  };
+  // The intro's answers. Either way it's been seen; tapping the card through its hole is Show me.
+  const showMe = () => {
+    markTipSeen('splitIntro');
+    analytics.action('split intro', { outcome: 'show me' });
+    openDetails(true);
+  };
+  const notNow = () => {
+    markTipSeen('splitIntro');
+    analytics.action('split intro', { outcome: 'not now' });
+    amountField.current?.focus();
+  };
 
   const amountMinor = useMemo(() => parseAmount(amountText, currency), [amountText, currency]);
   // Members in group order, so the remainder lands the same way every time.
@@ -287,6 +362,52 @@ export function AddExpenseScreen({
       : 'Everyone’s share adds up';
   const when = expense ? `added ${dayWord(expense.createdAt)}` : 'today';
 
+  /** The tour, in the order a first split goes: who paid, who's in, how, by item, and back. */
+  const tourSteps: Coachmark[] = [
+    {
+      key: 'paid',
+      target: paidByBlock,
+      title: 'Who paid?',
+      body: adding ? 'It’s you unless you tap someone else.' : 'Tap whoever paid it.',
+      pad: 8,
+    },
+    {
+      key: 'out',
+      target: outRow,
+      title: 'Not in this one?',
+      body: 'Tap a person to leave them out of this spend. They’ll show Not in this and owe nothing. Tap again to put them back.',
+      ack,
+      pad: 4,
+      radius: 12,
+    },
+    {
+      key: 'ways',
+      target: waysBlock,
+      title: 'Not an even split?',
+      lines: [
+        { lead: 'Amount', text: 'Type what each person owes.' },
+        { lead: 'Parts', text: 'Had twice as much? Give them 2.' },
+        { lead: 'Percent', text: 'Each person’s share of 100%.' },
+      ],
+      radius: 16,
+    },
+    {
+      key: 'items',
+      target: byItemButton,
+      title: 'An itemised bill?',
+      body: 'Split by item: add each line and tick who had it.',
+      radius: 999,
+    },
+    {
+      key: 'done',
+      target: doneButton,
+      title: 'All set',
+      body: 'Tap Done to go back. The card shows who pays what before you save.',
+      radius: 999,
+    },
+  ];
+  const onOutStep = tour !== null && tourSteps[tour.at]?.key === 'out';
+
   if (byItem) {
     return (
       <ItemSplit
@@ -326,9 +447,13 @@ export function AddExpenseScreen({
     );
   }
 
+  // Android has no modal views: while the intro is up, the form is out of a screen reader's reach.
+  const underIntro = intro && Platform.OS === 'android' ? 'no-hide-descendants' : 'auto';
+
   return (
-    <View style={s.screen}>
-      <View style={[s.top, { paddingTop: insets.top + space.sm }]}>
+    // While the intro is up the screen is lifted over the tab bar under it, so the dim covers that too.
+    <View style={[s.screen, intro && s.lifted]}>
+      <View style={[s.top, { paddingTop: insets.top + space.sm }]} importantForAccessibility={underIntro}>
         <Glyph name="close" label="Close without saving" onPress={onBack} />
         <View style={{ flex: 1 }}>
           <Text style={s.topLabel}>{expense ? 'Edit expense in' : 'Add expense to'}</Text>
@@ -341,7 +466,11 @@ export function AddExpenseScreen({
         )}
       </View>
 
-      <ScrollView contentContainerStyle={[s.body, { paddingBottom: space.xxl + insets.bottom }]} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[s.body, { paddingBottom: space.xxl + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+        importantForAccessibility={underIntro}
+      >
         {locked && (
           <View style={s.notice}>
             <Text style={s.noticeText}>
@@ -365,7 +494,7 @@ export function AddExpenseScreen({
               placeholderTextColor={color.inkFaint}
               keyboardType={keyboard}
               accessibilityLabel={sats ? 'Amount in sats' : 'Amount in rupees'}
-              autoFocus={!expense}
+              autoFocus={focusAtOnce}
               // Enter goes on to what it was for, with the keyboard still up.
               returnKeyType="next"
               submitBehavior="submit"
@@ -385,9 +514,9 @@ export function AddExpenseScreen({
             returnKeyType="done"
           />
 
-          <View style={s.card}>
+          <View style={s.card} ref={splitCard} collapsable={false}>
             <Pressable
-              onPress={() => setDetails(true)}
+              onPress={() => (intro ? showMe() : openDetails())}
               accessibilityRole="button"
               accessibilityLabel={`Paid by ${payerName}, ${when}. Change`}
               style={({ pressed }) => [s.paidRow, pressed && { backgroundColor: color.surfaceSunken }]}
@@ -404,7 +533,13 @@ export function AddExpenseScreen({
                 <Text style={[s.splitSub, split.bad && !split.quiet && { color: color.danger }]}>{splitSub}</Text>
               </View>
             </View>
-            <Pressable onPress={() => setDetails(true)} accessibilityRole="button" style={s.differently}>
+            <Pressable
+              ref={splitLink}
+              collapsable={false}
+              onPress={() => (intro ? showMe() : openDetails())}
+              accessibilityRole="button"
+              style={s.differently}
+            >
               <Text style={s.link}>Split differently</Text>
             </Pressable>
           </View>
@@ -434,12 +569,42 @@ export function AddExpenseScreen({
         )}
       </ScrollView>
 
-      <Sheet visible={details} onClose={() => setDetails(false)}>
+      <Sheet
+        visible={details}
+        onClose={closeDetails}
+        overlay={
+          tour && (
+            <Coachmarks
+              steps={tourSteps}
+              at={tour.at}
+              onAt={(at) => {
+                setAck(null);
+                setTour((t) => t && { ...t, at });
+              }}
+              onEnd={endTour}
+              delay={tour.wait}
+              onShow={() => {
+                tourShown.current = true;
+              }}
+              label="How splitting works"
+            />
+          )
+        }
+      >
         <SheetBody
           title="Who paid, how to split"
-          action={<Pill label="Done" variant="primary" onPress={() => setDetails(false)} />}
+          action={
+            <View style={s.sheetActions}>
+              {!locked && (
+                <Glyph name="info" label="How splitting works" ink={color.inkMuted} onPress={() => startTour(0)} />
+              )}
+              <View ref={doneButton} collapsable={false}>
+                <Pill label="Done" variant="primary" onPress={closeDetails} />
+              </View>
+            </View>
+          }
         >
-          <View style={{ gap: space.sm }}>
+          <View style={{ gap: space.sm }} ref={paidByBlock} collapsable={false}>
             <Text style={s.label}>Paid by</Text>
             <View style={s.chips}>
               {members.map((m) => {
@@ -465,16 +630,20 @@ export function AddExpenseScreen({
 
           <View style={s.byItemRow}>
             <Text style={s.note}>{expense ? `Added ${dayWord(expense.createdAt)}` : 'Added today'}</Text>
-            <Pill
-              label="Split by item"
-              onPress={() => {
-                setDetails(false);
-                setByItem(true);
-              }}
-            />
+            <View ref={byItemButton} collapsable={false}>
+              <Pill
+                label="Split by item"
+                onPress={() => {
+                  closeDetails();
+                  setByItem(true);
+                }}
+              />
+            </View>
           </View>
 
-          <Segmented options={WAYS} value={way} onChange={setWay} />
+          <View ref={waysBlock} collapsable={false}>
+            <Segmented options={WAYS} value={way} onChange={setWay} />
+          </View>
           <Text style={s.note}>{wayLabel.hint}</Text>
 
           <View>
@@ -483,11 +652,20 @@ export function AddExpenseScreen({
               const share = split.parts?.find((p) => p.memberId === m.id);
               const field = way !== 'equal' && on;
               return (
-                <View key={m.id} style={s.personRow}>
+                <View
+                  key={m.id}
+                  style={s.personRow}
+                  ref={m.id === outMember?.id ? outRow : undefined}
+                  collapsable={false}
+                >
                   <Pressable
                     onPress={() => {
                       analytics.tap('Between', { control: 'row', on: !on });
                       toggle(m.id);
+                      // On the tour's step about it, the card says what the tap did.
+                      if (onOutStep && m.id === outMember?.id) {
+                        setAck(on ? `${m.displayName} is out of this one.` : `${m.displayName} is back in.`);
+                      }
                     }}
                     accessibilityRole="checkbox"
                     accessibilityLabel={`Include ${m.displayName}`}
@@ -540,6 +718,25 @@ export function AddExpenseScreen({
           </Text>
         </SheetBody>
       </Sheet>
+
+      {intro && (
+        <Coachmarks
+          steps={[
+            {
+              key: 'intro',
+              target: splitCard,
+              narrow: splitLink,
+              title: 'Someone not in this one?',
+              body: 'New expenses are split equally between everyone. Tap Split differently to leave people out, change who paid, or split by amount, parts or percent.',
+              radius: 22,
+            },
+          ]}
+          at={0}
+          onEnd={notNow}
+          answers={{ yes: { label: 'Show me', onPress: showMe }, no: { label: 'Not now', onPress: notNow } }}
+          delay={150}
+        />
+      )}
     </View>
   );
 }
@@ -795,6 +992,7 @@ function ItemSplit({
 
 const useStyles = makeStyles((color) => ({
   screen: { flex: 1, backgroundColor: color.paper },
+  lifted: { zIndex: 1 },
   top: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.sm, paddingRight: space.lg },
   topLabel: { fontSize: 12, color: color.inkMuted },
   topGroup: { fontSize: 17, fontWeight: '600', color: color.ink },
@@ -899,6 +1097,7 @@ const useStyles = makeStyles((color) => ({
   chipText: { fontSize: 14, color: color.ink },
   chipTextOn: { fontWeight: '600', color: color.accent },
   byItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
+  sheetActions: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
 
   personRow: {
     flexDirection: 'row',
