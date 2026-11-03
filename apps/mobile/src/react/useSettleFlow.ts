@@ -155,6 +155,7 @@ export const APP_URL = process.env.EXPO_PUBLIC_APP_URL ?? 'http://localhost:8081
 export async function groupLinkToShare(client: SattleClient, groupId: string) {
   const link = (await client.getGroupLink(groupId)) ?? (await client.createGroupLink(groupId));
   return {
+    link,
     url: `${APP_URL}${groupLinkPath(link.token)}`,
     sentNote: 'Sent. It works until someone in the group turns it off.',
   };

@@ -31,17 +31,15 @@
  * what the screen is opened for most.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   canReceive,
-  computeBalances,
+  dateFormat,
   formatAmount,
-  groupDebts,
   isBitcoin,
-  isHeldBy,
   UPI_CURRENCY,
   type Debt,
   type Expense,
@@ -49,6 +47,7 @@ import {
   type PaymentMode,
   type PayWays,
   type PendingJoin,
+  type Settlement,
   type UpiClaim,
   type UpiProfile,
 } from '@sattle/core';
@@ -56,7 +55,19 @@ import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { toggleCurrency } from '../prefs/currencyPrefs';
 import { chooseCurrencies, useCurrencyPrefs, usePayWays } from '../prefs/useCurrencyPrefs';
-import { useActionKeys, useAsync, useClient, usePaymentMode } from '../react/SattleProvider';
+import { isLocalId, isUnconfirmed, marksFor, unsavedIn, type ExpenseMark, type Unsaved as UnsavedExpense } from '../data/changes';
+import {
+  KEEP_CURRENT_MS,
+  useAppData,
+  useGroupChanges,
+  useGroupSnapshot,
+  useKeepCurrent,
+  useSyncStatus,
+  useView,
+  useViewPart,
+} from '../data/useAppData';
+import { groupViewFrom, upsert, withGroup, withMember, without, type GroupView } from '../data/views';
+import { useActionKeys, useClient, usePaymentMode } from '../react/SattleProvider';
 import { groupLinkToShare } from '../react/useSettleFlow';
 import {
   Avatar,
@@ -87,8 +98,17 @@ export interface GroupDetailScreenProps {
   /** Add people opened because of `sharing`. */
   onShared?: () => void;
   onBack: () => void;
-  /** Opens the form for a new expense. `userId` is who is signed in: the payer unless they say otherwise. */
-  onAddExpense: (members: Member[], currency: string, userId: string, groupName: string) => void;
+  /**
+   * Opens the form for a new expense. `userId` is who is signed in: the payer unless they say
+   * otherwise. With `draft`, the form starts from an added expense that didn't save.
+   */
+  onAddExpense: (
+    members: Member[],
+    currency: string,
+    userId: string,
+    groupName: string,
+    draft?: { expense: Expense; changeId: string }
+  ) => void;
   /** Opens an expense to change or delete it. `userId` is who is signed in. */
   onEditExpense: (expense: Expense, members: Member[], currency: string, userId: string, groupName: string) => void;
   /** Opens the screen for renaming, leaving and deleting the group, and for its link and backup. */
@@ -98,36 +118,6 @@ export interface GroupDetailScreenProps {
   /** Opens Wallet, where the user sets up how they get paid. */
   onOpenWallet: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string, currency: string) => void;
-}
-
-interface GroupView {
-  name: string;
-  currency: string;
-  members: Member[];
-  /** Newest first. */
-  expenses: Expense[];
-  debts: Debt[];
-  /** What the debts would be with Simplify debts the other way, for "Why these payments?". */
-  otherDebts: Debt[];
-  simplifyDebts: boolean;
-  /** UPI payments someone says they made, to or from the user, that the person owed hasn't confirmed. */
-  claims: UpiClaim[];
-  /** People asking to join, waiting on someone here to let them in. */
-  waiting: PendingJoin[];
-  /** Group.approveJoins: whether the link lets people in, or lets them ask. */
-  approveJoins: boolean;
-  /** Ghosts that no expense or payment names. */
-  removable: Set<string>;
-  /** Each member's net in the group: positive is owed to them, negative is what they owe. */
-  nets: Map<string, number>;
-  /** Everything the group has spent, and the user's part of it. */
-  spent: number;
-  myShare: number;
-  /** The user's own UPI ID, if they've given one. */
-  upi: UpiProfile;
-  userId: string;
-  myMemberId: string | null;
-  myNet: number;
 }
 
 /** What's open over the screen. */
@@ -172,86 +162,75 @@ export function GroupDetailScreen({
   // the last read alone, it would flick back between the answer and that read, and take a second tap.
   const [simplifyOn, setSimplifyOn] = useState<boolean | null>(null);
 
-  const { data, loading, error, reload, refresh } = useAsync<GroupView>(async () => {
-    const [user, group, members, expenses, settlements, claims, waiting, upi] = await Promise.all([
-      client.getCurrentUser(),
-      client.getGroup(groupId),
-      client.getMembers(groupId),
-      client.getExpenses(groupId),
-      client.getSettlements(groupId),
-      client.getUpiClaims(groupId),
-      client.getPendingJoins(groupId),
-      client.getUpiId(),
-    ]);
-
-    const balances = computeBalances(group.memberIds, expenses, settlements);
-    const mine = members.find((m) => isHeldBy(m, user.id)) ?? null;
-    const named = new Set<string>();
-    for (const e of expenses) {
-      named.add(e.paidByMemberId);
-      for (const p of e.parts) named.add(p.memberId);
-    }
-    for (const st of settlements) {
-      named.add(st.fromMemberId);
-      named.add(st.toMemberId);
-    }
-
-    return {
-      name: group.name,
-      currency: group.currency,
-      members,
-      expenses: [...expenses].reverse(),
-      debts: groupDebts(group, expenses, settlements),
-      otherDebts: groupDebts({ ...group, simplifyDebts: !group.simplifyDebts }, expenses, settlements),
-      simplifyDebts: group.simplifyDebts,
-      claims,
-      waiting,
-      approveJoins: group.approveJoins,
-      removable: new Set(members.filter((m) => !m.claimedByUserId && !named.has(m.id)).map((m) => m.id)),
-      nets: new Map(balances.map((b) => [b.memberId, b.net])),
-      spent: expenses.reduce((sum, e) => sum + e.amount, 0),
-      myShare: expenses.reduce(
-        (sum, e) => sum + (e.parts.find((p) => p.memberId === mine?.id)?.amount ?? 0),
-        0
-      ),
-      upi,
-      userId: user.id,
-      myMemberId: mine?.id ?? null,
-      myNet: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
-    };
-  }, [groupId]);
+  // Drawn from what the app already has (AppData): the group is up the moment it's tapped, and
+  // the server is asked behind it. A payment can land while this is open (a guest paying a link,
+  // someone else settling up), so it's kept current too, every few seconds, without a loading flash.
+  // Only this group, and the two things about the user it needs: a sync that changed another
+  // group, or nothing, doesn't draw this screen again.
+  const appData = useAppData();
+  const snap = useGroupSnapshot(groupId);
+  const user = useViewPart((v) => v?.user);
+  const upiProfile = useViewPart((v) => v?.upiProfile);
+  const changes = useGroupChanges(groupId);
+  useKeepCurrent(KEEP_CURRENT_MS, groupId);
+  const data = useMemo(
+    () => (snap && user && upiProfile ? groupViewFrom(snap, user, upiProfile) : undefined),
+    [snap, user, upiProfile]
+  );
+  const marks = useMemo(() => marksFor(groupId, changes), [groupId, changes]);
+  // Shown here once: if it goes from what's known while open, it was deleted or left elsewhere.
+  const wasHere = useRef(false);
+  useEffect(() => {
+    if (data) wasHere.current = true;
+  }, [data]);
+  const unsaved = useMemo(() => unsavedIn(changes, snap, user?.id), [changes, snap, user?.id]);
+  const sending = isUnconfirmed(groupId, changes);
+  // What's owed is about to move with a change still to be confirmed: settling waits for it.
+  const held = useCallback(() => {
+    if (!sending) return false;
+    showToast('Saving your last change. Try again in a moment.');
+    return true;
+  }, [sending, showToast]);
+  const refresh = useCallback(() => void appData.sync([groupId]), [appData, groupId]);
   const ways = usePayWays(data?.currency);
   // Someone else in the group can change it too: whatever is read next is what it is.
   useEffect(() => setSimplifyOn(null), [data?.simplifyDebts]);
 
-  // A payment can land while this is open: a guest paying a link, someone
-  // else settling up. Keep the balances current without a loading flash.
+  // History opens on what was read here: asked for a moment after the group is up, and again
+  // only once what was read is a minute old. It's the one thing a group's screens show that the
+  // sync doesn't carry.
   useEffect(() => {
-    const t = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      refresh();
-    }, REFRESH_MS);
-    return () => clearInterval(t);
-  }, [refresh]);
+    const t = setTimeout(() => {
+      const kept = appData.recall(`history:${groupId}`);
+      if (kept && Date.now() - kept.at < 60_000) return;
+      client.getHistory(groupId).then(
+        (history) => appData.remember(`history:${groupId}`, history, true),
+        () => {}
+      );
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [appData, client, groupId]);
 
-  if (loading) {
-    return (
-      <Screen title="Loading…" onBack={onBack}>
-        <Loading lines={4} />
-      </Screen>
-    );
-  }
+  // Kept the same between draws while the group is, so the Activity list (memo) isn't drawn again
+  // for a toast, a sheet or a switch.
+  const members = data?.members;
+  const currency = data?.currency ?? 'INR';
+  const nameOf = useCallback((id: string) => members?.find((m) => m.id === id)?.displayName ?? 'Someone', [members]);
+  const fmt = useCallback((minor: number) => formatAmount(minor, currency), [currency]);
+  const onEdit = useRef(onEditExpense);
+  onEdit.current = onEditExpense;
+  const openExpense = useCallback(
+    (expense: Expense) => {
+      if (!data) return;
+      analytics.tap('Expense', { control: 'row' });
+      // Still on its way: it has no id on the server to change yet.
+      if (isLocalId(expense.id) || marks.get(expense.id)?.state === 'sending') return showToast('Still saving this one.');
+      onEdit.current(expense, data.members, data.currency, data.userId, data.name);
+    },
+    [data, marks, showToast]
+  );
 
-  if (error || !data) {
-    return (
-      <Screen title="Group" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group.'} error={error} onRetry={reload} />
-      </Screen>
-    );
-  }
-
-  const nameOf = (id: string) => data.members.find((m) => m.id === id)?.displayName ?? 'Someone';
-  const fmt = (minor: number) => formatAmount(minor, data.currency);
+  if (!data) return wasHere.current ? <Gone onBack={onBack} /> : <NotYetHere groupId={groupId} onBack={onBack} />;
 
   const me = data.members.find((m) => m.id === data.myMemberId);
   // Under real payments, money lands in the payee's own wallet or address. Without one, a link can't be paid.
@@ -279,6 +258,7 @@ export function GroupDetailScreen({
     try {
       const group = await keys.run('simplify-debts', { groupId, on: next }, (k) => client.setSimplifyDebts(groupId, next, k));
       setSimplifyOn(group.simplifyDebts);
+      appData.known((v) => withGroup(v, groupId, (g) => ({ ...g, group: { ...g.group, simplifyDebts: group.simplifyDebts } })), groupId);
       refresh();
     } catch (e) {
       setSimplifyOn(null);
@@ -376,8 +356,11 @@ export function GroupDetailScreen({
                     nameOf={nameOf}
                     mode={mode}
                     ways={ways}
-                    onPay={() => onSettle(debt, data.members, data.name, data.currency)}
-                    onRemind={canBePaid ? () => setOver({ kind: 'remind', debt }) : undefined}
+                    onPay={() => {
+                      if (!held()) onSettle(debt, data.members, data.name, data.currency);
+                    }}
+                    onRemind={canBePaid ? () => !held() && setOver({ kind: 'remind', debt }) : undefined}
+                    held={held}
                     onChanged={refresh}
                     onToast={showToast}
                   />
@@ -409,18 +392,34 @@ export function GroupDetailScreen({
                 <Text style={s.link}>See all</Text>
               </Pressable>
             </View>
+            {unsaved.length > 0 && (
+              <Unsaved
+                expenses={unsaved}
+                fmt={fmt}
+                onRetry={(id) => {
+                  analytics.tap('Try again', { control: 'unsaved' });
+                  appData.retry(id);
+                }}
+                onEdit={(expense) => {
+                  analytics.tap('Edit', { control: 'unsaved' });
+                  onAddExpense(data.members, data.currency, data.userId, data.name, { expense, changeId: expense.id });
+                }}
+                onDelete={(id) => {
+                  analytics.tap('Delete', { control: 'unsaved' });
+                  appData.discard(id);
+                }}
+              />
+            )}
             {data.expenses.length === 0 ? (
-              <Text style={s.emptyLine}>Nothing yet. Add the first one below.</Text>
+              unsaved.length === 0 && <Text style={s.emptyLine}>Nothing yet. Add the first one below.</Text>
             ) : (
-              <Activity
+              <ActivityList
                 expenses={data.expenses}
+                marks={marks}
                 myMemberId={data.myMemberId}
                 nameOf={nameOf}
                 fmt={fmt}
-                onOpen={(expense) => {
-                  analytics.tap('Expense', { control: 'row' });
-                  onEditExpense(expense, data.members, data.currency, data.userId, data.name);
-                }}
+                onOpen={openExpense}
               />
             )}
           </View>
@@ -574,6 +573,7 @@ function DebtRow({
   onRemind,
   onChanged,
   onToast,
+  held,
 }: {
   debt: Debt;
   data: GroupView;
@@ -585,6 +585,8 @@ function DebtRow({
   onRemind?: () => void;
   onChanged: () => void;
   onToast: (line: string) => void;
+  /** True, having said so, while the group has changes still to be confirmed. */
+  held: () => boolean;
 }) {
   const color = useColors();
   const s = useStyles();
@@ -643,21 +645,87 @@ function DebtRow({
         />
       )}
       {/* Nothing to send from here: they pay from the group's link, under Add people. */}
-      {mineIn && !claimWaiting && <MarkSettled debt={debt} onSettled={onChanged} />}
+      {mineIn && !claimWaiting && <MarkSettled debt={debt} onSettled={onChanged} held={held} />}
       {cannotReceive && payee && <Text style={s.rowNote}>{cannotReceiveNote(payee, mode, ways)}</Text>}
     </View>
+  );
+}
+
+/** The group went while it was open: deleted by someone in it, or left from another of the user's devices. */
+function Gone({ onBack }: { onBack: () => void }) {
+  const s = useStyles();
+  return (
+    <Screen title="Group" onBack={onBack}>
+      <View style={{ gap: space.md }}>
+        <Text style={s.emptyLine}>This group isn’t here any more. It was deleted, or you left it on another device.</Text>
+        <Button label="Back to groups" onPress={onBack} />
+      </View>
+    </Screen>
+  );
+}
+
+/**
+ * The group screen before the group is known: just joined or made, say, or
+ * the app's very first read. Its sync is asked for here, and it's only gone
+ * once one since has finished without it. On its own, so the syncs this
+ * watches don't draw the group screen itself.
+ */
+function NotYetHere({ groupId, onBack }: { groupId: string; onBack: () => void }) {
+  const appData = useAppData();
+  const status = useSyncStatus();
+  // Whether the sync asked for here has finished. sync() resolves once one that started after
+  // the asking, and covers this group, has: then, still not here means not the user's.
+  const [answered, setAnswered] = useState(false);
+  const ask = useCallback(() => {
+    setAnswered(false);
+    let live = true;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const once = () => {
+      void appData.sync([groupId]).then((used) => {
+        if (!live) return;
+        // Set aside (an add of this device's was on its way), or it failed: asked again in a moment,
+        // and only then is it said, from what that one found.
+        if (used || appData.getStatus().error) setAnswered(true);
+        else again = setTimeout(once, 1000);
+      });
+    };
+    once();
+    return () => {
+      live = false;
+      if (again) clearTimeout(again);
+    };
+  }, [appData, groupId]);
+  useEffect(ask, [ask]);
+  if (answered) {
+    return (
+      <Screen title="Group" onBack={onBack}>
+        <ErrorState
+          message={status.error?.message ?? 'That group doesn’t exist.'}
+          error={status.error}
+          onRetry={() => void ask()}
+        />
+      </Screen>
+    );
+  }
+  return (
+    <Screen title="Loading…" onBack={onBack}>
+      <Loading lines={4} />
+    </Screen>
   );
 }
 
 /** The expenses, newest first, under the day each was added. */
 function Activity({
   expenses,
+  marks,
   myMemberId,
   nameOf,
   fmt,
   onOpen,
 }: {
   expenses: Expense[];
+  /** Expenses this device has saved that the server hasn't confirmed yet. */
+  marks: Map<string, ExpenseMark>;
   myMemberId: string | null;
   nameOf: (id: string) => string;
   fmt: (minor: number) => string;
@@ -665,8 +733,18 @@ function Activity({
 }) {
   const color = useColors();
   const s = useStyles();
+  // A long list is drawn in two goes: the newest first, so the screen is up at once, and the
+  // rest a moment later. Opening a group is a tap people make all day; it shouldn't wait on rows
+  // far below the fold.
+  const [whole, setWhole] = useState(expenses.length <= FIRST_ROWS);
+  useEffect(() => {
+    if (whole) return;
+    const t = setTimeout(() => startTransition(() => setWhole(true)), 0);
+    return () => clearTimeout(t);
+  }, [whole]);
+  const shown = whole ? expenses : expenses.slice(0, FIRST_ROWS);
   const days: Array<{ key: string; label: string; date: string; items: Expense[] }> = [];
-  for (const e of expenses) {
+  for (const e of shown) {
     const key = new Date(e.createdAt).toDateString();
     const last = days[days.length - 1];
     if (last?.key === key) last.items.push(e);
@@ -711,7 +789,8 @@ function Activity({
                       {expense.description}
                     </Text>
                     <Text style={s.expenseMeta} numberOfLines={1}>
-                      {paidByMe ? 'You' : nameOf(expense.paidByMemberId)} paid {fmt(expense.amount)} · {clock(expense.createdAt)}
+                      {paidByMe ? 'You' : nameOf(expense.paidByMemberId)} paid {fmt(expense.amount)} ·{' '}
+                      {markLine(marks.get(expense.id)) ?? clock(expense.createdAt)}
                     </Text>
                     <Text style={s.expenseMeta} numberOfLines={1}>
                       {splitSummary(expense, nameOf)}
@@ -733,18 +812,79 @@ function Activity({
   );
 }
 
+/** The same list, drawn again only when what it's given changes. */
+const ActivityList = React.memo(Activity);
+
+/** Rows drawn before the rest of a long Activity list. */
+const FIRST_ROWS = 20;
+
+/** What a row says in place of its time while it's this device's and not yet on the server. */
+function markLine(mark: ExpenseMark | undefined): string | null {
+  if (!mark) return null;
+  return mark.state === 'sending' ? 'Saving…' : 'Not saved yet, trying again';
+}
+
+/**
+ * Expenses added here that didn't save: the server refused them, or the app
+ * couldn't reach it and gave up for now. They count in nothing until they're
+ * in, so each says so, with a way to send it again or let it go.
+ */
+function Unsaved({
+  expenses,
+  fmt,
+  onRetry,
+  onEdit,
+  onDelete,
+}: {
+  expenses: UnsavedExpense[];
+  fmt: (minor: number) => string;
+  onRetry: (id: string) => void;
+  /** Opens the form on it: what the server said no to is changed there, then saved afresh. */
+  onEdit: (expense: Expense) => void;
+  onDelete: (id: string) => void;
+}) {
+  const s = useStyles();
+  return (
+    <View style={[s.listCard, s.unsavedCard]} accessibilityLabel="Not saved">
+      {expenses.map(({ expense, reason, unanswered }, i) => (
+        <View key={expense.id} style={[s.unsavedRow, i < expenses.length - 1 && s.rowLine]}>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text style={s.expenseName} numberOfLines={1}>
+              {expense.description}
+            </Text>
+            <Text style={s.unsavedNote} numberOfLines={3}>
+              {fmt(expense.amount)} · Not saved. {reason} It isn’t in anyone’s balance until it is.
+            </Text>
+          </View>
+          {unanswered ? (
+            <Pill
+              label="Try again"
+              variant="primary"
+              accessibilityLabel={`Try saving ${expense.description} again`}
+              onPress={() => onRetry(expense.id)}
+            />
+          ) : (
+            <Pill label="Edit" variant="primary" accessibilityLabel={`Edit ${expense.description}`} onPress={() => onEdit(expense)} />
+          )}
+          <Pill label="Delete" accessibilityLabel={`Delete ${expense.description}`} track="Delete unsaved" onPress={() => onDelete(expense.id)} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** "Today", "Yesterday", "Tuesday" within the week, then the date. */
 function dayLabel(iso: string): { label: string; date: string } {
   const d = new Date(iso);
   const today = new Date();
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((start(today) - start(d)) / 86_400_000);
-  const weekday = d.toLocaleDateString('en-GB', { weekday: 'long' });
-  const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const weekday = dateFormat('en-GB', { weekday: 'long' }).format(d);
+  const date = dateFormat('en-GB', { day: 'numeric', month: 'short' }).format(d);
   if (days === 0) return { label: 'Today', date: `${weekday.slice(0, 3)} ${date}` };
   if (days === 1) return { label: 'Yesterday', date: `${weekday.slice(0, 3)} ${date}` };
   if (days > 1 && days < 7) return { label: weekday, date };
-  return { label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), date: '' };
+  return { label: dateFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(d), date: '' };
 }
 
 /** "8:40 pm". */
@@ -917,49 +1057,46 @@ function AddPeopleSheet({
 }) {
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [link, setLink] = useState<{ url: string } | { failed: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [qr, setQr] = useState(false);
-  const [suggest, setSuggest] = useState<Array<{ name: string; from: string }>>([]);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
+  const view = useView();
 
   // The group's one link. Opening this makes it if there isn't one, as Invite always has.
   useEffect(() => {
     let live = true;
     groupLinkToShare(client, groupId).then(
-      (l) => live && setLink({ url: l.url }),
+      (l) => {
+        // Manage opens on it too, rather than on a "no link yet" read before this made one. Memory only: it's a key.
+        appData.remember(`link:${groupId}`, l.link);
+        if (live) setLink({ url: l.url });
+      },
       (e) => live && setLink({ failed: e instanceof Error ? e.message : 'Couldn’t make a link. Try again.' })
     );
     return () => {
       live = false;
     };
-  }, [client, groupId]);
+  }, [client, groupId, appData]);
 
   // People from the user's other groups, to add with a tap. Names only: Sattle has no contacts.
-  // Read once each time the sheet opens. The group is read again every few seconds while it's
-  // open, so who's already here is left out as it's drawn, not by reading the other groups again.
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      const groups = (await client.getGroups()).filter((g) => g.id !== groupId).slice(0, 8);
-      const lists = await Promise.all(groups.map((g) => client.getMembers(g.id).then((ms) => ({ g, ms }))));
-      const seen = new Set<string>();
-      const out: Array<{ name: string; from: string }> = [];
-      for (const { g, ms } of lists) {
-        for (const m of ms) {
-          const key = m.displayName.toLowerCase();
-          if (m.claimedByUserId === data.userId || seen.has(key)) continue;
-          seen.add(key);
-          out.push({ name: m.displayName, from: g.name });
-        }
+  // The app already has every group's members (AppData), so this asks the server for nothing.
+  // Who's already here is left out as it's drawn.
+  const suggest = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Array<{ name: string; from: string }> = [];
+    for (const { group, members } of (view?.groups ?? []).filter((x) => x.group.id !== groupId).slice(0, 8)) {
+      for (const m of members) {
+        const key = m.displayName.toLowerCase();
+        if (m.claimedByUserId === data.userId || seen.has(key)) continue;
+        seen.add(key);
+        out.push({ name: m.displayName, from: group.name });
       }
-      if (live) setSuggest(out);
-    })().catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [client, groupId, data.userId]);
+    }
+    return out;
+  }, [view, groupId, data.userId]);
   const here = new Set(data.members.map((m) => m.displayName.toLowerCase()));
   const shown = suggest.filter((x) => !here.has(x.name.toLowerCase())).slice(0, 6);
 
@@ -978,6 +1115,7 @@ function AddPeopleSheet({
           {data.waiting.map((req) => (
             <JoinRequestCard
               key={req.id}
+              groupId={groupId}
               request={req}
               // Two people asking to be one name: the code is how to tell which is real.
               twin={data.waiting.some((x) => x.id !== req.id && x.existing && req.existing && x.name === req.name)}
@@ -1064,6 +1202,15 @@ function AddPeopleSheet({
                     await keys.run('remove-member', { groupId, id: member.id }, (k) =>
                       client.removeMember(groupId, member.id, k)
                     );
+                    appData.known(
+                      (v) =>
+                        withGroup(v, groupId, (g) => ({
+                          ...g,
+                          group: { ...g.group, memberIds: g.group.memberIds.filter((id) => id !== member.id) },
+                          members: without(g.members, member.id),
+                        })),
+                      groupId
+                    );
                     onChanged();
                   }}
                 />
@@ -1084,11 +1231,13 @@ function AddPeopleSheet({
  * forwarded, so the card says to let in only someone you know is them.
  */
 function JoinRequestCard({
+  groupId,
   request,
   twin,
   groupName,
   onChanged,
 }: {
+  groupId: string;
   request: PendingJoin;
   /** Someone else is asking to be the same person. */
   twin: boolean;
@@ -1098,6 +1247,7 @@ function JoinRequestCard({
   const s = useStyles();
   const mode = useColorMode();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [busy, setBusy] = useState<'approve' | 'decline' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1106,8 +1256,17 @@ function JoinRequestCard({
     setBusy(action);
     setError(null);
     try {
-      await keys.run<unknown>(`join-${action}`, { id: request.id }, (k) =>
+      const member = await keys.run<unknown>(`join-${action}`, { id: request.id }, (k) =>
         action === 'approve' ? client.approveJoin(request.id, k) : client.declineJoin(request.id, k)
+      );
+      // Off the waiting list at once, and in the group if they were let in.
+      appData.known(
+        (v) =>
+          withGroup(v, groupId, (g) => {
+            const left = { ...g, pendingJoins: without(g.pendingJoins, request.id) };
+            return action === 'approve' && member ? withMember(left, member as Member) : left;
+          }),
+        groupId
       );
       onChanged();
     } catch (e) {
@@ -1215,7 +1374,6 @@ function cannotReceiveNote(member: Member, mode: PaymentMode, ways: PayWays): st
   return member.claimedByUserId ? `${name} can’t be paid here yet.` : `${name} hasn’t joined yet.`;
 }
 
-const REFRESH_MS = 4000;
 
 /**
  * One member, with their state in terms of the ways to pay the user is
@@ -1294,6 +1452,7 @@ function AddMember({
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1305,7 +1464,8 @@ function AddMember({
     setBusy(true);
     setError(null);
     try {
-      await keys.run('add-member', { groupId, displayName }, (k) => client.addMember(groupId, displayName, k));
+      const member = await keys.run('add-member', { groupId, displayName }, (k) => client.addMember(groupId, displayName, k));
+      appData.known((v) => withGroup(v, groupId, (g) => withMember(g, member)), groupId);
       setName('');
       onAdded(displayName);
     } catch (e) {
@@ -1371,13 +1531,15 @@ function AddMember({
  * ask. One tap: it is their money, so it is their word to give, and the
  * history says whose it was.
  */
-function MarkSettled({ debt, onSettled }: { debt: Debt; onSettled: () => void }) {
+function MarkSettled({ debt, onSettled, held }: { debt: Debt; onSettled: () => void; held: () => boolean }) {
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [state, setState] = useState<'idle' | 'busy' | { failed: string }>('idle');
 
   const settle = async () => {
+    if (held()) return;
     setState('busy');
     const input = {
       groupId: debt.groupId,
@@ -1387,7 +1549,9 @@ function MarkSettled({ debt, onSettled }: { debt: Debt; onSettled: () => void })
       note: 'Settled outside the app',
     };
     try {
-      await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k));
+      const settlement = await keys.run('settle-manual', input, (k) => client.markSettledManually(input, k));
+      // Settled on screen at once: the balances move with the settlement the server answered.
+      appData.known((v) => withGroup(v, debt.groupId, (g) => ({ ...g, settlements: upsert(g.settlements, settlement) })), debt.groupId);
       onSettled();
     } catch (e) {
       setState({ failed: e instanceof Error ? e.message : 'Couldn’t mark it settled. Try again.' });
@@ -1433,6 +1597,7 @@ function UpiClaimPanel({
   const s = useStyles();
   const mode = useColorMode();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1442,11 +1607,28 @@ function UpiClaimPanel({
   const another = Boolean(claim.anotherWay);
   const payment = another ? 'payment' : 'UPI payment';
 
+  // What the server answered, shown at once: a confirmed claim becomes its settlement, a declined
+  // one shows as declined, one taken back goes.
+  const shown = (answer: unknown) =>
+    appData.known(
+      (v) =>
+        withGroup(v, claim.groupId, (g) => {
+          if (answer && typeof answer === 'object' && 'fromMemberId' in answer && 'rail' in answer) {
+            return { ...g, upiClaims: without(g.upiClaims, claim.id), settlements: upsert(g.settlements, answer as Settlement) };
+          }
+          if (answer && typeof answer === 'object' && 'status' in answer && (answer as UpiClaim).id === claim.id) {
+            return { ...g, upiClaims: upsert(g.upiClaims, answer as UpiClaim) };
+          }
+          return { ...g, upiClaims: without(g.upiClaims, claim.id) };
+        }),
+      claim.groupId
+    );
+
   const act = async (action: string, fn: (key: string) => Promise<unknown>, done?: string) => {
     setBusy(action);
     setError(null);
     try {
-      await keys.run(action, { id: claim.id }, fn);
+      shown(await keys.run(action, { id: claim.id }, fn));
       if (done) onToast(done);
       onChanged();
     } catch (e) {
@@ -1648,6 +1830,9 @@ const useStyles = makeStyles((color) => ({
   },
   expenseRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.md + 2 },
   rowLine: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.line },
+  unsavedCard: { borderColor: color.danger, marginBottom: space.md + 2 },
+  unsavedRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.md, paddingHorizontal: space.md + 2 },
+  unsavedNote: { ...type.caption, color: color.danger },
   expenseTile: {
     width: 40,
     height: 40,

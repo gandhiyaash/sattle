@@ -10,13 +10,15 @@
  * take props and callbacks.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import type { SattleClient } from '../client/SattleClient';
+import type { AppData } from '../data/AppData';
+import { useAppData, useNotices, useView } from '../data/useAppData';
 import { SattleProvider, isMock, useClient } from '../react/SattleProvider';
 import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
@@ -30,9 +32,10 @@ import { GuestPayScreen } from './GuestPayScreen';
 import { HistoryEntrySheet, HistoryScreen } from './HistoryScreen';
 import { JoinScreen } from './JoinScreen';
 import { NewGroupScreen } from './NewGroupScreen';
-import { AboveBottomBar, Loading, Screen, Sheet } from './primitives';
+import { AboveBottomBar, Loading, Screen, Sheet, Toast, useToast } from './primitives';
 import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
+import { OfflineBanner } from './OfflineBanner';
 import { UpdateBanner } from './UpdateBanner';
 import { WalletScreen } from './WalletScreen';
 import { makeStyles, radius, space, type } from './theme';
@@ -43,7 +46,16 @@ type Route =
   | { name: 'newGroup'; example?: string }
   /** `sharing`: just made, so it opens on Add people with the link ready to send. */
   | { name: 'group'; groupId: string; sharing?: boolean }
-  | { name: 'addExpense'; groupId: string; groupName: string; members: Member[]; currency: string; userId: string }
+  | {
+      name: 'addExpense';
+      groupId: string;
+      groupName: string;
+      members: Member[];
+      currency: string;
+      userId: string;
+      /** An added expense that didn't save, to start the form from. */
+      draft?: { expense: Expense; changeId: string };
+    }
   | {
       name: 'editExpense';
       groupId: string;
@@ -65,6 +77,8 @@ type Route =
 
 export interface DemoAppProps {
   client?: SattleClient;
+  /** The account's AppData, made with the client (buildAppData). */
+  data?: AppData;
   /** The token from a /join/<token> link. Opened with one, the app starts on the join screen; tapped later, it goes there. */
   joining?: string | null;
   /** The join screen is finished with that link, whether or not anyone asked to join. */
@@ -84,6 +98,7 @@ export interface DemoAppProps {
 
 export function DemoApp({
   client,
+  data,
   joining,
   onJoinDone,
   shared,
@@ -92,7 +107,7 @@ export function DemoApp({
   onKeyReplaced,
 }: DemoAppProps) {
   return (
-    <SattleProvider client={client}>
+    <SattleProvider client={client} data={data}>
       <Navigator
         joining={joining ?? null}
         onJoinDone={onJoinDone}
@@ -123,6 +138,18 @@ function Navigator({
   const [route, setRoute] = useState<Route>(
     joining ? { name: 'join', token: joining } : shared ? { name: 'shared', token: shared } : { name: 'groups' }
   );
+  // For a moment after the expense form saves or closes, taps go nowhere: the second tap of a double
+  // tap on Save or × would land on whatever the group behind it has in that place.
+  const [guarded, setGuarded] = useState(false);
+  const guardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guard = useCallback(() => {
+    setGuarded(true);
+    if (guardTimer.current) clearTimeout(guardTimer.current);
+    guardTimer.current = setTimeout(() => setGuarded(false), 400);
+  }, []);
+  useEffect(() => () => {
+    if (guardTimer.current) clearTimeout(guardTimer.current);
+  }, []);
   const [settling, setSettling] = useState<{
     debt: Debt;
     members: Member[];
@@ -131,7 +158,7 @@ function Navigator({
   } | null>(null);
   // The entry of a group's history that is open in full, over the list it was tapped in.
   const [viewing, setViewing] = useState<{ entry: HistoryEntry; members: Member[]; currency: string } | null>(null);
-  const [nonce, setNonce] = useState(0);
+  const appData = useAppData();
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
@@ -140,7 +167,9 @@ function Navigator({
     if (shared) setRoute({ name: 'shared', token: shared });
   }, [shared]);
 
-  const refresh = () => setNonce((n) => n + 1);
+  // After a change made elsewhere (joining, a payment, Manage): the server is asked again, and the
+  // screens update where they are. Nothing is remounted or read again from scratch.
+  const refresh = () => void appData.sync();
 
   // The settling and history sheets are counted by the sheets themselves, as every open sheet is.
   useHistoryDepth(depthOf(route));
@@ -152,7 +181,6 @@ function Navigator({
       case 'groups':
         return (
           <GroupsListScreen
-            key={nonce}
             onOpenGroup={openGroup}
             onNewGroup={(example) => setRoute({ name: 'newGroup', example })}
             onJoin={() => setRoute({ name: 'join' })}
@@ -223,14 +251,14 @@ function Navigator({
       case 'group':
         return (
           <GroupDetailScreen
-            key={`${route.groupId}-${nonce}`}
+            key={route.groupId}
             groupId={route.groupId}
             sharing={route.sharing}
             // Once, on arriving: coming back to the group later shouldn't open it again.
             onShared={() => route.sharing && setRoute({ name: 'group', groupId: route.groupId })}
             onBack={() => setRoute({ name: 'groups' })}
-            onAddExpense={(members, currency, userId, groupName) =>
-              setRoute({ name: 'addExpense', groupId: route.groupId, groupName, members, currency, userId })
+            onAddExpense={(members, currency, userId, groupName, draft) =>
+              setRoute({ name: 'addExpense', groupId: route.groupId, groupName, members, currency, userId, draft })
             }
             onEditExpense={(expense, members, currency, userId, groupName) =>
               setRoute({ name: 'editExpense', groupId: route.groupId, groupName, members, currency, expense, userId })
@@ -259,9 +287,13 @@ function Navigator({
             currency={route.currency}
             expense={route.expense}
             userId={route.userId}
-            onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
+            onBack={() => {
+              guard();
+              setRoute({ name: 'group', groupId: route.groupId });
+            }}
+            // Already on the group: AppData shows the change at once and sends it behind.
             onAdded={() => {
-              refresh();
+              guard();
               setRoute({ name: 'group', groupId: route.groupId });
             }}
           />
@@ -298,14 +330,20 @@ function Navigator({
       case 'addExpense':
         return (
           <AddExpenseScreen
+            // A second draft opened starts the form afresh.
+            key={route.draft?.changeId ?? 'new'}
             groupId={route.groupId}
             groupName={route.groupName}
             members={route.members}
             currency={route.currency}
             userId={route.userId}
-            onBack={() => setRoute({ name: 'group', groupId: route.groupId })}
+            draft={route.draft}
+            onBack={() => {
+              guard();
+              setRoute({ name: 'group', groupId: route.groupId });
+            }}
             onAdded={() => {
-              refresh();
+              guard();
               openGroup(route.groupId);
             }}
           />
@@ -343,7 +381,9 @@ function Navigator({
 
   return (
     <View style={{ flex: 1 }}>
-      <AboveBottomBar>{body}</AboveBottomBar>
+      <View style={{ flex: 1 }} pointerEvents={guarded ? 'none' : 'auto'}>
+        <AboveBottomBar>{body}</AboveBottomBar>
+      </View>
 
       <Sheet visible={settling !== null} onClose={() => setSettling(null)}>
         {settling && (
@@ -371,7 +411,9 @@ function Navigator({
         )}
       </Sheet>
 
+      <OfflineBanner />
       <UpdateBanner />
+      <Notices />
       <DemoBar
         route={route}
         onNavigate={(next) => {
@@ -383,6 +425,27 @@ function Navigator({
       />
     </View>
   );
+}
+
+/**
+ * A change of the user's that the server refused, said wherever they are,
+ * with the group it was in: by the time the server answers, they may have
+ * moved on from the screen they made it on. The expense shows as the server
+ * has it.
+ */
+function Notices() {
+  const appData = useAppData();
+  const notices = useNotices();
+  const view = useView();
+  const [text, show] = useToast();
+  useEffect(() => {
+    const notice = notices[0];
+    if (!notice) return;
+    const name = view?.groups.find((g) => g.group.id === notice.groupId)?.group.name;
+    show(`Couldn’t save that${name ? ` in ${name}` : ''}: ${notice.text}`);
+    appData.dismiss(notice.id);
+  }, [notices, view, appData, show]);
+  return <Toast text={text} bottom={150} />;
 }
 
 /**
@@ -468,7 +531,7 @@ function DemoBar({
               analytics.tap(tab.label, { control: 'tab' });
               onNavigate(tab.route);
             }}
-            style={sheet.tab}
+            style={({ pressed }) => [sheet.tab, pressed && { opacity: 0.6 }]}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             // A browser is told separately: react-native-web doesn't read accessibilityState.

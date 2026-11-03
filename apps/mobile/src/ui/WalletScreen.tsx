@@ -26,11 +26,13 @@ import {
   upiIdHasPhoneNumber,
   type PayWays,
   type ReceiveAddress,
+  type SyncView,
   type UpiProfile,
   type WalletConnection,
 } from '@sattle/core';
 import { useScreenView } from '../analytics/useScreenView';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
+import { useAppData } from '../data/useAppData';
 import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
@@ -67,9 +69,9 @@ export function WalletScreen({ onBack, onOpenFaq }: WalletScreenProps) {
   // Held here, not in each section, so the screen knows what they've set up, and knows at once
   // when that changes. A section for a way they don't use is only there for what it holds: the
   // moment they remove that, the section goes, without first offering to set it up again.
-  const connection = useSetting(() => client.getWalletConnection());
-  const receiveAt = useSetting(() => client.getReceiveAddress());
-  const upiId = useSetting(() => client.getUpiId());
+  const connection = useSetting(() => client.getWalletConnection(), 'wallet');
+  const receiveAt = useSetting(() => client.getReceiveAddress(), 'receive-address');
+  const upiId = useSetting(() => client.getUpiId(), 'upi', (upiProfile) => (v) => ({ ...v, upiProfile }));
   const show = {
     wallet: ways.lightning || Boolean(connection.data?.connected),
     address: ways.lightning || Boolean(receiveAt.data?.address),
@@ -159,10 +161,24 @@ interface Setting<T> extends AsyncState<T> {
   set: (value: T) => void;
 }
 
-function useSetting<T>(read: () => Promise<T>): Setting<T> {
-  const current = useAsync(read, []);
+function useSetting<T>(
+  read: () => Promise<T>,
+  key: string,
+  /** How a change to it shows in what the other screens draw from, at once. */
+  inView?: (value: T) => (view: SyncView) => SyncView
+): Setting<T> {
+  const appData = useAppData();
+  // Opens on what was read last time (none of these is a key to anything), and reads it again behind.
+  const current = useAsync(read, [], { key, save: true });
   const [changed, setChanged] = useState<T>();
-  return { ...current, data: changed ?? current.data, set: setChanged };
+  const set = (value: T) => {
+    setChanged(value);
+    appData.remember(key, value, true);
+    if (inView) appData.known(inView(value));
+    // Where they can be paid shows in every group they're in: whether to show Pay, and how.
+    void appData.sync();
+  };
+  return { ...current, data: changed ?? current.data, set };
 }
 
 /** What each NWC method lets the holder of the connection do, in plain words. */

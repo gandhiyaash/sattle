@@ -257,6 +257,8 @@ test.describe('Split by item', () => {
     await expect(groupHeader(page)).toBeVisible();
     await expect(page.getByText('exact amounts, 3 ways', { exact: true })).toBeVisible();
     const [group] = await yash.api.groups();
+    // Saving doesn't wait for the server: the expense gets there a moment after the group shows it.
+    await expect.poll(async () => (await yash.api.expenses(group.id)).length).toBe(1);
     const [expense] = await yash.api.expenses(group.id);
     expect(expense).toMatchObject({ description: 'Seafood dinner', amount: 74_000, splitMode: 'exact' });
     expect(expense.parts.map((p) => p.amount).sort((a, b) => a - b)).toEqual([3_333, 35_333, 35_334]);
@@ -360,18 +362,15 @@ test.describe('What the form refuses', () => {
     expect(await yash.api.expenses((await yash.api.groups())[0].id)).toHaveLength(0);
   });
 
-  test('a name of 200 characters is kept and 201 is refused by the server', async ({ person }) => {
+  test('a name of 200 characters is kept, and the form takes no more', async ({ person }) => {
     const { page } = await person('Yash');
     await createGroup(page, { name: 'Trip' });
     await addExpense(page, { description: 'x'.repeat(200), amount: '10' });
     await expect(page.getByText('x'.repeat(200), { exact: true })).toBeVisible();
     await openForm(page);
-    await expenseForm.description(page).fill('y'.repeat(201));
-    await expenseForm.amount(page).fill('10');
-    await saveExpense(page);
-    // The server's refusal, shown as it came.
-    await expect(page.getByText(/^description: /)).toBeVisible();
-    await expect(expenseForm.description(page)).toBeVisible();
+    // Saving doesn't wait for the server, so the server's limit is held to in the form.
+    await expenseForm.description(page).pressSequentially('y'.repeat(201));
+    await expect(expenseForm.description(page)).toHaveValue('y'.repeat(200));
   });
 });
 
@@ -477,8 +476,11 @@ test.describe('Changing an expense', () => {
     });
     await goToGroup(page, 'Trip');
     await page.getByText('Dinner', { exact: true }).click();
+    // The change is sent behind the group screen: read the history once the server has answered it.
+    const answered = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/expenses\//.test(r.url()));
     await saveExpense(page, 'Save changes');
     await expect(groupHeader(page)).toBeVisible();
+    await answered;
     const history = await yash.api.history(group.id);
     expect(history.map((h) => h.kind)).toEqual(['expense_added']);
   });
@@ -608,7 +610,12 @@ test.describe('Changing an expense', () => {
     await button(page, 'Save').dblclick();
     await expect(groupHeader(page)).toBeVisible();
     await expect(page.getByText('Villa', { exact: true })).toHaveCount(1);
+    // The second tap went nowhere: not on Save again, nor on what the group has where Save was.
+    await expect(page.getByText('Manage group', { exact: true })).toHaveCount(0);
+    await expect(page.locator('[aria-modal="true"]')).toHaveCount(0);
     const [group] = await yash.api.groups();
+    await expect.poll(async () => (await yash.api.expenses(group.id)).length).toBe(1);
+    await page.waitForTimeout(500);
     expect(await yash.api.expenses(group.id)).toHaveLength(1);
   });
 });

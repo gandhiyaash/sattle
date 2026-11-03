@@ -34,6 +34,7 @@ import {
   type ReceiveAddress,
   type ReportUpiPaymentInput,
   type Settlement,
+  type SyncAnswer,
   type UpiClaim,
   type UpiOnGroupLink,
   type UpiPayee,
@@ -44,6 +45,34 @@ import {
 import { newIdempotencyKey, type SattleClient } from './SattleClient';
 
 const POLL_MS = 2000;
+
+/**
+ * How long a request waits for its answer before it's taken as lost. Without
+ * one, a request on a connection that died quietly would wait for good, and a
+ * change saved behind the screen (AppData) would sit as "saving" with it. A
+ * write gets longer: it does more, and timing out leaves it unclear whether it
+ * happened, so it's sent again with the same key.
+ */
+const READ_TIMEOUT_MS = 15_000;
+const WRITE_TIMEOUT_MS = 20_000;
+
+/** After an older server says it has no GET /sync, how long to read it the old way before asking again. */
+const NO_SYNC_RETRY_MS = 10 * 60_000;
+
+const unreachable = () => new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
+
+/** The server didn't answer in time. As unknown as unreachable, but asking again at once won't be quicker. */
+class TimedOut extends SattleError {
+  constructor() {
+    super('network', 'The server took too long to answer. Check your connection and try again.');
+  }
+}
+
+/**
+ * Connecting a wallet waits on the wallet itself, over Nostr: the server
+ * allows it about 20 s (apps/api nwc.ts), so the app waits longer than that.
+ */
+const WALLET_TIMEOUT_MS = 40_000;
 
 let extraHeaders: () => Record<string, string> = () => ({});
 /**
@@ -94,6 +123,8 @@ async function postPublic<T>(baseUrl: string, path: string, body: unknown): Prom
 
 export class ApiClient implements SattleClient {
   private paymentMode?: Promise<PaymentMode>;
+  /** Until when the server is read the old way, having said it has no GET /sync. */
+  private noSyncUntil = 0;
 
   constructor(
     private readonly baseUrl: string,
@@ -104,33 +135,106 @@ export class ApiClient implements SattleClient {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    more: Record<string, string> = {},
+    timeoutMs = method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS
   ): Promise<T> {
-    const headers: Record<string, string> = { accept: 'application/json', ...extraHeaders() };
+    const headers: Record<string, string> = { accept: 'application/json', ...extraHeaders(), ...more };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     const token = this.getToken();
     if (token) headers.authorization = `Bearer ${token}`;
 
-    let res: Response;
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    const timer = controller && setTimeout(() => controller.abort(), timeoutMs);
+    const lost = () => (controller?.signal.aborted ? new TimedOut() : unreachable());
     try {
-      res = await fetch(`${this.baseUrl}${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch {
-      throw new SattleError('network', 'Couldn’t reach the server. Check your connection and try again.');
-    }
+      let res: Response;
+      try {
+        res = await fetch(`${this.baseUrl}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: controller?.signal,
+        });
+      } catch {
+        throw lost();
+      }
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
-      throw new SattleError(
-        (err.code as SattleError['code']) ?? (res.status === 404 ? 'not_found' : 'network'),
-        err.message ?? `Request failed (${res.status}).`
-      );
+      // Not modified: asked with a version that is still current (GET /sync). There's no body to read.
+      if (res.status === 304) return null as T;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}) as { code?: string; message?: string });
+        throw new SattleError(
+          (err.code as SattleError['code']) ?? (res.status === 404 ? 'not_found' : 'network'),
+          err.message ?? `Request failed (${res.status}).`
+        );
+      }
+      try {
+        return (await res.json()) as T;
+      } catch {
+        // Cut off while the answer was arriving: as lost as one that never came.
+        throw lost();
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return res.json() as Promise<T>;
+  }
+
+  async sync(version?: string, groups?: readonly string[]): Promise<SyncAnswer> {
+    if (Date.now() >= this.noSyncUntil) {
+      // In one order, so the same groups are the same question, with the same version, however they were asked for.
+      const path = groups ? `/sync?${[...groups].sort().map((id) => `group=${encodeURIComponent(id)}`).join('&')}` : '/sync';
+      try {
+        try {
+          return await this.syncOnce(path, version);
+        } catch (e) {
+          // A browser asking with a version an older server's CORS doesn't allow fails as unreachable,
+          // at once. Asked again plainly, that server answers 404, and is read the old way below.
+          // One that timed out would only time out again, for longer.
+          if (!(version && e instanceof SattleError && e.code === 'network' && !(e instanceof TimedOut))) throw e;
+          return await this.syncOnce(path);
+        }
+      } catch (e) {
+        // GET /sync never answers 404 (a group it can't show is left out), so this is a server from before it.
+        if (!(e instanceof SattleError && e.code === 'not_found')) throw e;
+        this.noSyncUntil = Date.now() + NO_SYNC_RETRY_MS;
+      }
+    }
+    return this.syncTheOldWay(groups);
+  }
+
+  /** GET /sync, saying which version the app has: a 304 is that nothing changed. */
+  private async syncOnce(path: string, version?: string): Promise<SyncAnswer> {
+    const answer = await this.request<SyncAnswer | null>('GET', path, undefined, undefined, version ? { 'if-none-match': `W/"${version}"` } : {});
+    return answer ?? { version: version!, unchanged: true };
+  }
+
+  /**
+   * The same answer from an older server's own routes, all at once: the reads
+   * the screens used to make one by one. Its version is '' (never unchanged),
+   * which tells AppData to ask less often.
+   */
+  private async syncTheOldWay(only?: readonly string[]): Promise<SyncAnswer> {
+    const [user, groups, joinRequests, upiProfile] = await Promise.all([
+      this.getCurrentUser(),
+      this.getGroups(),
+      this.getMyJoinRequests(),
+      this.getUpiId(),
+    ]);
+    const snapshots = await Promise.all(
+      groups.filter((g) => !only || only.includes(g.id)).map(async (group) => {
+        const [members, expenses, settlements, upiClaims, pendingJoins] = await Promise.all([
+          this.getMembers(group.id),
+          this.getExpenses(group.id),
+          this.getSettlements(group.id),
+          this.getUpiClaims(group.id),
+          this.getPendingJoins(group.id),
+        ]);
+        return { group, members, expenses, settlements, upiClaims, pendingJoins };
+      })
+    );
+    return { version: '', user, groups: snapshots, joinRequests, upiProfile };
   }
 
   getCurrentUser() {
@@ -315,7 +419,7 @@ export class ApiClient implements SattleClient {
   }
 
   connectWallet(nwcUri: string) {
-    return this.request<WalletConnection>('PUT', '/me/wallet', { nwcUri });
+    return this.request<WalletConnection>('PUT', '/me/wallet', { nwcUri }, undefined, {}, WALLET_TIMEOUT_MS);
   }
   getWalletConnection() {
     return this.request<WalletConnection>('GET', '/me/wallet');

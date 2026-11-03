@@ -50,6 +50,8 @@ import {
   type ReceiveAddress,
   type ReportUpiPaymentInput,
   type Settlement,
+  type SyncAnswer,
+  type SyncView,
   type UpiClaim,
   type UpiOnGroupLink,
   type UpiPayee,
@@ -243,6 +245,29 @@ export class MockClient implements SattleClient {
 
   // -- reads ----------------------------------------------------------------
 
+  /** The reads below, all at once, in one wait: what GET /sync answers. */
+  sync(version?: string, only?: readonly string[]) {
+    return this.call((): SyncAnswer => {
+      const view: SyncView = {
+        user: fixtures.currentUser,
+        groups: this.groups
+          .filter((g) => this.myMember(g.id) && (!only || only.includes(g.id)))
+          .map((group) => ({
+            group,
+            members: this.membersOf(group.id),
+            expenses: this.expenses.filter((e) => e.groupId === group.id),
+            settlements: this.settlements.filter((st) => st.groupId === group.id),
+            upiClaims: this.claimsOf(group.id),
+            pendingJoins: this.pendingJoinsOf(group.id),
+          })),
+        joinRequests: this.myJoinRequests(),
+        upiProfile: this.upiProfile(),
+      };
+      const now = versionOf(view);
+      return now === version ? { version: now, unchanged: true } : { version: now, ...view };
+    });
+  }
+
   async getPaymentMode() {
     return 'simulated' as const;
   }
@@ -303,12 +328,14 @@ export class MockClient implements SattleClient {
   }
 
   getMembers(groupId: string) {
-    return this.call(() => {
-      const g = this.findGroup(groupId);
-      return g.memberIds
-        .map((id) => this.members.find((m) => m.id === id)!)
-        .map((m): Member => (this.takesUpi(m) ? { ...m, upi: true } : m));
-    });
+    return this.call(() => this.membersOf(groupId));
+  }
+
+  private membersOf(groupId: string): Member[] {
+    const g = this.findGroup(groupId);
+    return g.memberIds
+      .map((id) => this.members.find((m) => m.id === id)!)
+      .map((m): Member => (this.takesUpi(m) ? { ...m, upi: true } : m));
   }
 
   getExpenses(groupId: string) {
@@ -846,9 +873,11 @@ export class MockClient implements SattleClient {
   }
 
   getMyJoinRequests() {
-    return this.call(() =>
-      this.joinRequests.filter((x) => x.userId === fixtures.currentUser.id).map((x) => this.asSeenByAsker(x))
-    );
+    return this.call(() => this.myJoinRequests());
+  }
+
+  private myJoinRequests(): JoinRequest[] {
+    return this.joinRequests.filter((x) => x.userId === fixtures.currentUser.id).map((x) => this.asSeenByAsker(x));
   }
 
   withdrawJoinRequest(requestId: string, idempotencyKey?: string) {
@@ -860,23 +889,25 @@ export class MockClient implements SattleClient {
   }
 
   getPendingJoins(groupId: string) {
-    return this.call((): PendingJoin[] => {
-      this.findGroup(groupId);
-      const me = fixtures.currentUser.id;
-      return this.joinRequests
-        .filter((x) => x.groupId === groupId && x.status === 'pending')
-        .map((x) => {
-          const member = x.memberId ? this.members.find((m) => m.id === x.memberId) : undefined;
-          return {
-            id: x.id,
-            name: x.displayName,
-            existing: Boolean(x.memberId),
-            ...(member?.claimedByUserId ? { joined: isHeldBy(member, me) ? ('you' as const) : ('someone' as const) } : {}),
-            code: x.code,
-            createdAt: x.createdAt,
-          };
-        });
-    });
+    return this.call(() => this.pendingJoinsOf(groupId));
+  }
+
+  private pendingJoinsOf(groupId: string): PendingJoin[] {
+    this.findGroup(groupId);
+    const me = fixtures.currentUser.id;
+    return this.joinRequests
+      .filter((x) => x.groupId === groupId && x.status === 'pending')
+      .map((x) => {
+        const member = x.memberId ? this.members.find((m) => m.id === x.memberId) : undefined;
+        return {
+          id: x.id,
+          name: x.displayName,
+          existing: Boolean(x.memberId),
+          ...(member?.claimedByUserId ? { joined: isHeldBy(member, me) ? ('you' as const) : ('someone' as const) } : {}),
+          code: x.code,
+          createdAt: x.createdAt,
+        };
+      });
   }
 
   approveJoin(requestId: string, idempotencyKey?: string) {
@@ -1422,10 +1453,12 @@ export class MockClient implements SattleClient {
   }
 
   getUpiClaims(groupId: string) {
-    return this.call(() => {
-      const me = this.myMember(groupId)?.id;
-      return this.liveClaims(groupId).filter((x) => x.fromMemberId === me || x.toMemberId === me);
-    });
+    return this.call(() => this.claimsOf(groupId));
+  }
+
+  private claimsOf(groupId: string): UpiClaim[] {
+    const me = this.myMember(groupId)?.id;
+    return this.liveClaims(groupId).filter((x) => x.fromMemberId === me || x.toMemberId === me);
   }
 
   createUpiClaim(input: CreateUpiClaimInput, idempotencyKey?: string) {
@@ -1623,6 +1656,14 @@ export class MockClient implements SattleClient {
 
 export function isTerminal(s: Settlement) {
   return TERMINAL_STATUSES.includes(s.status);
+}
+
+/** A name for what the view holds, as the server's version is: the same view, the same name. */
+function versionOf(view: SyncView): string {
+  const text = JSON.stringify(view);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return `${text.length.toString(36)}-${h.toString(36)}`;
 }
 
 function networkError() {
