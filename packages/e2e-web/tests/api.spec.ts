@@ -11,7 +11,7 @@
 import { formatAmount, groupDebts, type Expense, type Group, type Member, type Settlement } from '@sattle/core';
 
 import { ApiRefusal, type Api } from '../src/api';
-import { API_URL, SIM_SETTLE_MS, SIM_STEP_MS } from '../src/env';
+import { API_URL, SIM_SETTLE_MS, SIM_STEP_MS, WEB_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
 
 /**
@@ -155,7 +155,7 @@ test.describe('Auth', () => {
 
   test('a preflight needs no token', async ({ api }) => {
     const r = await api.raw('OPTIONS', '/groups', undefined, {
-      headers: { origin: 'http://127.0.0.1:8900', 'access-control-request-method': 'POST' },
+      headers: { origin: WEB_URL, 'access-control-request-method': 'POST' },
     });
     expect(r.status).toBe(204);
   });
@@ -1804,13 +1804,13 @@ test.describe('CORS', () => {
     const res = await fetch(`${API_URL}/groups`, {
       method: 'OPTIONS',
       headers: {
-        origin: 'http://127.0.0.1:8900',
+        origin: WEB_URL,
         'access-control-request-method': 'POST',
         'access-control-request-headers': 'authorization,content-type,idempotency-key,x-sattle-device,x-sattle-session',
       },
     });
     expect(res.status).toBe(204);
-    expect(res.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:8900');
+    expect(res.headers.get('access-control-allow-origin')).toBe(WEB_URL);
     const allowed = (res.headers.get('access-control-allow-headers') ?? '').toLowerCase();
     for (const h of ['authorization', 'content-type', 'idempotency-key', 'x-sattle-device', 'x-sattle-session']) expect(allowed).toContain(h);
     expect(res.headers.get('access-control-allow-methods')).toContain('DELETE');
@@ -1825,8 +1825,8 @@ test.describe('CORS', () => {
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
     const plain = await fetch(`${API_URL}/health`, { headers: { origin: 'http://evil.example' } });
     expect(plain.headers.get('access-control-allow-origin')).toBeNull();
-    const ours = await fetch(`${API_URL}/health`, { headers: { origin: 'http://127.0.0.1:8900' } });
-    expect(ours.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:8900');
+    const ours = await fetch(`${API_URL}/health`, { headers: { origin: WEB_URL } });
+    expect(ours.headers.get('access-control-allow-origin')).toBe(WEB_URL);
   });
 });
 

@@ -28,6 +28,7 @@ import {
   tokenOf,
   clipboard,
 } from '../src/actions';
+import { WEB_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
 import {
   JOIN_CODE,
@@ -47,7 +48,7 @@ test.describe('Add people and the group link', () => {
     await expect(yash.page.getByText('to Goa trip', { exact: true })).toBeVisible();
     await expect(yash.page.getByText('Anyone with the link can see the group, pay, and join. No app needed.')).toBeVisible();
     const url = (await yash.page.getByText(/\/g\/[A-Za-z0-9_-]+$/).textContent())!.trim();
-    expect(url).toBe(`http://127.0.0.1:8900/g/${(await yash.api.groupLink(group.id))!.token}`);
+    expect(url).toBe(`${WEB_URL}/g/${(await yash.api.groupLink(group.id))!.token}`);
 
     // Copy is the link alone, to paste anywhere.
     await yash.page.getByRole('button', { name: 'Copy', exact: true }).click();
@@ -520,7 +521,7 @@ test.describe('Joining with an account already on the device', () => {
     const yash = api.as((await api.account('Yash')).token);
     const { group } = await yash.seedGroup({ name: 'Goa trip', people: ['Priya'] });
     const token = await groupLinkToken(yash, group.id);
-    const url = `http://127.0.0.1:8900/g/${token}`;
+    const url = `${WEB_URL}/g/${token}`;
 
     const priya = await person('Priya');
     await button(priya.page, 'Use a link').click();
@@ -543,7 +544,7 @@ test.describe('Joining with an account already on the device', () => {
     // A link that leads nowhere offers the way back to pasting another.
     await priya.page.goto('/');
     await button(priya.page, 'Use a link').click();
-    await priya.page.getByPlaceholder('https://…/g/…').fill('http://127.0.0.1:8900/g/nothing-here-really');
+    await priya.page.getByPlaceholder('https://…/g/…').fill(`${WEB_URL}/g/nothing-here-really`);
     await button(priya.page, 'Continue').click();
     await expect(priya.page.getByText('This link is no longer valid.')).toBeVisible();
     await button(priya.page, 'Use a different link').click();

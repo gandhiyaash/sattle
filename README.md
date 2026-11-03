@@ -187,7 +187,7 @@ apps/mobile/                 @sattle/mobile: Expo
 
 ## Browser tests
 
-`npm run e2e` runs the web app in a headless Chromium against the real API, from `packages/e2e-web`. The Playwright config starts both: the API on 127.0.0.1:3900 with an in-memory database, no seed, no demo user and the payment simulator, so nothing reaches the network; and the web app on 127.0.0.1:8900, exported once with those addresses baked in and served the way nginx serves it, so `/s/<token>` and `/g/<token>` load the app and `/privacy` the policy. Every test makes its own accounts and groups, so the files run in parallel against one server.
+`npm run e2e` runs the web app in a headless Chromium against the real API, from `packages/e2e-web`. The Playwright config starts both: the API on 127.0.0.1:3900 with an in-memory database, no seed, no demo user and the payment simulator, so nothing reaches the network; and the web app on 127.0.0.1:8900, exported once with those addresses baked in and served the way nginx serves it, so `/s/<token>` and `/g/<token>` load the app and `/privacy` the policy. Every test makes its own accounts and groups, so the files run in parallel against one server. To run beside another checkout's run, move both ports: `E2E_API_PORT=3920 E2E_WEB_PORT=8920 npm run e2e`.
 
 The browser is a phone: Pixel 7's width, touch and user agent, in Chrome's own headless mode (not the headless shell), so what it renders is what Chrome renders. Headless always, in CI too; there is nothing in the app a window would change. To watch a test, `npx playwright test --ui` from the package; a failed run in CI uploads its report with a trace of each failure, which `npx playwright show-report` replays step by step.
 
