@@ -15,6 +15,7 @@
  *   routes/history.ts      what has happened in a group: expenses added, changed and removed, and debts settled
  *   routes/upi.ts          a UPI ID on the account, and paying a debt over UPI
  *   routes/analytics.ts    what the app reports of how it is used, kept for a statistics page to come
+ *   routes/sync.ts         GET /sync: everything the main screens show, in one answer the app keeps a copy of
  */
 
 import { Hono } from 'hono';
@@ -42,6 +43,7 @@ import { ledgerRoutes } from './routes/ledger';
 import { payLinkRoutes } from './routes/payLinks';
 import { settlementRoutes } from './routes/settlements';
 import { upiRoutes } from './routes/upi';
+import { syncRoutes } from './routes/sync';
 import { walletRoutes } from './routes/wallet';
 import { createWalletStore, type WalletStore } from './walletStore';
 
@@ -96,8 +98,17 @@ export function createApp(deps: AppDeps) {
     '*',
     cors({
       origin: deps.corsOrigin ?? '*',
-      allowHeaders: ['authorization', 'content-type', 'idempotency-key', ANALYTICS_HEADERS.device, ANALYTICS_HEADERS.session],
+      // if-none-match: GET /sync asks with the version it has, and is answered 304 when nothing changed.
+      allowHeaders: [
+        'authorization',
+        'content-type',
+        'idempotency-key',
+        'if-none-match',
+        ANALYTICS_HEADERS.device,
+        ANALYTICS_HEADERS.session,
+      ],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      exposeHeaders: ['etag'],
       // The app's own headers make every request from the web one a browser asks about first.
       // Ten minutes of the answer saves asking before each.
       maxAge: 600,
@@ -121,6 +132,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', historyRoutes(ctx));
   app.route('/', upiRoutes(ctx));
   app.route('/', analyticsRoutes(ctx, { dailyBytes: deps.analyticsDailyBytes, addressDailyBytes: deps.analyticsAddressDailyBytes }));
+  app.route('/', syncRoutes(ctx));
 
   return app;
 }

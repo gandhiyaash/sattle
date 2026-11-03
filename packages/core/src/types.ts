@@ -637,6 +637,48 @@ export interface ReportUpiPaymentInput extends UpiReceipt {
   amount: number;
 }
 
+// -- sync --------------------------------------------------------------------
+
+/**
+ * One group, whole: everything its screens are built from. Each part is what
+ * the group's own route answers (GET /groups/:id, /members, /expenses,
+ * /settlements, its UPI claims and its waiting joins), so a screen shows the
+ * same thing whichever way it was read.
+ */
+export interface GroupSnapshot {
+  group: Group;
+  members: Member[];
+  /** Oldest first, as GET /groups/:id/expenses lists them. */
+  expenses: Expense[];
+  settlements: Settlement[];
+  /** The UPI claims the user is part of here: the ones they made, and the ones waiting on them. */
+  upiClaims: UpiClaim[];
+  /** Who is waiting to be let in, oldest first. */
+  pendingJoins: PendingJoin[];
+}
+
+/**
+ * Everything the app's main screens show, in one answer (GET /sync): who the
+ * user is, every group they're in, the groups they've asked to join, and their
+ * UPI ID. The app keeps a copy and opens on it, and asks again in the
+ * background; `version` lets the server say "nothing changed" in a few bytes.
+ */
+export interface SyncView {
+  user: User;
+  groups: GroupSnapshot[];
+  /** The user's own requests to join, waiting or turned down. */
+  joinRequests: JoinRequest[];
+  /** The user's own UPI ID, as GET /me/upi answers. */
+  upiProfile: UpiProfile;
+}
+
+/**
+ * What GET /sync answers. Asked with the `version` the app already has, when
+ * nothing has changed since, it's only `{ version, unchanged: true }`.
+ * Otherwise it's the whole view, and the version to ask with next time.
+ */
+export type SyncAnswer = { version: string } & ({ unchanged: true } | ({ unchanged?: undefined } & SyncView));
+
 export type SattleErrorCode =
   | 'not_found'
   | 'network'
