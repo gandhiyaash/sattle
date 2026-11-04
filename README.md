@@ -144,7 +144,7 @@ apps/mobile/                 @sattle/mobile: Expo
       changes.ts             Those changes: an expense added, changed or deleted here, shown before the server has it.
       views.ts               What the groups list and a group's screen show, worked out from that.
       useAppData.ts          The screens' hooks into it, each redrawing only when what it reads changes.
-      savedStore.ts          Where the copy lives between launches. A file in the app's own storage on native, localStorage on web.
+      savedStore.ts          Where the copy lives between launches: the server's answer in the cache folder on native, the changes still to send in the documents folder, which the phone never empties; localStorage on web.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
     updates/

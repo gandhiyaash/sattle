@@ -28,7 +28,10 @@
  *   that is.
  *
  * Kept on the device: the last answer, the changes still to be confirmed, and
- * the few other reads a screen marks to keep (`remember`). Not kept: anything
+ * the few other reads a screen marks to keep (`remember`). The changes are
+ * kept apart from the rest (SavedPart): the rest is only a copy, which a sync
+ * rebuilds, and may be kept where a phone short of space throws it away; the
+ * changes are found nowhere else until the server has them. Not kept: anything
  * that works as a key (a group link, the ledger's backup key, a pay link),
  * which only ever lives in memory. The copy is for one account (`owner`, from
  * its token) and is dropped with it.
@@ -38,10 +41,19 @@ import { SattleError, type Expense, type ExpenseInput, type GroupSnapshot, type 
 import { newIdempotencyKey, type SattleClient } from '../client/SattleClient';
 import { applyChanges, isLocalId, LOCAL_ID, type Change } from './changes';
 
-/** Where the copy lives between launches: one string, read and written whole. */
+/**
+ * What's kept, in two parts: `copy`, the server's last answer and the reads
+ * kept with it, which a sync can rebuild; and `changes`, the user's own
+ * changes still to be confirmed, which only this device has. A store may
+ * keep the copy somewhere it can be thrown away, never the changes.
+ */
+export type SavedPart = 'copy' | 'changes';
+
+/** Where it's kept between launches: each part one string, read and written whole. */
 export interface SavedStore {
-  read(): string | null;
-  write(text: string): void;
+  read(part: SavedPart): string | null;
+  write(part: SavedPart, text: string): void;
+  /** Both parts. */
   clear(): void;
 }
 
@@ -100,8 +112,15 @@ interface SavedBlob {
   version?: string;
   syncedAt: number | null;
   server: SyncView | null;
-  changes: Change[];
+  /** Only in a copy from before the changes were kept apart (SavedChanges). */
+  changes?: Change[];
   reads?: Record<string, { value: unknown; at: number }>;
+}
+
+interface SavedChanges {
+  v: number;
+  owner: string;
+  changes: Change[];
 }
 
 type AddChange = Extract<Change, { kind: 'add' }>;
@@ -152,6 +171,8 @@ export class AppData {
   /** The last send for each expense, so a second change to it goes after the first. */
   private chain = new Map<string, Promise<void>>();
   private saveTimer?: ReturnType<typeof setTimeout>;
+  /** The changes as last written, so a save that leaves them as they were doesn't write them again. */
+  private changesWritten?: string;
   private disposed = false;
   private readonly now: () => number;
 
@@ -649,22 +670,31 @@ export class AppData {
   private hydrate(): void {
     const { saved, owner } = this.opts;
     if (!saved || !owner) return;
-    let blob: SavedBlob | null = null;
-    try {
-      const text = saved.read();
-      blob = text ? (JSON.parse(text) as SavedBlob) : null;
-    } catch {
-      // Unreadable, or storage is blocked: nothing saved, as on a first launch.
-      blob = null;
+    const ours = <T extends { v: number; owner: string }>(part: SavedPart): T | null => {
+      try {
+        const text = saved.read(part);
+        const blob = text ? (JSON.parse(text) as T) : null;
+        return blob && blob.v === SAVED_VERSION && blob.owner === owner ? blob : null;
+      } catch {
+        // Unreadable, or storage is blocked: nothing saved, as on a first launch.
+        return null;
+      }
+    };
+    const blob = ours<SavedBlob>('copy');
+    const kept = ours<SavedChanges>('changes');
+    if (blob?.server) {
+      this.server = blob.server;
+      if (blob.version !== undefined) this.versions.set(keyOf(null), blob.version);
+      this.status = { syncedAt: blob.syncedAt ?? null, syncing: false, error: null };
+      for (const [key, r] of Object.entries(blob.reads ?? {})) this.reads.set(key, { ...r, save: true });
     }
-    if (!blob || blob.v !== SAVED_VERSION || blob.owner !== owner || !blob.server) return;
-    this.server = blob.server;
-    if (blob.version !== undefined) this.versions.set(keyOf(null), blob.version);
-    this.status = { syncedAt: blob.syncedAt ?? null, syncing: false, error: null };
+    // Without the copy (thrown away for space), the changes are still sent: the first sync brings
+    // back what they're laid over. A copy from before they were kept apart has them in it.
+    const changes = kept ? kept.changes : blob?.server ? (blob.changes ?? []) : [];
     // A change that was on its way when the app closed is sent again with the same key: the server
     // keeps an idempotency key and its answer for good (apps/api middleware), so a second send of
     // one that did get there is answered as the first was, instead of done twice.
-    this.changes = (blob.changes ?? []).map((c): Change => {
+    this.changes = changes.map((c): Change => {
       // Answered last time: the first sync has it.
       if (c.state === 'done') return { ...c, doneAt: 0 };
       if (c.state === 'sending' || (c.state === 'failed' && c.error?.retry)) {
@@ -674,7 +704,6 @@ export class AppData {
       }
       return c;
     });
-    for (const [key, r] of Object.entries(blob.reads ?? {})) this.reads.set(key, { ...r, save: true });
     this.recompute(false);
   }
 
@@ -692,7 +721,20 @@ export class AppData {
     const { saved } = this.opts;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
-    if (!saved || !owner || this.disposed || !this.server) return;
+    if (!saved || !owner || this.disposed) return;
+    // The changes first, and even before there's a copy to lay them over: they're the part that
+    // can't be got back.
+    const changes: SavedChanges = { v: SAVED_VERSION, owner, changes: this.changes };
+    const changesText = JSON.stringify(changes);
+    if (changesText !== this.changesWritten) {
+      try {
+        saved.write('changes', changesText);
+        this.changesWritten = changesText;
+      } catch {
+        // Full or blocked: they're kept in memory, and tried again on the next save.
+      }
+    }
+    if (!this.server) return;
     const reads: SavedBlob['reads'] = {};
     for (const [key, r] of this.reads) if (r.save) reads[key] = { value: r.value, at: r.at };
     const blob: SavedBlob = {
@@ -701,11 +743,10 @@ export class AppData {
       version: this.versions.get(keyOf(null)),
       syncedAt: this.status.syncedAt,
       server: this.server,
-      changes: this.changes,
       reads,
     };
     try {
-      saved.write(JSON.stringify(blob));
+      saved.write('copy', JSON.stringify(blob));
     } catch {
       // Full or blocked: it's kept in memory, and the next launch reads afresh.
     }
@@ -721,6 +762,7 @@ export class AppData {
     this.status = { syncedAt: null, syncing: false, error: null };
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
+    this.changesWritten = undefined;
     try {
       this.opts.saved?.clear();
     } catch {
