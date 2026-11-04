@@ -575,11 +575,13 @@ test.describe('Manage', () => {
     await button(alice.page, 'Yes, delete it for everyone').click();
     await expect(alice.page.getByText('What are you splitting?')).toBeVisible();
 
-    // Bob's list is from before: tapping the row finds nothing there.
-    await bob.page.getByText('Trip', { exact: true }).click();
-    await expect(button(bob.page, 'Try again')).toBeVisible();
+    // Bob's list catches up by itself (every 15 s): the group goes from it, without a reload.
+    await expect(bob.page.getByText('Trip', { exact: true })).toHaveCount(0, { timeout: 25_000 });
+    await expect(bob.page.getByText('What are you splitting?')).toBeVisible();
+    // Nor does it come back from what his device kept.
     await bob.page.reload();
     await expect(bob.page.getByText('What are you splitting?')).toBeVisible();
+    await expect(bob.page.getByText('Trip', { exact: true })).toHaveCount(0);
     expect(await bob.api.groups()).toHaveLength(0);
   });
 });

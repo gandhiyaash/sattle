@@ -17,10 +17,11 @@
  * and what was changed there shows up here.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import {
+  dateFormat,
   formatAmount,
   formatRate,
   formatSats,
@@ -32,6 +33,8 @@ import {
 } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
+import { useView } from '../data/useAppData';
+import { snapshotOf } from '../data/views';
 import { useAsync, useClient } from '../react/SattleProvider';
 import { splitSummary } from './GroupDetailScreen';
 import { Amount, BreakdownRow, Button, Card, Divider, ErrorState, Loading, Screen } from './primitives';
@@ -52,14 +55,38 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
   const s = useStyles();
   const client = useClient();
 
-  const { data, loading, error, reload } = useAsync(async () => {
-    const [group, members, entries] = await Promise.all([
-      client.getGroup(groupId),
-      client.getMembers(groupId),
-      client.getHistory(groupId),
-    ]);
-    return { name: group.name, currency: group.currency, members, entries };
-  }, [groupId]);
+  // The group and its people are what the app already has (AppData). The history itself is
+  // its own read, kept so the screen opens on the last one and catches up behind it.
+  const view = useView();
+  const snap = snapshotOf(view, groupId);
+  const history = useAsync(() => client.getHistory(groupId), [groupId], { key: `history:${groupId}`, save: true });
+  const data = snap && history.data && {
+    name: snap.group.name,
+    currency: snap.group.currency,
+    members: snap.members,
+    entries: history.data,
+  };
+  // Gone from what's known while this was open: deleted, or left on another device.
+  const gone = view !== null && !snap;
+  const loading = !data && !history.error && !gone;
+  const error = history.error;
+  const reload = history.reload;
+  // Something changed in the group while this is open (an expense, a payment): the history has it too.
+  const opened = useRef(snap);
+  const { refresh } = history;
+  useEffect(() => {
+    if (snap === opened.current) return;
+    opened.current = snap;
+    refresh();
+  }, [snap, refresh]);
+
+  if (gone) {
+    return (
+      <Screen title="History" onBack={onBack}>
+        <ErrorState message="This group isn’t here any more. It was deleted, or you left it on another device." />
+      </Screen>
+    );
+  }
 
   if (loading) {
     return (
@@ -166,21 +193,23 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 function when(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = dateFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(d);
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
   if (days === 0) return `Today, ${time}`;
   if (days === 1) return `Yesterday, ${time}`;
-  const date = d.toLocaleDateString(undefined, {
+  const date = dateFormat(undefined, {
     day: 'numeric',
     month: 'short',
     ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  }).format(d);
   return `${date}, ${time}`;
 }
 
 /** The whole date and the time, for the sheet: "5 Oct 2026, 7:01 pm". */
 const exactly = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  dateFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(
+    new Date(iso)
+  );
 
 /** "split equally, 3 ways" as the start of a line. */
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

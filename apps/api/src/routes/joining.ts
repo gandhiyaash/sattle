@@ -36,7 +36,7 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { parse } from '../http';
 import { idempotency } from '../middleware';
-import { newId, nowIso, type StoredJoinRequest } from '../repo';
+import { newId, nowIso, type Repo, type StoredJoinRequest } from '../repo';
 
 /** The token, and who they are: a `ref` from the join page, or their own name if they weren't on it. */
 const JoinBody = z.union([
@@ -70,6 +70,43 @@ const newJoinCode = () => String(randomInt(0, 10_000)).padStart(4, '0');
 interface Who {
   memberId?: string;
   displayName: string;
+}
+
+/** What the person asking is shown: names, no ids. */
+function seenByAsker(repo: Repo, req: StoredJoinRequest): JoinRequest {
+  return {
+    id: req.id,
+    groupName: repo.group(req.groupId)!.name,
+    name: req.memberId ? repo.member(req.memberId)!.displayName : req.displayName,
+    code: req.code,
+    status: req.status,
+    createdAt: req.createdAt,
+  };
+}
+
+/** The user's own requests to join, waiting or turned down: GET /me/join-requests, and part of GET /sync. */
+export function joinRequestsOfUser(repo: Repo, userId: string): JoinRequest[] {
+  return repo.joinRequestsOf(userId).map((req) => seenByAsker(repo, req));
+}
+
+/**
+ * Who is waiting to be let into a group, oldest first, as `viewerId` sees it:
+ * GET /groups/:id/join-requests, and part of GET /sync. A request for
+ * someone who has joined says so, and whether that is the person looking:
+ * letting it in makes the asker them too.
+ */
+export function pendingJoinsOf(repo: Repo, groupId: string, viewerId: string): PendingJoin[] {
+  return repo.pendingJoins(groupId).map((req) => {
+    const member = req.memberId ? repo.member(req.memberId) : undefined;
+    return {
+      id: req.id,
+      name: member ? member.displayName : req.displayName,
+      existing: Boolean(member),
+      ...(member?.claimedByUserId ? { joined: isHeldBy(member, viewerId) ? ('you' as const) : ('someone' as const) } : {}),
+      code: req.code,
+      createdAt: req.createdAt,
+    };
+  });
 }
 
 export function joinRoutes({ db, repo, wallets }: Ctx) {
@@ -195,15 +232,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
     return c.json(member, 201);
   });
 
-  /** What the person asking is shown: names, no ids. */
-  const asSeenByAsker = (req: StoredJoinRequest): JoinRequest => ({
-    id: req.id,
-    groupName: repo.group(req.groupId)!.name,
-    name: req.memberId ? repo.member(req.memberId)!.displayName : req.displayName,
-    code: req.code,
-    status: req.status,
-    createdAt: req.createdAt,
-  });
+  const asSeenByAsker = (req: StoredJoinRequest): JoinRequest => seenByAsker(repo, req);
 
   /** A request, for someone in its group. Anyone else gets not_found, as for the group itself. */
   const requestFor = (id: string, userId: string) => {
@@ -267,7 +296,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
   });
 
   /** Authed. The user's own requests, waiting or turned down. Names only. */
-  r.get('/me/join-requests', (c) => c.json(repo.joinRequestsOf(c.get('user').id).map(asSeenByAsker)));
+  r.get('/me/join-requests', (c) => c.json(joinRequestsOfUser(repo, c.get('user').id)));
 
   /** Authed. The asker takes back a request, or clears one that was turned down. */
   r.delete('/join-requests/:id', once, (c) => {
@@ -283,18 +312,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
   r.get('/groups/:id/join-requests', (c) => {
     const me = c.get('user').id;
     const g = repo.groupForUser(c.req.param('id'), me);
-    const waiting: PendingJoin[] = repo.pendingJoins(g.id).map((req) => {
-      const member = req.memberId ? repo.member(req.memberId) : undefined;
-      return {
-        id: req.id,
-        name: member ? member.displayName : req.displayName,
-        existing: Boolean(member),
-        ...(member?.claimedByUserId ? { joined: isHeldBy(member, me) ? ('you' as const) : ('someone' as const) } : {}),
-        code: req.code,
-        createdAt: req.createdAt,
-      };
-    });
-    return c.json(waiting);
+    return c.json(pendingJoinsOf(repo, g.id, me));
   });
 
   /**

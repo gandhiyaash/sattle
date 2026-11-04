@@ -33,10 +33,12 @@ export interface DeviceOptions {
   toured?: boolean;
   /**
    * Whether this device has seen the app's one-time tips: the intro on Add expense and the tour of
-   * Who paid, how to split. Default true, so they're in no test's way. Apart from `toured`:
-   * `{ toured: false, tips: false }` is a phone opening the app for the very first time.
+   * Who paid, how to split. Default true, so they're in no test's way. Apart from `toured` and
+   * `getPaidDone`: all three false is a phone opening the app for the very first time.
    */
   tips?: boolean;
+  /** Whether this device is done with asking, at launch, where its owner is paid (GetPaidSheet). Default true, like `toured`. */
+  getPaidDone?: boolean;
   /** An account's token, as a device signed in with it holds it. */
   token?: string;
   /** The currencies this device's owner uses, as the Account screen stores them. Default: both. */
@@ -94,6 +96,7 @@ export const test = base.extend<Fixtures>({
       const stored: Array<{ name: string; value: string }> = [];
       if (opts.toured ?? true) stored.push({ name: 'sattle.toured', value: '1' });
       if (opts.tips ?? true) stored.push({ name: 'sattle.tips', value: TIPS_SEEN });
+      if (opts.getPaidDone ?? true) stored.push({ name: 'sattle.getPaidDone', value: '1' });
       if (opts.token) stored.push({ name: 'sattle.token', value: opts.token });
       if (opts.currencies) {
         stored.push({ name: 'sattle.currencies', value: JSON.stringify({ uses: opts.currencies, newGroups: opts.currencies[0] }) });

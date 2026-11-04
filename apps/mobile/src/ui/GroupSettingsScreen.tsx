@@ -11,7 +11,7 @@
  * what an action leaves behind is said between the first tap and the second.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Platform, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import {
@@ -25,6 +25,9 @@ import {
 } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
+import type { AppData } from '../data/AppData';
+import { KEEP_CURRENT_MS, useAppData, useFirstLoad, useKeepCurrent, useView } from '../data/useAppData';
+import { snapshotOf, withGroup } from '../data/views';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
@@ -76,16 +79,24 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
   const client = useClient();
   const keys = useActionKeys();
 
-  const { data, loading, error, reload, refresh } = useAsync<Settings>(async () => {
-    const [group, members, expenses, settlements, link, upi, linkUpi] = await Promise.all([
-      client.getGroup(groupId),
-      client.getMembers(groupId),
-      client.getExpenses(groupId),
-      client.getSettlements(groupId),
-      client.getGroupLink(groupId),
-      client.getUpiId(),
-      client.getUpiOnGroupLink(groupId),
-    ]);
+  const appData = useAppData();
+  const view = useView();
+  const first = useFirstLoad();
+  const snap = snapshotOf(view, groupId);
+  // Kept current as the group's screen is: a payment finishing decides whether it can be deleted.
+  useKeepCurrent(KEEP_CURRENT_MS, groupId);
+  // The group's link is a key to it, so it's kept in memory only, never on the device. Both reads
+  // open on what was read last time this ran, and the rest of the screen doesn't wait for them.
+  const linkRead = useAsync(() => client.getGroupLink(groupId), [groupId], { key: `link:${groupId}` });
+  const linkUpiRead = useAsync(() => client.getUpiOnGroupLink(groupId), [groupId], {
+    key: `upi-link:${groupId}`,
+    save: true,
+  });
+
+  // Everything else is what the app already has (AppData): the screen is up at once.
+  const data = useMemo((): Omit<Settings, 'link' | 'linkUpi'> | undefined => {
+    if (!snap) return undefined;
+    const { group, members, expenses, settlements } = snap;
     return {
       name: group.name,
       simplifyDebts: group.simplifyDebts,
@@ -93,36 +104,54 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
       accounts: members.reduce((n, m) => n + accountsOf(m).length, 0),
       settled: groupDebts(group, expenses, settlements).length === 0,
       paying: settlements.some(isInProgress),
-      link,
       approveJoins: group.approveJoins,
-      linkUpi: group.currency === UPI_CURRENCY && upi.upiId ? linkUpi : null,
     };
-  }, [groupId]);
+  }, [snap]);
+  const upiShown = snap?.group.currency === UPI_CURRENCY && Boolean(view?.upiProfile.upiId);
+  const refresh = () => void appData.sync();
 
-  if (loading) {
+  if (!data) {
     return (
       <Screen title="Manage group" onBack={onBack}>
-        <Loading lines={3} />
+        {first.waiting ? (
+          <Loading lines={3} />
+        ) : (
+          <ErrorState
+            message={first.error?.message ?? 'That group doesn’t exist.'}
+            error={first.error}
+            onRetry={first.retry}
+          />
+        )}
       </Screen>
     );
   }
-  if (error || !data) {
-    return (
-      <Screen title="Manage group" onBack={onBack}>
-        <ErrorState message={error?.message ?? 'Could not load this group.'} error={error} onRetry={reload} />
-      </Screen>
-    );
-  }
+  const linkReady = linkRead.data !== undefined && (!upiShown || linkUpiRead.data !== undefined || linkUpiRead.error);
 
   const alone = data.accounts <= 1;
 
   return (
     <Screen title="Manage group" subtitle={data.name} onBack={onBack}>
-      <Rename groupId={groupId} name={data.name} onRenamed={reload} />
+      <Rename groupId={groupId} name={data.name} onRenamed={refresh} />
 
       <SettlingUp groupId={groupId} simplifyDebts={data.simplifyDebts} paying={data.paying} onChanged={refresh} />
 
-      <GroupLinkSection groupId={groupId} link={data.link} upi={data.linkUpi} />
+      {linkReady ? (
+        <GroupLinkSection
+          groupId={groupId}
+          link={linkRead.data ?? null}
+          upi={upiShown ? (linkUpiRead.data ?? null) : null}
+        />
+      ) : linkRead.error ? (
+        <View>
+          <SectionLabel>Group link</SectionLabel>
+          <ErrorState message={linkRead.error.message} error={linkRead.error} onRetry={linkRead.reload} />
+        </View>
+      ) : (
+        <View>
+          <SectionLabel>Group link</SectionLabel>
+          <Loading lines={2} />
+        </View>
+      )}
 
       <Joining groupId={groupId} approveJoins={data.approveJoins} />
 
@@ -141,6 +170,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
                 confirmHint="Anything owed to you can then be marked settled by whoever owes it."
                 onConfirm={async () => {
                   await keys.run('leave', { groupId }, (k) => client.leaveGroup(groupId, k));
+                  forgetGroup(appData, groupId);
                   onGone();
                 }}
               />
@@ -164,6 +194,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
               confirmHint="Everything in it goes, for everyone. This can’t be undone."
               onConfirm={async () => {
                 await keys.run('delete-group', { groupId }, (k) => client.deleteGroup(groupId, k));
+                forgetGroup(appData, groupId);
                 onGone();
               }}
             />
@@ -202,6 +233,7 @@ function SettlingUp({
 }) {
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   // Kept here once loaded, so the switch stays where it was put while the rest is read again,
   // and moved to whatever is read next: someone else in the group may have changed it.
@@ -218,6 +250,7 @@ function SettlingUp({
         client.setSimplifyDebts(groupId, next, k)
       );
       setOn(group.simplifyDebts);
+      appData.known((v) => withGroup(v, groupId, (g) => ({ ...g, group: { ...g.group, simplifyDebts: group.simplifyDebts } })), groupId);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
@@ -261,10 +294,32 @@ function GroupLinkSection({
 }) {
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
-  // Kept here once loaded, so replacing it or turning it off doesn't blank the screen to read it all again.
-  const [link, setLink] = useState(loaded);
-  const [upi, setUpi] = useState(loadedUpi);
+  // Kept here once loaded, so replacing it or turning it off doesn't blank the screen to read it all again,
+  // and moved to whatever is read next: the screen opens on the last read, and someone may have made a
+  // link since, from Add people or on another phone.
+  const [link, setLinkHere] = useState(loaded);
+  const [upi, setUpiHere] = useState(loadedUpi);
+  // Once it's been changed here, that's newer than any read still on its way.
+  const changedHere = useRef({ link: false, upi: false });
+  useEffect(() => {
+    if (!changedHere.current.link) setLinkHere(loaded);
+  }, [loaded]);
+  useEffect(() => {
+    if (!changedHere.current.upi) setUpiHere(loadedUpi);
+  }, [loadedUpi]);
+  // And in what the screen opens on next time, so it never opens on a link that was replaced.
+  const setLink = (next: GroupLink | null) => {
+    changedHere.current.link = true;
+    setLinkHere(next);
+    appData.remember(`link:${groupId}`, next);
+  };
+  const setUpi = (next: UpiOnGroupLink) => {
+    changedHere.current.upi = true;
+    setUpiHere(next);
+    appData.remember(`upi-link:${groupId}`, next, true);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -355,6 +410,7 @@ function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJo
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   // As SettlingUp: kept where it was put, and moved to whatever is read next.
   const [on, setOn] = useState(loaded);
@@ -368,6 +424,8 @@ function Joining({ groupId, approveJoins: loaded }: { groupId: string; approveJo
     try {
       const group = await keys.run('approve-joins', { groupId, on: next }, (k) => client.setApproveJoins(groupId, next, k));
       setOn(group.approveJoins);
+      appData.known((v) => withGroup(v, groupId, (g) => ({ ...g, group: { ...g.group, approveJoins: group.approveJoins } })), groupId);
+      void appData.sync();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
     } finally {
@@ -502,6 +560,7 @@ function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; o
   const color = useColors();
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [draft, setDraft] = useState(name);
   const [busy, setBusy] = useState(false);
@@ -513,7 +572,11 @@ function Rename({ groupId, name, onRenamed }: { groupId: string; name: string; o
     setBusy(true);
     setError(null);
     try {
-      await keys.run('rename', { groupId, name: next }, (k) => client.renameGroup(groupId, next, k));
+      const group = await keys.run('rename', { groupId, name: next }, (k) => client.renameGroup(groupId, next, k));
+      appData.known((v) => withGroup(v, groupId, (g) => ({ ...g, group: { ...g.group, name: group.name } })), groupId);
+      // The field shows the name as kept: the server trims it.
+      setDraft(group.name);
+      setBusy(false);
       onRenamed();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t rename it. Try again.');
@@ -570,3 +633,8 @@ const useStyles = makeStyles((color) => ({
     backgroundColor: color.paper,
   },
 }));
+
+/** A group just left or deleted goes from the list at once: the server already has it gone. */
+function forgetGroup(appData: AppData, groupId: string) {
+  appData.known((v) => ({ ...v, groups: v.groups.filter((g) => g.group.id !== groupId) }), groupId);
+}

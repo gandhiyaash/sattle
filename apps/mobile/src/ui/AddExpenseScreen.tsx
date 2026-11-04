@@ -44,6 +44,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   amountAsTyped,
+  dateFormat,
   canChangeExpense,
   formatAmount,
   isBitcoin,
@@ -57,7 +58,7 @@ import {
 } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
-import { useActionKeys, useClient } from '../react/SattleProvider';
+import { useAppData, useGroupSnapshot } from '../data/useAppData';
 import { useBack } from './backNavigation';
 import { Coachmarks, type Coachmark } from './Coachmarks';
 import {
@@ -81,6 +82,11 @@ export interface AddExpenseScreenProps {
   currency?: string;
   /** Change this expense instead of adding one. */
   expense?: Expense;
+  /**
+   * An expense added here that the server refused (AppData's unsaved ones),
+   * to start the form from. Saving adds it afresh, in that one's place.
+   */
+  draft?: { expense: Expense; changeId: string };
   /**
    * Who is signed in. Adding, they are who paid unless they say otherwise:
    * whoever puts a spend in is almost always the one who paid it. Changing an
@@ -114,9 +120,10 @@ interface Item {
 export function AddExpenseScreen({
   groupId,
   groupName,
-  members,
+  members: given,
   currency = 'INR',
   expense,
+  draft,
   userId,
   onBack,
   onAdded,
@@ -125,8 +132,10 @@ export function AddExpenseScreen({
   const color = useColors();
   const s = useStyles();
   const insets = useSafeAreaInsets();
-  const client = useClient();
-  const keys = useActionKeys();
+  const appData = useAppData();
+  // The group's people as they are now, not as they were when the form opened: someone taken out
+  // on another phone meanwhile drops out of the split, rather than have the server refuse it.
+  const members = useGroupSnapshot(groupId)?.members ?? given;
   const sats = isBitcoin(currency);
   // Sats are whole, so their keyboard has no point on it.
   const keyboard = sats ? 'number-pad' : 'decimal-pad';
@@ -134,20 +143,25 @@ export function AddExpenseScreen({
   // Its own header, so it says itself what Android's back button and the browser's do.
   useBack(onBack);
 
-  const [description, setDescription] = useState(expense?.description ?? '');
-  const [amountText, setAmountText] = useState(expense ? amountAsTyped(expense.amount, currency) : '');
+  // What the form starts from: the expense being changed, or one that didn't save being tried again.
+  const seed = expense ?? draft?.expense;
+  const [description, setDescription] = useState(seed?.description ?? '');
+  const [amountText, setAmountText] = useState(seed ? amountAsTyped(seed.amount, currency) : '');
   const me = userId ? members.find((m) => isHeldBy(m, userId)) : undefined;
-  const [paidBy, setPaidBy] = useState(expense?.paidByMemberId ?? me?.id ?? members[0]?.id ?? '');
+  const [paidBy, setPaidBy] = useState(seed?.paidByMemberId ?? me?.id ?? members[0]?.id ?? '');
   // An uneven split comes back as the amounts it resolved to, which saving keeps.
-  const [way, setWay] = useState<Way>(expense && expense.splitMode !== 'equal' ? 'exact' : 'equal');
+  const [way, setWay] = useState<Way>(seed && seed.splitMode !== 'equal' ? 'exact' : 'equal');
+  // Someone the draft names who isn't in the group any more is left out of it.
   const [included, setIncluded] = useState<string[]>(
-    expense ? expense.parts.map((p) => p.memberId) : members.map((m) => m.id)
+    seed
+      ? seed.parts.map((p) => p.memberId).filter((id) => !draft || members.some((m) => m.id === id))
+      : members.map((m) => m.id)
   );
   /** What's typed for each person, for each way of splitting, so going back to one keeps it. */
   const [typed, setTyped] = useState<Record<'exact' | 'shares' | 'percent', Record<string, string>>>(() => ({
     exact:
-      expense && expense.splitMode !== 'equal'
-        ? Object.fromEntries(expense.parts.map((p) => [p.memberId, amountAsTyped(p.amount, currency)]))
+      seed && seed.splitMode !== 'equal'
+        ? Object.fromEntries(seed.parts.map((p) => [p.memberId, amountAsTyped(p.amount, currency)]))
         : {},
     shares: {},
     percent: {},
@@ -317,21 +331,25 @@ export function AddExpenseScreen({
     return { ...base, splitMode: 'exact', parts: (split.parts ?? []).map((p) => ({ memberId: p.memberId, amount: p.amount })) };
   };
 
-  const save = async (input: ExpenseInput) => {
+  // Saved once: a second tap before the screen has gone would add it twice.
+  const saved = useRef(false);
+
+  /**
+   * Saving doesn't wait for the server, as on Splitwise: the expense is on the
+   * group at once, and AppData sends it behind, with an idempotency key kept
+   * for every retry. The group shows it as saving until the server has it,
+   * and as not saved, with Try again, if it can't get there.
+   */
+  const save = (input: ExpenseInput) => {
+    if (saved.current) return;
+    saved.current = true;
     setBusy(true);
     setError(null);
-    try {
-      if (expense) {
-        await keys.run('edit-expense', { id: expense.id, ...input }, (k) => client.updateExpense(expense.id, input, k));
-      } else {
-        await keys.run('add-expense', input, (k) => client.addExpense(input, k));
-      }
-      onAdded();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save that.');
-    } finally {
-      setBusy(false);
-    }
+    if (expense) appData.editExpense(expense.id, input);
+    else appData.addExpense(input);
+    // The one that didn't save goes: this is it, as it was meant.
+    if (draft) appData.discard(draft.changeId);
+    onAdded();
   };
 
   const submit = () => {
@@ -342,7 +360,9 @@ export function AddExpenseScreen({
   };
 
   const remove = async () => {
-    await keys.run('delete-expense', { id: expense!.id }, (k) => client.deleteExpense(groupId, expense!.id, k));
+    if (saved.current) return;
+    saved.current = true;
+    appData.deleteExpense(groupId, expense!.id);
     onAdded();
   };
 
@@ -510,6 +530,8 @@ export function AddExpenseScreen({
             onChangeText={setDescription}
             placeholder="What was it for?"
             placeholderTextColor={color.inkFaint}
+            // The server's limit. Saving doesn't wait for the server, so it's held to here instead.
+            maxLength={200}
             accessibilityLabel="What was it for?"
             returnKeyType="done"
           />
@@ -759,7 +781,7 @@ function dayWord(iso: string): string {
   const days = Math.round((start(new Date()) - start(d)) / 86_400_000);
   if (days === 0) return 'today';
   if (days === 1) return 'yesterday';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return dateFormat('en-GB', { day: 'numeric', month: 'short' }).format(d);
 }
 
 /** Up to five faces, overlapping, then how many more. */

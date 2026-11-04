@@ -1,7 +1,16 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { SattleError, isHeldBy, parseLightningAddress, resolveParts, sameExpense, type Expense, type Group } from '@sattle/core';
+import {
+  SattleError,
+  isHeldBy,
+  parseLightningAddress,
+  resolveParts,
+  sameExpense,
+  type Expense,
+  type Group,
+  type Member,
+} from '@sattle/core';
 
 import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
@@ -57,6 +66,20 @@ export const ChangeGroupBody = z
   );
 
 const AddressBody = z.object({ address: z.string() });
+
+/**
+ * A group's members, as GET /groups/:id/members and GET /sync answer them:
+ * with whether each can be paid now, which only the server can tell under
+ * real payments, and whether they take UPI. The UPI ID itself is only for
+ * someone who owes them.
+ */
+export function membersOf({ repo, wallets, payments }: Pick<Ctx, 'repo' | 'wallets' | 'payments'>, groupId: string): Member[] {
+  return repo.members(groupId).map((m) => ({
+    ...m,
+    receivable: receivable(payments, m),
+    ...(takesUpi(wallets, m) ? { upi: true } : {}),
+  }));
+}
 
 export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
   const r = new Hono<AppEnv>();
@@ -145,15 +168,7 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
 
   r.get('/groups/:id/members', (c) => {
     const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    // With whether each can be paid now, which only the server can tell under real payments,
-    // and whether they take UPI. The UPI ID itself is only for someone who owes them.
-    return c.json(
-      repo.members(g.id).map((m) => ({
-        ...m,
-        receivable: receivable(payments, m),
-        ...(takesUpi(wallets, m) ? { upi: true } : {}),
-      }))
-    );
+    return c.json(membersOf({ repo, wallets, payments }, g.id));
   });
 
   /** Appends a ghost after the existing members. */

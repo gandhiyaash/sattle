@@ -3,13 +3,14 @@ import { Linking, Platform, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
-import { SattleError, parseSharedLink } from '@sattle/core';
+import { parseSharedLink } from '@sattle/core';
 
 import { clearToken, readToken } from './src/account/tokenStore';
 import { startReporting } from './src/analytics/analytics';
 import type { SattleClient } from './src/client/SattleClient';
+import { tokenFingerprint, type AppData } from './src/data/AppData';
 import { useCurrenciesRead } from './src/prefs/useCurrencyPrefs';
-import { SattleProvider, buildClient, isMock } from './src/react/SattleProvider';
+import { SattleProvider, buildAppData, buildClient, forgetSavedData, isMock } from './src/react/SattleProvider';
 import { watchForUpdates } from './src/react/useAppUpdate';
 import { keepAddress } from './src/ui/backNavigation';
 import { DemoApp } from './src/ui/DemoApp';
@@ -173,13 +174,23 @@ function Starting() {
   );
 }
 
-type Account = { kind: 'loading' } | { kind: 'none' } | { kind: 'restoring' } | { kind: 'ready'; client: SattleClient };
+type Account =
+  | { kind: 'loading' }
+  | { kind: 'none' }
+  | { kind: 'restoring' }
+  | { kind: 'ready'; client: SattleClient; data: AppData };
 
 /**
  * The app proper needs a device account. A stored token the server no longer
- * knows (the database was reset, say) is dropped, and the person starts
- * again. Any other failure, like being offline, keeps the token: the screens
- * show their own errors and retry.
+ * knows (the database was reset, say, or the key was replaced on another
+ * phone) is dropped, with what the device kept of the account, and the person
+ * starts again. Any other failure, like being offline, keeps the token: the
+ * screens show what was kept, or their own errors, and retry.
+ *
+ * An account this device has opened before doesn't wait for the server: the
+ * app opens at once on what it kept (AppData), and the first sync behind it
+ * is what checks the token. Only a device with nothing kept waits for that
+ * first answer, which is everything the screens need.
  */
 function AccountGate({
   joining,
@@ -197,26 +208,44 @@ function AccountGate({
 }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
 
+  // `token` no longer signs in. Whatever was kept of the account goes with it, unless the device
+  // has moved on to another token since (a replaced key): then it was a request still on its way.
+  // With no token at all (the account was deleted in another tab), there's nothing to keep it for.
+  const signedOut = async (token: string) => {
+    const held = await readToken().catch(() => null);
+    if (held !== null && held !== token) return;
+    forgetSavedData();
+    if (held !== null) await clearToken().catch(() => {});
+    setAccount({ kind: 'none' });
+  };
+  const open = (token: string): Extract<Account, { kind: 'ready' }> => {
+    const client = buildClient(token);
+    return { kind: 'ready', client, data: buildAppData(client, token, () => void signedOut(token)) };
+  };
+
   useEffect(() => {
     let live = true;
     (async () => {
       const token = await readToken();
       if (!token) return live && setAccount({ kind: 'none' });
-      const client = buildClient(token);
-      try {
-        await client.getCurrentUser();
-      } catch (e) {
-        if (e instanceof SattleError && e.code === 'unauthorized') {
-          await clearToken();
-          return live && setAccount({ kind: 'none' });
-        }
-      }
-      if (live) setAccount({ kind: 'ready', client });
+      const ready = open(token);
+      // Opened here before: straight in. The sync the first screen asks for checks the token.
+      if (ready.data.getView()) return live && setAccount(ready);
+      await ready.data.sync();
+      if (!live) return;
+      // A token the server didn't know is being dropped (signedOut), and Welcome comes next.
+      if (ready.data.getStatus().error?.code === 'unauthorized') return;
+      setAccount(ready);
     })();
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A replaced AppData stops: its timers would keep asking the server for an account that moved on.
+  const current = account.kind === 'ready' ? account.data : null;
+  useEffect(() => () => current?.dispose(), [current]);
 
   switch (account.kind) {
     case 'loading':
@@ -231,7 +260,7 @@ function AccountGate({
               // They're in, or they've asked. The app opens on their groups, where the group, or the request, is.
               onJoined={(token) => {
                 onJoinDone();
-                setAccount({ kind: 'ready', client: buildClient(token) });
+                setAccount(open(token));
               }}
               onSkip={onJoinDone}
             />
@@ -249,7 +278,7 @@ function AccountGate({
       }
       return (
         <WelcomeScreen
-          onReady={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
+          onReady={(token) => setAccount(open(token))}
           onRestore={() => setAccount({ kind: 'restoring' })}
         />
       );
@@ -259,17 +288,25 @@ function AccountGate({
       return (
         <DemoApp
           client={account.client}
+          data={account.data}
           joining={joining}
           onJoinDone={onJoinDone}
           shared={shared}
           onSharedDone={onSharedDone}
-          // The server no longer knows the token, so the device shouldn't keep it.
+          // The server no longer knows the token, so the device shouldn't keep it, or anything of the account.
           onAccountDeleted={async () => {
+            // Emptied before it stops, so nothing of the account is written back as it goes.
+            account.data.clear();
+            forgetSavedData();
             await clearToken();
             setAccount({ kind: 'none' });
           }}
-          // Already saved by the account screen. The old token no longer signs in.
-          onKeyReplaced={(token) => setAccount({ kind: 'ready', client: buildClient(token) })}
+          // Already saved by the account screen. The old token no longer signs in. What was kept
+          // is the same account's, so it's handed to the new token and the screens stay up.
+          onKeyReplaced={(token) => {
+            account.data.handOver(tokenFingerprint(token));
+            setAccount(open(token));
+          }}
         />
       );
   }

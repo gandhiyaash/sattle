@@ -31,6 +31,7 @@ describe('auth boundary', () => {
   it('requires auth everywhere except /health, /s/, /g/, reading who a link offers to join as, and making an account', async () => {
     const { call } = setup(undefined);
     expect((await call('GET', '/groups')).status).toBe(401);
+    expect((await call('GET', '/sync')).status).toBe(401);
     expect((await call('GET', '/me/wallet')).status).toBe(401);
     expect((await call('GET', '/health')).status).toBe(200);
     expect((await call('GET', '/s/demo')).status).not.toBe(401);

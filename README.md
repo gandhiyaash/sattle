@@ -24,7 +24,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
 
 Try these flows:
 
@@ -75,6 +75,7 @@ npm run db:reset -w @sattle/api   # wipe the API database; it reseeds on next st
 packages/core/src/           @sattle/core: pure, no I/O, imported by both app and API
   types.ts                   Domain vocabulary. Member ≠ User. Debt is in the group's currency.
   currency.ts                The currencies a group can be kept in, and how an amount in each is typed and shown.
+  formats.ts                 Number and date formats, made once each and kept: making one costs fifty times using one.
   ledger.ts                  Pure maths: splits, balances, and who pays whom, simplified or not.
   history.ts                 A group's history, read off its expenses, the changes to them and its settlements.
   settlementOptions.ts       Resolves what's possible BEFORE the user taps, from the ways to pay the payer uses.
@@ -98,7 +99,7 @@ packages/e2e-web/            @sattle/e2e-web: the web app in a browser against t
 apps/api/src/                @sattle/api: Hono + node:sqlite
   server.ts                  Boot, env, and the payment backend choice.
   app.ts                     Assembly: CORS, auth, errors, route modules.
-  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, history, upi, analytics.
+  routes/                    One module per owner: groups, settlements, payLinks, groupLinks, joining, wallet, ledger, history, upi, analytics, sync.
   middleware.ts              Auth (with the public /s/, /g/, /join/ and /analytics/ prefixes), idempotency, and the request log.
   settlementRules.ts         Debt cap and in-progress checks every settle route shares.
   groupRules.ts              Who may change or remove what: expenses, members, groups, accounts.
@@ -137,7 +138,13 @@ apps/mobile/                 @sattle/mobile: Expo
     client/
       SattleClient.ts        The interface. The only seam.
       MockClient.ts          In-memory, with latency and failure injection.
-      ApiClient.ts           HTTP client for apps/api.
+      ApiClient.ts           HTTP client for apps/api. Reads give up after 15 s, writes after 20.
+    data/
+      AppData.ts             What the app knows: the last GET /sync, kept on the device, with the user's own changes laid over it. See Opening at once.
+      changes.ts             Those changes: an expense added, changed or deleted here, shown before the server has it.
+      views.ts               What the groups list and a group's screen show, worked out from that.
+      useAppData.ts          The screens' hooks into it, each redrawing only when what it reads changes.
+      savedStore.ts          Where the copy lives between launches. A file in the app's own storage on native, localStorage on web.
     wallet/
       WalletProvider.ts      Wallet seam. Breez is native-only; web gets a stub.
     updates/
@@ -182,6 +189,8 @@ apps/mobile/                 @sattle/mobile: Expo
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
       tips.ts                The one-time tips (the split guide), and which this device has seen.
       tipsStore.ts           Where the device keeps that. SecureStore on native, localStorage on web.
+      GetPaidSheet.tsx       Asked once at launch, with nowhere yet to be paid: a Lightning address, a UPI ID, or Skip.
+      getPaidStore.ts        Whether this device is done with that: asked, or found somewhere already. SecureStore on native, localStorage on web.
       CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
@@ -225,6 +234,17 @@ const settlement = useSettlement(settlementId);
 // status: created → awaiting_payment → in_flight → confirmed
 ```
 
+## Opening at once
+
+The app opens on what it has, as Splitwise does, and catches up behind it. Nothing waits on the network to change screens, and a change the user makes shows the moment they make it.
+
+- **One read for everything.** `GET /sync` answers who the user is, each of their groups whole (members, expenses, settlements, their UPI claims, who is waiting to join), their requests to join and their UPI ID. Each part is what that part's own route answers, byte for byte (`apps/api/src/sync.test.ts`), so old app versions on the old routes and new ones see the same thing. `?group=<id>` answers for those groups only, which is what a group's screen asks for. The answer's version is a hash of it: asked with `If-None-Match`, a sync where nothing changed is a `304` of a few bytes.
+- **A copy on the device.** `AppData` keeps the last answer, in a file on native and in localStorage on the web, and the first screen is drawn from it before anything is asked. It's one account's (named by a fingerprint of its token, never the token), and it goes when the token stops working or the account is deleted. Nothing that works as a key is kept: not the group link, the ledger's backup key or a pay link.
+- **Kept current.** The groups list and a group's screen sync every few seconds while they're up and the app is in front (`useKeepCurrent`): 4 s for the group (which asks for that group alone), 15 s for the list (which asks for all of them), or 4 s while a request to join is waiting. A sync is also made on coming back to the app and after every change. Failures back off to 30 s.
+- **The user's own changes don't wait.** Saving an expense, changing one or deleting one lays the change over the copy at once and sends it behind, with one idempotency key for every try. The group shows it as **Saving…** until the server has it. One the server refuses stays on the group as **Not saved**, with why, and counts in nobody's balance until it's sent again or deleted; one that couldn't get through is sent again by itself once a sync works. Changes are kept with the copy, so one made just before the app closed is still sent. Other writes (a settlement, a rename, letting someone in) still wait for the server, since it can refuse them for reasons the app can't see, but its answer shows at once rather than after a second read.
+- **Never back, never twice.** A change the server has answered stays laid over until a sync that started after the answer lands, since one that left earlier can't have it. While an added expense is still on its way it has no id from the server, so an answer that may already hold it isn't used; the add's own answer brings the sync that is.
+- **An older server** has no `/sync`: the app reads it the old way, one route at a time, and asks less often, until it has one.
+
 ## Four decisions baked in
 
 **Members are not users.** A `Member` is a row in a group with a `status` of `ghost`, `joined`, or `nwc_linked`. Ghosts have never installed anything. They can pay by scanning, but they can't receive until someone adds their Lightning address. Until then `createSettlement` throws `member_cannot_receive`. Retrofitting this is miserable, which is why it is in the type from line one.
@@ -261,6 +281,8 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 ## First launch and currencies
 
 The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+Someone signed in with nowhere yet to be paid (no Lightning address, no UPI ID, no wallet connected under Wallet) is asked where, once, in a sheet over the groups list (`GetPaidSheet.tsx`). Each device looks at the first launch that opens on the groups list, which includes right after making an account, on the welcome screen or by joining from a link. An account already signed in whose app opens on a link goes where the link leads, and is looked at next launch. The sheet takes a Lightning address to be paid in bitcoin and a UPI ID to be paid in rupees, only the ones that go with the currencies they use, and saves them as Wallet does: whatever the server refuses stays in its field with the reason, and the rest is saved. Saving, **Skip** and closing the sheet are all answers. An account with somewhere to be paid already isn't asked. Either way the device remembers (`getPaidStore`) and doesn't look again, even if that somewhere is removed later. In a browser the back button closes the sheet only once the page has had a tap: Chrome passes over a history entry added before one (`backNavigation.ts`), so until then back leaves the page, and the sheet comes back at the next launch.
 
 The first time a device adds an expense, a tip over the split card points at **Split differently**: new expenses are split equally between everyone, and leaving someone out is in that sheet. **Show me** opens it on a five-step tour (`Coachmarks.tsx`) of who paid, leaving someone out, the ways to split, Split by item and Done. Each step dims everything but the one thing it's about, which shows through a spotlight with an arrow drawn to it, and taps reach only that thing: on the step about leaving someone out, the tap on the person is real, and the card says what it did. **Not now** leaves the tour for the first time the sheet opens. Skip or Got it ends it for good on that device (`tips.ts`), and the **i** beside Done plays it again.
 

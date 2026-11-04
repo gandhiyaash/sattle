@@ -106,8 +106,8 @@ export const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 
 
 /**
  * A row on the groups list, by the group's name, through to the group screen.
- * The list doesn't refresh on its own, so a group seeded through the API
- * after the list came up isn't on it until `reload`.
+ * The list catches up by itself only every few seconds, so for a group seeded
+ * through the API after it came up, `reload` reads it at once.
  */
 export async function openGroup(page: Page, name: string, { reload = false } = {}) {
   if (reload) await page.reload();

@@ -16,17 +16,22 @@
  * them in, and the list checks back while one is waiting.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { computeBalances, formatAmount, isHeldBy, SUPPORTED_CURRENCIES, type Group, type JoinRequest } from '@sattle/core';
+import { formatAmount, SUPPORTED_CURRENCIES, type JoinRequest } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
-import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
+import { KEEP_CURRENT_MS, useAppData, useFirstLoad, useKeepCurrent, useView } from '../data/useAppData';
+import { groupRowsOf } from '../data/views';
+import { useActionKeys, useClient } from '../react/SattleProvider';
 import { Amount, Avatar, Badge, Button, Card, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { coverFor, initialOf, makeStyles, radius, space, type, useColors } from './theme';
+
+/** How often the list checks for other people's changes while it's up and nothing is waiting. */
+const LIST_CURRENT_MS = 15_000;
 
 export interface GroupsListScreenProps {
   onOpenGroup: (groupId: string) => void;
@@ -34,14 +39,6 @@ export interface GroupsListScreenProps {
   onNewGroup?: (example?: string) => void;
   /** Opens the screen that takes a group's link. */
   onJoin?: () => void;
-}
-
-interface GroupRow {
-  group: Group;
-  net: number;
-  memberCount: number;
-  /** With none, a zero net means nothing has happened yet, not that it's settled. */
-  expenseCount: number;
 }
 
 export function GroupsListScreen({
@@ -52,51 +49,20 @@ export function GroupsListScreen({
   useScreenView('Groups');
   const color = useColors();
   const s = useStyles();
-  const client = useClient();
   // Before any group, nothing is owed in any currency: say it in the one they start groups in.
   const prefs = useCurrencyPrefs();
 
-  const { data, loading, error, reload, refresh } = useAsync<GroupRow[]>(async () => {
-    const [user, groups] = await Promise.all([
-      client.getCurrentUser(),
-      client.getGroups(),
-    ]);
-
-    return Promise.all(
-      groups.map(async (group) => {
-        const [members, expenses, settlements] = await Promise.all([
-          client.getMembers(group.id),
-          client.getExpenses(group.id),
-          client.getSettlements(group.id),
-        ]);
-        const mine = members.find((m) => isHeldBy(m, user.id));
-        const balances = computeBalances(group.memberIds, expenses, settlements);
-        return {
-          group,
-          net: balances.find((b) => b.memberId === mine?.id)?.net ?? 0,
-          memberCount: members.length,
-          expenseCount: expenses.length,
-        };
-      })
-    );
-  }, []);
-
-  const asked = useAsync(() => client.getMyJoinRequests(), []);
-  const waiting = asked.data?.filter((r) => r.status === 'pending').length ?? 0;
-  const seen = useRef(waiting);
-
-  // While someone in a group still has to let them in, check back. A request that
-  // was waiting and is now gone was let in, so the group is in the list: read it again.
-  useEffect(() => {
-    if (waiting < seen.current) refresh();
-    seen.current = waiting;
-    if (waiting === 0) return;
-    const t = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      asked.refresh();
-    }, REFRESH_MS);
-    return () => clearInterval(t);
-  }, [waiting, asked.refresh, refresh]);
+  // Drawn from what the app already has (AppData), so it's up the moment it opens, and kept
+  // current behind it: a payment, someone else's spend, or a request to join being let in.
+  const view = useView();
+  const first = useFirstLoad();
+  const data = useMemo(() => (view ? groupRowsOf(view) : undefined), [view]);
+  const asked = view?.joinRequests;
+  // Every few seconds while a request to join is waiting, to show the group the moment it lets
+  // them in. Otherwise every 15 s: the list asks for every group, which costs the server most of
+  // the work of answering even when nothing changed, and each group's own screen keeps itself
+  // current every 4 s. Coming back to the app, or to this screen, checks at once.
+  useKeepCurrent(asked?.some((r) => r.status === 'pending') ? KEEP_CURRENT_MS : LIST_CURRENT_MS);
 
   // Net position per currency, over the groups where something has been spent. In the order
   // the app lists currencies everywhere else, not the order the groups happen to come in.
@@ -110,13 +76,16 @@ export function GroupsListScreen({
       owe: spent.reduce((sum, r) => sum + Math.max(-r.net, 0), 0),
     });
   }
-  const noGroups = data?.length === 0 && !asked.data?.length;
+  const noGroups = data?.length === 0 && !asked?.length;
 
   return (
     <Screen title="Sattle" brand>
       <View style={s.balance}>
         <Text style={s.balanceLabel}>Across all groups</Text>
-        {totals.size === 0 ? (
+        {first.waiting ? (
+          // Not "nothing to settle" before it's known that there isn't.
+          <Loading lines={1} />
+        ) : totals.size === 0 ? (
           <>
             <Text style={[s.big, { color: color.settled }]}>{formatAmount(0, prefs.newGroups)}</Text>
             <Text style={s.nothingYet}>
@@ -144,12 +113,12 @@ export function GroupsListScreen({
         )}
       </View>
 
-      {asked.data && asked.data.length > 0 && (
+      {asked && asked.length > 0 && (
         <View>
           <SectionLabel>Asked to join</SectionLabel>
           <View style={{ gap: space.sm }}>
-            {asked.data.map((req) => (
-              <WaitingToJoin key={req.id} request={req} onChanged={asked.refresh} />
+            {asked.map((req) => (
+              <WaitingToJoin key={req.id} request={req} />
             ))}
           </View>
         </View>
@@ -157,7 +126,7 @@ export function GroupsListScreen({
 
       <View style={{ gap: space.sm }}>
         {/* With nothing but a request waiting, there's no list yet to label. */}
-        {!(data?.length === 0 && asked.data?.length) && (
+        {!(data?.length === 0 && asked?.length) && (
           <View style={s.groupsHead}>
             <Text style={s.groupsTitle} accessibilityRole="header">
               Groups
@@ -170,8 +139,8 @@ export function GroupsListScreen({
           </View>
         )}
 
-        {loading && <Loading lines={2} />}
-        {error && <ErrorState message={error.message} error={error} onRetry={reload} />}
+        {first.waiting && <Loading lines={2} />}
+        {first.error && <ErrorState message={first.error.message} error={first.error} onRetry={first.retry} />}
 
         {noGroups && <FirstGroup onNewGroup={onNewGroup} onJoin={onJoin} />}
 
@@ -294,16 +263,15 @@ function FirstGroup({ onNewGroup, onJoin }: { onNewGroup?: (example?: string) =>
   );
 }
 
-const REFRESH_MS = 4000;
-
 /**
  * A group they've asked to join. Nobody is let in by holding the link, so this
  * says who has to act, and gives the code that person may ask for: if two
  * people asked to be the same name, it is how they tell them apart.
  */
-function WaitingToJoin({ request, onChanged }: { request: JoinRequest; onChanged: () => void }) {
+function WaitingToJoin({ request }: { request: JoinRequest }) {
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,7 +282,9 @@ function WaitingToJoin({ request, onChanged }: { request: JoinRequest; onChanged
     setError(null);
     try {
       await keys.run('join-withdraw', { id: request.id }, (k) => client.withdrawJoinRequest(request.id, k));
-      onChanged();
+      // Off the list at once; the server already has it.
+      appData.known((v) => ({ ...v, joinRequests: v.joinRequests.filter((r) => r.id !== request.id) }));
+      void appData.sync();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That didn’t work. Try again.');
       setBusy(false);

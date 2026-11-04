@@ -7,6 +7,7 @@
  */
 
 import { isBitcoin } from './currency';
+import { numberFormat } from './formats';
 import type { Currency, Quote, RateSource } from './types';
 
 export const QUOTE_TTL_MS = 90_000;
@@ -57,7 +58,7 @@ const feeFor = (amountSat: number) => Math.max(2, Math.round(amountSat * 0.003))
 
 /** "1 BTC = ₹90,00,000", whole units: paise on a bitcoin price is noise. */
 export function formatRate(q: Pick<Quote, 'rateFiatPerBtc' | 'currency'>): string {
-  const price = new Intl.NumberFormat(q.currency === 'INR' ? 'en-IN' : 'en-US', {
+  const price = numberFormat(q.currency === 'INR' ? 'en-IN' : 'en-US', {
     style: 'currency',
     currency: q.currency,
     minimumFractionDigits: 0,

@@ -34,6 +34,7 @@ import { isBitcoin } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
+import { useAppData } from '../data/useAppData';
 import { useActionKeys, useClient } from '../react/SattleProvider';
 import { useBack } from './backNavigation';
 import { CoverArt } from './CoverArt';
@@ -54,6 +55,7 @@ export function NewGroupScreen({ example, onBack, onCreated }: NewGroupScreenPro
   const s = useStyles();
   const insets = useSafeAreaInsets();
   const client = useClient();
+  const appData = useAppData();
   const keys = useActionKeys();
   const prefs = useCurrencyPrefs();
 
@@ -95,6 +97,8 @@ export function NewGroupScreen({ example, onBack, onCreated }: NewGroupScreenPro
         simplifyDebts: false,
       };
       const group = await keys.run('create-group', input, (k) => client.createGroup(input, k));
+      // The group opens with its people in it: one sync for it all, rather than a loading screen after.
+      await appData.sync();
       onCreated(group.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the group.');

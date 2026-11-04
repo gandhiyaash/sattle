@@ -43,6 +43,7 @@ import {
   isHeldBy,
   parseUpiId,
   parseUpiReference,
+  type Debt,
   type Group,
   type Member,
   type UpiClaim,
@@ -55,7 +56,7 @@ import type { AppEnv, Ctx } from '../context';
 import { transaction } from '../db';
 import { minor, parse } from '../http';
 import { idempotency } from '../middleware';
-import { newId, nowIso } from '../repo';
+import { newId, nowIso, type Repo } from '../repo';
 import {
   checkNoPaymentUnderWay,
   checkPayer,
@@ -144,6 +145,23 @@ export const takesUpiOnLinks = (wallets: WalletStore, member: Member) =>
 export const upiOnLink = (wallets: WalletStore, g: Group, member: Member) =>
   g.currency === UPI_CURRENCY && takesUpiOnLinks(wallets, member);
 
+/** The user's own UPI ID, or null, and whether shared links may show it: GET /me/upi, and part of GET /sync. */
+export const upiProfileOf = (wallets: WalletStore, userId: string): UpiProfile => ({
+  upiId: wallets.upiId(userId) ?? null,
+  onGroupLinks: wallets.upiOnLinks(userId),
+});
+
+/**
+ * The claims member `meId` is part of in a group: the ones they made, and the
+ * ones waiting on them. Only those a debt still has room for (liveClaims): the
+ * app shows each on its debt, and one without could be neither seen nor
+ * answered. GET /groups/:id/upi-claims, and part of GET /sync, which passes
+ * the `debts` it has already worked out.
+ */
+export function upiClaimsFor(repo: Repo, g: Group, meId: string, debts?: Debt[]): UpiClaim[] {
+  return liveClaims(repo, g, debts).filter((x) => x.fromMemberId === meId || x.toMemberId === meId);
+}
+
 export function upiRoutes({ db, repo, wallets }: Ctx) {
   const r = new Hono<AppEnv>();
   const once = idempotency(db);
@@ -165,10 +183,7 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     return claim;
   };
 
-  const profileOf = (userId: string): UpiProfile => ({
-    upiId: wallets.upiId(userId) ?? null,
-    onGroupLinks: wallets.upiOnLinks(userId),
-  });
+  const profileOf = (userId: string): UpiProfile => upiProfileOf(wallets, userId);
 
   /** UpiProfile: the user's own UPI ID, or null, and whether shared links may show it. */
   r.get('/me/upi', (c) => c.json(profileOf(c.get('user').id)));
@@ -242,16 +257,12 @@ export function upiRoutes({ db, repo, wallets }: Ctx) {
     return c.json(body);
   });
 
-  /**
-   * The claims the user is part of in this group: the ones they made, and the
-   * ones waiting on them. Only those a debt still has room for (liveClaims):
-   * the app shows each on its debt, and one without could be neither seen nor answered.
-   */
+  /** The claims the user is part of in this group (upiClaimsFor). */
   r.get('/groups/:id/upi-claims', (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
     const me = repo.memberForUser(g.id, user.id)!;
-    return c.json(liveClaims(repo, g).filter((x) => x.fromMemberId === me.id || x.toMemberId === me.id));
+    return c.json(upiClaimsFor(repo, g, me.id));
   });
 
   /**
