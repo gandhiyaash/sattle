@@ -33,6 +33,7 @@ import type {
   ReceiveAddress,
   ReportUpiPaymentInput,
   Settlement,
+  SyncAnswer,
   UpiClaim,
   UpiOnGroupLink,
   UpiPayee,
@@ -43,6 +44,17 @@ import type {
 } from '@sattle/core';
 
 export interface SattleClient {
+  /**
+   * Everything the app's main screens show, in one answer: who the user is,
+   * each of their groups whole (members, expenses, settlements, their UPI
+   * claims, who is waiting to join), their requests to join, and their UPI ID.
+   * With `groups`, only those groups (any the user isn't in are left out).
+   * Pass the `version` the last answer for the same groups had: if nothing
+   * has changed since, the answer is only `{ version, unchanged: true }`.
+   * AppData keeps the copy the screens are drawn from.
+   */
+  sync(version?: string, groups?: readonly string[]): Promise<SyncAnswer>;
+
   getCurrentUser(): Promise<User>;
   /** Real money or a simulation. Decides who can be offered Pay; see canReceive. */
   getPaymentMode(): Promise<PaymentMode>;

@@ -25,6 +25,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { parseUpiId, upiIdHasPhoneNumber, type PayWays, type UpiProfile } from '@sattle/core';
 import { useScreenView } from '../analytics/useScreenView';
 import type { SattleClient } from '../client/SattleClient';
+import { useAppData } from '../data/useAppData';
 import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { useClient, useWallet } from '../react/SattleProvider';
 import type { WalletProvider } from '../wallet/WalletProvider';
@@ -114,6 +115,8 @@ const subtitleFor = (ways: PayWays) => SUBTITLES[ways.lightning && ways.upi ? 'b
  * Save sends what's typed, both at once. A field the server took shows what
  * it kept. One it refused keeps what was typed, with why, to fix and save
  * again, or to leave: Skip, which becomes Done once something is saved.
+ * What it kept goes into the device's copy as Wallet's own saves do
+ * (AppData), so the groups and Wallet show it at once.
  */
 export function GetPaidSheet({
   upiOnLinks,
@@ -126,6 +129,7 @@ export function GetPaidSheet({
   useScreenView('Get paid');
   const s = useStyles();
   const client = useClient();
+  const appData = useAppData();
   const ways = usePayWays();
   const [address, setAddress] = useState<Field>(EMPTY);
   const [upi, setUpi] = useState<Field>(EMPTY);
@@ -147,12 +151,29 @@ export function GetPaidSheet({
     if (busy || (!toSave.address && !toSave.upi)) return;
     setBusy(true);
     const [a, u] = await Promise.all([
-      toSave.address ? attempt(async () => (await client.setReceiveAddress(toSave.address)).address) : null,
-      toSave.upi ? attempt(async () => (await client.setUpiId(toSave.upi)).upiId) : null,
+      toSave.address
+        ? attempt(async () => {
+            const kept = await client.setReceiveAddress(toSave.address);
+            // Under the key Wallet reads it by, so Wallet opens on it.
+            appData.remember('receive-address', kept, true);
+            return kept.address;
+          })
+        : null,
+      toSave.upi
+        ? attempt(async () => {
+            const upiProfile = await client.setUpiId(toSave.upi);
+            appData.remember('upi', upiProfile, true);
+            // A group in rupees shows at once that they can be paid there.
+            appData.known((v) => ({ ...v, upiProfile }));
+            return upiProfile.upiId;
+          })
+        : null,
     ]);
     if (a) setAddress((f) => ({ ...f, ...a }));
     if (u) setUpi((f) => ({ ...f, ...u }));
     setBusy(false);
+    // Where they can be paid shows in every group they're in: whether to show Pay, and how.
+    if (a?.saved || u?.saved) void appData.sync();
     if (!a?.error && !u?.error) onDone();
   };
 

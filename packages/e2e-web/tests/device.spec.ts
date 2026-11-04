@@ -8,9 +8,10 @@
 import { devices } from '@playwright/test';
 
 import { button, groupHeader, makeAccount, openGroup, openSplit, sheet, skipTour } from '../src/actions';
+import { API_PORT } from '../src/env';
 import { expect, test } from '../src/fixtures';
 
-const API = (url: URL) => url.hostname === '127.0.0.1' && url.port === '3900';
+const API = (url: URL) => url.hostname === '127.0.0.1' && url.port === String(API_PORT);
 
 test.describe('links on a brand-new device', () => {
   test('a pay link that isn’t one', async ({ device }) => {

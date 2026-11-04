@@ -8,6 +8,8 @@
  * put eight decimals on a dinner.
  */
 
+import { numberFormat } from './formats';
+
 /** What the app offers. The first is what a group was kept in before there was a choice. */
 export const SUPPORTED_CURRENCIES = ['INR', 'BTC'] as const;
 
@@ -24,7 +26,7 @@ export const isSupportedCurrency = (value: unknown): value is SupportedCurrency 
 export function formatFiat(minor: number, currency = 'INR'): string {
   const major = minor / 100;
   const hasFraction = minor % 100 !== 0;
-  return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
+  return numberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
     style: 'currency',
     currency,
     minimumFractionDigits: hasFraction ? 2 : 0,
@@ -35,7 +37,7 @@ export function formatFiat(minor: number, currency = 'INR'): string {
 /** "15,000 sats", and "1 sat" for the one amount that isn't plural. */
 export function formatSats(sats: number): string {
   const whole = Math.round(sats);
-  return `${new Intl.NumberFormat('en-US').format(whole)} ${Math.abs(whole) === 1 ? 'sat' : 'sats'}`;
+  return `${numberFormat('en-US').format(whole)} ${Math.abs(whole) === 1 ? 'sat' : 'sats'}`;
 }
 
 /** An amount in a group's own currency: "₹1,200", or "15,000 sats" for a group kept in bitcoin. */

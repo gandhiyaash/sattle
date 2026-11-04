@@ -90,7 +90,7 @@ export function Screen({
               onBack();
             }}
             hitSlop={12}
-            style={s.back}
+            style={({ pressed }) => [s.back, pressed && { opacity: 0.5 }]}
             accessibilityRole="button"
             accessibilityLabel="Back"
           >

@@ -21,6 +21,7 @@ import { readToken, writeToken } from '../account/tokenStore';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { chooseCurrencies, useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
+import { useAppData, useFirstLoad, useViewPart } from '../data/useAppData';
 import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { CurrencyPicker } from './CurrencyPicker';
 import { NostrKeyForm } from './NostrKeyForm';
@@ -41,10 +42,15 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
   const s = useStyles();
   const client = useClient();
   const prefs = useCurrencyPrefs();
-  const { data, loading, error, reload } = useAsync(() => client.getCurrentUser(), []);
+  // Who they are is what the app already has (AppData): nothing to wait for.
+  const data = useViewPart((v) => v?.user);
+  const first = useFirstLoad();
+  const loading = first.waiting;
+  const error = first.error;
+  const reload = first.retry;
   // Deleting forgets a connected wallet whether or not they still use bitcoin, so someone who
   // turned it off with one connected is told too. If this can't be read, what they use decides.
-  const wallet = useAsync(() => client.getWalletConnection(), []);
+  const wallet = useAsync(() => client.getWalletConnection(), [], { key: 'wallet', save: true });
   const forgetsWallet = prefs.uses.includes('BTC') || Boolean(wallet.data?.connected);
 
   return (
@@ -120,10 +126,20 @@ function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void })
   const [key, setKey] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  const appData = useAppData();
+
   const replace = async () => {
-    const token = await keys.run('replace-key', {}, (k) => client.replaceSignInKey(k));
-    // Saved before anything else: the old key no longer signs in, so a reload needs this one.
-    await writeToken(token);
+    // From the moment the server swaps the keys until the new one is saved here, a request made
+    // with the old one is turned away: that's not this device being signed out.
+    const release = appData.holdSignOut();
+    let token: string;
+    try {
+      token = await keys.run('replace-key', {}, (k) => client.replaceSignInKey(k));
+      // Saved before anything else: the old key no longer signs in, so a reload needs this one.
+      await writeToken(token);
+    } finally {
+      release();
+    }
     onReplaced?.(token);
     setKey(signInKey(token));
     setNote(
@@ -177,6 +193,13 @@ function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void })
  * a group nobody else has joined, it's the only way back in.
  */
 function NostrCard({ user }: { user: User }) {
+  const appData = useAppData();
+  // The account as the server now has it, in what the app keeps, so coming back here shows the same.
+  const known = (next: User) => {
+    appData.known((v) => ({ ...v, user: next }));
+    void appData.sync();
+    return next.npub;
+  };
   const s = useStyles();
   const client = useClient();
   const [npub, setNpub] = useState(user.npub);
@@ -198,7 +221,7 @@ function NostrCard({ user }: { user: User }) {
             <ConfirmButton
               label="Unlink this key"
               confirmLabel="Yes, unlink it"
-              onConfirm={async () => setNpub((await client.unlinkNostr()).npub)}
+              onConfirm={async () => setNpub(known(await client.unlinkNostr()))}
             />
           </>
         ) : (
@@ -212,7 +235,7 @@ function NostrCard({ user }: { user: User }) {
             <NostrKeyForm
               path={NOSTR_AUTH_PATHS.link}
               action="link it"
-              onProof={async (event) => setNpub((await client.linkNostr(event)).npub)}
+              onProof={async (event) => setNpub(known(await client.linkNostr(event)))}
             />
           </>
         )}

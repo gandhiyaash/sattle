@@ -26,6 +26,7 @@ import {
   section,
   waitForSettled,
 } from '../src/actions';
+import { WEB_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
 import { countdownOf, duo, enter, intoGroup } from '../src/settle.helpers';
 
@@ -315,7 +316,7 @@ test.describe('someone who hasn’t joined: the blocked sheet', () => {
     await expect(yash.page.getByText('Copied. Paste it in a chat.')).toBeVisible();
     await expect(button(yash.page, 'Invite Aman again')).toBeVisible();
     const link = (await yash.api.groupLink(group.id))!;
-    const url = `http://127.0.0.1:8900/g/${link.token}`;
+    const url = `${WEB_URL}/g/${link.token}`;
     await expect(yash.page.getByText(url)).toBeVisible();
     expect(await clipboard(yash.page)).toBe(`Aman, join "Goa trip" on Sattle so I can pay you back. Open this and tap Join: ${url}`);
     // Inviting again hands out the same link rather than killing the one in the chat.
