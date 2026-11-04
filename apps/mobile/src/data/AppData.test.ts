@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SattleError, type Expense, type ExpenseInput, type Group, type GroupSnapshot, type Member, type SyncAnswer, type SyncView } from '@sattle/core';
 
 import type { SattleClient } from '../client/SattleClient';
-import { AppData, tokenFingerprint, type SavedStore } from './AppData';
+import { AppData, tokenFingerprint, type SavedPart, type SavedStore } from './AppData';
 import { isLocalId, marksFor, unsavedIn } from './changes';
 import { groupViewOf } from './views';
 
@@ -33,17 +33,24 @@ function fakeClient() {
 /** Lets every promise chain that can move, move. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-function memoryStore(text: string | null = null): SavedStore & { text: string | null; writes: number } {
-  const store = {
-    text,
-    writes: 0,
-    read: () => store.text,
-    write: (t: string) => {
-      store.text = t;
-      store.writes++;
+/** A store in memory. `text` is both parts as one string, or null when neither is kept. */
+function memoryStore(copy: string | null = null) {
+  const parts: Record<SavedPart, string | null> = { copy, changes: null };
+  const writes: Record<SavedPart, number> = { copy: 0, changes: 0 };
+  const store: SavedStore & { parts: typeof parts; writes: typeof writes; readonly text: string | null } = {
+    parts,
+    writes,
+    get text() {
+      return parts.copy === null && parts.changes === null ? null : `${parts.copy}\n${parts.changes}`;
+    },
+    read: (part) => parts[part],
+    write: (part, t) => {
+      parts[part] = t;
+      writes[part]++;
     },
     clear: () => {
-      store.text = null;
+      parts.copy = null;
+      parts.changes = null;
     },
   };
   return store;
@@ -585,7 +592,8 @@ describe('when it stops', () => {
     t.data.addExpense(dinner);
     t.data.handOver('new');
     t.data.dispose();
-    expect(JSON.parse(saved.text!).owner).toBe('new');
+    expect(JSON.parse(saved.parts.copy!).owner).toBe('new');
+    expect(JSON.parse(saved.parts.changes!).owner).toBe('new');
     const { client } = fakeClient();
     const next = track(new AppData(client, { saved, owner: 'new' }));
     expect(next.getView()!.groups.map((g) => g.group.name)).toEqual(['Goa', 'Flat']);
@@ -632,9 +640,9 @@ describe('kept on the device', () => {
   it('keeps a change the moment it’s made, and sends it again, with its key, after the app is opened', async () => {
     const saved = memoryStore();
     const t = await synced(world(), { saved, owner: 'me' });
-    const writesBefore = saved.writes;
+    const writesBefore = saved.writes.changes;
     t.data.addExpense(dinner);
-    expect(saved.writes).toBe(writesBefore + 1);
+    expect(saved.writes.changes).toBe(writesBefore + 1);
     const key = t.writes[0]!.key;
     // Closed before the server answered.
     t.data.dispose();
@@ -647,6 +655,43 @@ describe('kept on the device', () => {
     await first;
     expect(next.writes).toHaveLength(1);
     expect(next.writes[0]).toMatchObject({ kind: 'add', key });
+  });
+
+  it('keeps the changes apart from the copy, and still sends them when the copy was thrown away', async () => {
+    const saved = memoryStore();
+    const t = await synced(world(), { saved, owner: 'me' });
+    t.data.addExpense(dinner);
+    const key = t.writes[0]!.key;
+    t.data.dispose();
+    expect(JSON.parse(saved.parts.copy!).changes).toBeUndefined();
+    // The phone ran short of space and emptied the cache folder.
+    saved.parts.copy = null;
+
+    const next = fakeClient();
+    const reopened = track(new AppData(next.client, { saved, owner: 'me' }));
+    expect(reopened.getView()).toBeNull();
+    expect(reopened.getChanges()[0]).toMatchObject({ kind: 'add', state: 'failed', error: { retry: true } });
+    // The first sync can't be used while the add may be in it: the add goes again first, with its key.
+    const first = reopened.sync();
+    next.syncs[0]!.resolve(answer(world()));
+    await first;
+    expect(next.writes).toHaveLength(1);
+    expect(next.writes[0]).toMatchObject({ kind: 'add', key });
+  });
+
+  it('takes the changes from a copy kept before they were kept apart', async () => {
+    const older = memoryStore();
+    const t = await synced(world(), { saved: older, owner: 'me' });
+    t.data.addExpense(dinner);
+    t.data.dispose();
+    const copy = JSON.parse(older.parts.copy!);
+    const changes = JSON.parse(older.parts.changes!).changes;
+    const saved = memoryStore(JSON.stringify({ ...copy, changes }));
+
+    const { client } = fakeClient();
+    const reopened = track(new AppData(client, { saved, owner: 'me' }));
+    expect(reopened.getChanges().map((c) => c.kind)).toEqual(['add']);
+    expect(reopened.getView()!.groups.map((g) => g.group.name)).toEqual(['Goa', 'Flat']);
   });
 
   it('never keeps what a screen didn’t mark to keep', async () => {
