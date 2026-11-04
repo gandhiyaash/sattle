@@ -24,7 +24,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
 
 Try these flows:
 
@@ -178,6 +178,8 @@ apps/mobile/                 @sattle/mobile: Expo
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
       OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
+      GetPaidSheet.tsx       Asked once at launch, with nowhere yet to be paid: a Lightning address, a UPI ID, or Skip.
+      getPaidStore.ts        Whether this device is done with that: asked, or found somewhere already. SecureStore on native, localStorage on web.
       CurrencyPicker.tsx     Which currencies someone uses and what a new group starts in, under Account.
       UpdateBanner.tsx       Update available, downloading, restart to install.
       DemoApp.tsx            Throwaway navigator so it all runs today.
@@ -257,6 +259,8 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 ## First launch and currencies
 
 The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+Someone signed in with nowhere yet to be paid (no Lightning address, no UPI ID, no wallet connected under Wallet) is asked where, once, in a sheet over the groups list (`GetPaidSheet.tsx`). Each device looks at the first launch that opens on the groups list, which includes right after making an account, on the welcome screen or by joining from a link. An account already signed in whose app opens on a link goes where the link leads, and is looked at next launch. The sheet takes a Lightning address to be paid in bitcoin and a UPI ID to be paid in rupees, only the ones that go with the currencies they use, and saves them as Wallet does: whatever the server refuses stays in its field with the reason, and the rest is saved. Saving, **Skip** and closing the sheet are all answers. An account with somewhere to be paid already isn't asked. Either way the device remembers (`getPaidStore`) and doesn't look again, even if that somewhere is removed later. In a browser the back button closes the sheet only once the page has had a tap: Chrome passes over a history entry added before one (`backNavigation.ts`), so until then back leaves the page, and the sheet comes back at the next launch.
 
 Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
 
