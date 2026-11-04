@@ -45,7 +45,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 ## Scene 2: One person, a whole group (0:15–0:45)
 
 **Screen:**
-1. Type the name "Yash" and tap **Get started**. Point out that there's no email, phone or password.
+1. Type the name "Yash" and tap **Get started**. Point out that there's no email, phone or password. A new profile is then asked **How should people pay you?**, once: tap **Skip**, since scene 3 connects the wallet.
 2. **New group**: "Goa trip", with members Om and Aman. They're only names. Leave **Kept in** on Rupees: the demo is a rupee debt paid in sats.
 3. **Add expense**: "Chai", ₹100, paid by Yash, split equally. Pause on the live preview: Yash ₹33.34, Om ₹33.33, Aman ₹33.33. The extra paisa goes to the first person in the split.
 4. Add "Dinner", ₹900, paid by Yash, split equally. Save.

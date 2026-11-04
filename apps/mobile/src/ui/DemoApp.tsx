@@ -24,6 +24,7 @@ import { AccountScreen } from './AccountScreen';
 import { AddExpenseScreen } from './AddExpenseScreen';
 import { useHistoryDepth } from './backNavigation';
 import { FaqScreen } from './FaqScreen';
+import { GetPaidSheet, useAskToGetPaid } from './GetPaidSheet';
 import { GroupDetailScreen } from './GroupDetailScreen';
 import { GroupGuestScreen } from './GroupGuestScreen';
 import { GroupSettingsScreen } from './GroupSettingsScreen';
@@ -159,6 +160,8 @@ function Navigator({
   // The entry of a group's history that is open in full, over the list it was tapped in.
   const [viewing, setViewing] = useState<{ entry: HistoryEntry; members: Member[]; currency: string } | null>(null);
   const appData = useAppData();
+  // Once, over the groups list at launch, for someone with nowhere yet to be paid. See GetPaidSheet.
+  const getPaid = useAskToGetPaid(route.name === 'groups');
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
@@ -409,6 +412,10 @@ function Navigator({
             onClose={() => setViewing(null)}
           />
         )}
+      </Sheet>
+
+      <Sheet visible={getPaid.asking} onClose={getPaid.done}>
+        {getPaid.asking && <GetPaidSheet upiOnLinks={getPaid.upiOnLinks} onDone={getPaid.done} />}
       </Sheet>
 
       <OfflineBanner />
