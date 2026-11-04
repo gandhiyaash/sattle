@@ -89,6 +89,9 @@ export class Api {
       method,
       headers,
       data: body === undefined ? undefined : body,
+      // A connection the server dropped without answering (ECONNRESET, now and then on CI) is tried
+      // again, as a browser would: only for a read, or a write the server answers once by its key.
+      maxRetries: method === 'GET' || opts.key ? 2 : 0,
     });
     const text = await res.text();
     let parsed: unknown = null;
