@@ -357,8 +357,25 @@ export function Dialog({
   );
 }
 
-/** Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button. */
-export function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+/**
+ * Slides up over whatever screen is showing. Tapping outside it closes it, and so does the back button.
+ *
+ * `overlay` is drawn over all of it, the sheet and the dimmed screen behind, filling the Modal's
+ * window rather than the sheet's column: a tip pointing at something in the sheet (Coachmarks). It
+ * is measured in the same window as the sheet, which on Android is a window of its own. While it's
+ * there it is all a screen reader on a phone reaches; a browser hears that from the overlay itself.
+ */
+export function Sheet({
+  visible,
+  onClose,
+  overlay,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  overlay?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   const s = useStyles();
   const insets = useSafeAreaInsets();
   // On an iPhone the keyboard comes up over the sheet, so the sheet rides up on it: what's being typed stays in view.
@@ -366,6 +383,8 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
   // The back button closes it before it goes back a screen. One that opened by itself, with no tap, waits for one: see useTapped.
   const tapped = useTapped();
   useBack(visible && tapped ? onClose : undefined, true);
+  // Android has no modal views: what's under the overlay is taken out of a screen reader's reach.
+  const under = overlay && Platform.OS === 'android' ? 'no-hide-descendants' : 'auto';
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable
@@ -376,12 +395,19 @@ export function Sheet({ visible, onClose, children }: { visible: boolean; onClos
         }}
         accessibilityRole="button"
         accessibilityLabel="Close"
+        importantForAccessibility={under}
       />
       {/* A Modal covers the whole window, past the app's column; the sheet stays as wide as the column, centred under it. */}
-      <View style={s.sheetFrame} pointerEvents="box-none">
+      <View style={s.sheetFrame} pointerEvents="box-none" importantForAccessibility={under}>
         {/* The sheet runs to the bottom edge; what's in it stops above the home indicator, or the keyboard. */}
         <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, keyboard) }]}>{children}</View>
       </View>
+      {overlay ? (
+        // iOS: what's beside it, the backdrop and the sheet, is passed over while it's up.
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none" accessibilityViewIsModal>
+          {overlay}
+        </View>
+      ) : null}
     </Modal>
   );
 }
