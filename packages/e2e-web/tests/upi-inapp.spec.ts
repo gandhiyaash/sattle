@@ -1,9 +1,9 @@
 /**
  * Paying by UPI from inside the app: the rails the sheet offers once the
  * person owed has a UPI ID, the UPI panel (QR code, the ID, a way to open an
- * app), "I’ve paid" and the question that follows it, what settling on the
- * payer's word leaves in the history, coming back from a UPI app, and what a
- * payer who uses only rupees is shown.
+ * app), "I’ve paid" settling straight away, the question that follows coming
+ * back from a UPI app, what settling on the payer’s word leaves in the
+ * history, and what a payer who uses only rupees is shown.
  *
  * A browser hears nothing back from a UPI app, so everything here is the
  * payer's word; the Android launcher isn't part of a web build.
@@ -29,6 +29,20 @@ async function openUpi(a: Who) {
   await button(a.page, 'Pay by UPI').click();
   await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
 }
+
+// After the dropped hand-off to a upi: link plus a faked hide and show, headless Chromium no
+// longer delivers synthesized pointer input to this page (a real click on any button in the
+// sheet is ignored, a scripted click event isn’t), so taps on that path are script-made.
+
+/** Script-made tap: dispatches a click event on the button with the given label. */
+const tap = (page: import('@playwright/test').Page, label: string) => button(page, label).dispatchEvent('click');
+
+/** Fake a visibility state change (simulates leaving / returning from a UPI app). */
+const seen = (page: import('@playwright/test').Page, state: 'hidden' | 'visible') =>
+  page.evaluate((state) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
 
 test.describe('the rails, once the payee has a UPI ID', () => {
   test('the payee adds the ID in Wallet, and the payer is offered both ways', async ({ api, device }) => {
@@ -81,6 +95,7 @@ test.describe('the rails, once the payee has a UPI ID', () => {
   });
 });
 
+
 test.describe('the UPI panel', () => {
   test('shows who to pay, a QR code, the ID to copy, and a way to open an app', async ({ api, device }) => {
     const { a, groupName } = await owingByUpi(api, device);
@@ -128,38 +143,7 @@ test.describe('the UPI panel', () => {
 });
 
 test.describe('I’ve paid', () => {
-  test('asks whether it went through, and refuses a reference that isn’t one', async ({ api, device }) => {
-    const { a, groupName } = await owingByUpi(api, device);
-    await intoGroup(a, groupName, 'Settle up');
-    await openUpi(a);
-    await button(a.page, 'I’ve paid').click();
-    await expect(a.page.getByText('Did the payment go through?')).toBeVisible();
-    await expect(a.page.getByText('₹300 to Priya', { exact: true })).toBeVisible();
-    const field = a.page.getByPlaceholder('UPI reference, if you have it');
-    await expect(field).toBeVisible();
-    await expect(a.page.getByText('The 12-digit number your UPI app shows.')).toBeVisible();
-
-    await field.fill('abc');
-    await button(a.page, 'Yes, it went through').click();
-    const refused = a.page.getByText(
-      'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.'
-    );
-    await expect(refused).toBeVisible();
-    // Typing again clears it.
-    await field.fill('abc1');
-    await expect(refused).toBeHidden();
-    await field.fill('123');
-    await button(a.page, 'Yes, it went through').click();
-    await expect(refused).toBeVisible();
-    await expect(a.page.getByText('Settled', { exact: true })).toBeHidden();
-
-    await button(a.page, 'No, it didn’t go through').click();
-    await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
-    await expect(a.page.getByText('Did the payment go through?')).toBeHidden();
-    expect(await a.api.settlements((await a.api.groups())[0].id)).toHaveLength(0);
-  });
-
-  test('yes, with no reference, settles it on the payer’s word', async ({ api, device }) => {
+  test('settles it on the payer’s word', async ({ api, device }) => {
     const { a, b, group, groupName, idOf } = await owingByUpi(api, device);
     await intoGroup(b, groupName, 'Settle up');
     await expect(debtCard(b.page, 'Yash pays you')).toBeVisible();
@@ -167,7 +151,7 @@ test.describe('I’ve paid', () => {
     await intoGroup(a, groupName, 'Settle up');
     await openUpi(a);
     await button(a.page, 'I’ve paid').click();
-    await button(a.page, 'Yes, it went through').click();
+    await expect(a.page.getByText('Did the payment go through?')).toBeHidden();
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
     await expect(a.page.getByText('₹300 to Priya is settled. Priya has nothing to confirm.')).toBeVisible();
     await expect(a.page.getByText('UPI reference')).toBeHidden();
@@ -201,38 +185,11 @@ test.describe('I’ve paid', () => {
     ).toBeVisible();
   });
 
-  test('yes, with the reference, keeps it for the statement', async ({ api, device }) => {
+  test('a double tap on I’ve paid settles it once', async ({ api, device }) => {
     const { a, group, groupName } = await owingByUpi(api, device);
     await intoGroup(a, groupName, 'Settle up');
     await openUpi(a);
-    await button(a.page, 'I’ve paid').click();
-    await a.page.getByPlaceholder('UPI reference, if you have it').fill(' 1234 5678-9012 ');
-    await button(a.page, 'Yes, it went through').click();
-    await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
-    await expect(a.page.getByText('UPI reference')).toBeVisible();
-    await expect(a.page.getByText('123456789012')).toBeVisible();
-    await expect(a.page.getByText('Paid with')).toBeHidden();
-    await button(a.page, 'Done').click();
-
-    const [settlement] = await a.api.settlements(group.id);
-    expect(settlement.upi).toEqual({ byPayer: true, reference: '123456789012' });
-
-    await button(a.page, 'See all').click();
-    await a.page.getByText('Yash paid Priya').click();
-    await expect(a.page.getByText('123456789012')).toBeVisible();
-    await expect(
-      a.page.getByText(
-        'No payment proof. Yash said this went through and gave the reference above, and Sattle can’t check that. The reference is for finding it in a bank or UPI statement.'
-      )
-    ).toBeVisible();
-  });
-
-  test('a double tap on yes settles it once', async ({ api, device }) => {
-    const { a, group, groupName } = await owingByUpi(api, device);
-    await intoGroup(a, groupName, 'Settle up');
-    await openUpi(a);
-    await button(a.page, 'I’ve paid').click();
-    await button(a.page, 'Yes, it went through').dblclick();
+    await button(a.page, 'I’ve paid').dblclick();
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
     await button(a.page, 'Done').click();
     await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
@@ -246,38 +203,95 @@ test.describe('I’ve paid', () => {
     await button(a.page, 'Open a UPI app on this phone').click();
     await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
     // The browser went behind the UPI app, then came back: what the page sees of that is its visibility.
-    const seen = (state: 'hidden' | 'visible') =>
-      a.page.evaluate((state) => {
-        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
-        document.dispatchEvent(new Event('visibilitychange'));
-      }, state);
-    await seen('hidden');
-    await seen('visible');
+    await seen(a.page, 'hidden');
+    await seen(a.page, 'visible');
     await expect(a.page.getByText('Did the payment go through?')).toBeVisible();
     await expect(a.page.getByPlaceholder('UPI reference, if you have it')).toBeVisible();
 
-    // After the dropped hand-off to a upi: link plus a faked hide and show, headless Chromium no
-    // longer delivers synthesized pointer input to this page (a real click on any button in the
-    // sheet is ignored, a scripted click event isn't), so from here the taps are script-made.
-    const tap = (label: string) => button(a.page, label).dispatchEvent('click');
-    await tap('No, it didn’t go through');
+    await tap(a.page, 'No, it didn’t go through');
     await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
     // Hidden and shown again without having left for an app: nothing to ask.
-    await seen('hidden');
-    await seen('visible');
+    await seen(a.page, 'hidden');
+    await seen(a.page, 'visible');
     await expect(a.page.getByText('Did the payment go through?')).toBeHidden();
     await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
 
     // Leaving again asks again, and yes settles it.
-    await tap('Open a UPI app on this phone');
-    await seen('hidden');
-    await seen('visible');
+    await tap(a.page, 'Open a UPI app on this phone');
+    await seen(a.page, 'hidden');
+    await seen(a.page, 'visible');
     await expect(a.page.getByText('Did the payment go through?')).toBeVisible();
-    await tap('Yes, it went through');
+    await tap(a.page, 'Yes, it went through');
     await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
     await expect(a.page.getByText('₹300 to Priya is settled. Priya has nothing to confirm.')).toBeVisible();
     const [settlement] = await a.api.settlements(group.id);
     expect(settlement.upi).toEqual({ byPayer: true });
+  });
+
+  test('coming back from the UPI app refuses a reference that isn’t one', async ({ api, device }) => {
+    const { a, groupName } = await owingByUpi(api, device);
+    await intoGroup(a, groupName, 'Settle up');
+    await openUpi(a);
+    await button(a.page, 'Open a UPI app on this phone').click();
+    await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
+    await seen(a.page, 'hidden');
+    await seen(a.page, 'visible');
+    await expect(a.page.getByText('Did the payment go through?')).toBeVisible();
+    await expect(a.page.getByText('₹300 to Priya', { exact: true })).toBeVisible();
+    const field = a.page.getByPlaceholder('UPI reference, if you have it');
+    await expect(field).toBeVisible();
+    await expect(a.page.getByText('The 12-digit number your UPI app shows.')).toBeVisible();
+
+    await field.fill('abc');
+    await tap(a.page, 'Yes, it went through');
+    const refused = a.page.getByText(
+      'That doesn’t look like a UPI reference. It’s the number your UPI app shows for the payment, usually 12 digits.'
+    );
+    await expect(refused).toBeVisible();
+    // Typing again clears it.
+    await field.fill('abc1');
+    await expect(refused).toBeHidden();
+    await field.fill('123');
+    await tap(a.page, 'Yes, it went through');
+    await expect(refused).toBeVisible();
+    await expect(a.page.getByText('Settled', { exact: true })).toBeHidden();
+
+    await tap(a.page, 'No, it didn’t go through');
+    await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
+    await expect(a.page.getByText('Did the payment go through?')).toBeHidden();
+    expect(await a.api.settlements((await a.api.groups())[0].id)).toHaveLength(0);
+  });
+
+  test('coming back from the UPI app with the reference keeps it for the statement', async ({ api, device }) => {
+    const { a, group, groupName } = await owingByUpi(api, device);
+    await intoGroup(a, groupName, 'Settle up');
+    await openUpi(a);
+    await button(a.page, 'Open a UPI app on this phone').click();
+    await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
+    await seen(a.page, 'hidden');
+    await seen(a.page, 'visible');
+    await expect(a.page.getByText('Did the payment go through?')).toBeVisible();
+
+    await a.page.getByPlaceholder('UPI reference, if you have it').fill(' 1234 5678-9012 ');
+    await tap(a.page, 'Yes, it went through');
+    await expect(a.page.getByText('Settled', { exact: true })).toBeVisible();
+    await expect(a.page.getByText('UPI reference')).toBeVisible();
+    await expect(a.page.getByText('123456789012')).toBeVisible();
+    await expect(a.page.getByText('Paid with')).toBeHidden();
+    // Done is on the Settled screen, which may also need a scripted tap after the faked visibility cycle.
+    await tap(a.page, 'Done');
+
+    const [settlement] = await a.api.settlements(group.id);
+    expect(settlement.upi).toEqual({ byPayer: true, reference: '123456789012' });
+
+    await tap(a.page, 'See all');
+    await a.page.getByText('Yash paid Priya').dispatchEvent('click');
+    await expect(a.page.getByText('123456789012')).toBeVisible();
+    await expect(
+      a.page.getByText(
+        'No payment proof. Yash said this went through and gave the reference above, and Sattle can’t check that. The reference is for finding it in a bank or UPI statement.'
+      )
+    ).toBeVisible();
   });
 });
 
@@ -297,7 +311,6 @@ test.describe('a payer who uses only rupees', () => {
     await upi.click();
     await expect(a.page.getByText('Pay Priya by UPI')).toBeVisible();
     await button(a.page, 'I’ve paid').click();
-    await button(a.page, 'Yes, it went through').click();
     await waitForSettled(a.page);
     await expect(a.page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();
   });
