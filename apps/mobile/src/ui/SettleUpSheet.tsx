@@ -17,8 +17,9 @@
  *                     FAQ, not the popup
  *   upi_ask           "Did the payment go through?", asked when the payer
  *                     comes back from a UPI app that says nothing (an iPhone,
- *                     a browser) and from "I've paid". Yes settles it, with
- *                     the reference their UPI app showed if they type it in
+ *                     a browser). Yes settles it, with the reference their
+ *                     UPI app showed if they type it in. "I've paid" reports
+ *                     straight away without going here
  *
  * The blocked screen is not an error state. It offers the routes to the
  * same outcome that can work here, ordered by how likely they are to: get an
@@ -184,8 +185,8 @@ export function SettleUpSheet({
           <Button
             label="I’ve paid"
             variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
-            disabled={flow.busy}
-            onPress={flow.askPaid}
+            busy={flow.busy}
+            onPress={flow.sayPaid}
           />
         )}
         <Button label="Back" variant="quiet" onPress={flow.leaveUpi} />

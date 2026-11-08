@@ -10,7 +10,8 @@
  *      ├──startAddressEntry──▶ entering_address ──save──▶ choosing (re-resolved)
  *      ├──choose('upi')──▶ upi ──payWith(app): it takes the link and says it went through──▶ done
  *      │                    │  └──payWith(app that refuses links)──▶ upi_copied ──openCopiedApp──▶ upi
- *      │                    ▼  back from a UPI app that says nothing, or "I've paid"
+ *      │                    │  └──"I've paid" (reports straight away)──▶ done
+ *      │                    ▼  back from a UPI app that says nothing
  *      │                 upi_ask ──yes──▶ done
  *      │                    └──no──▶ upi
  *      └──markManual──────────────────────────────────▶ done
@@ -27,10 +28,12 @@
  *
  * An iPhone and a browser are told nothing by a UPI app, nor is Android by
  * an app opened plain, and some apps stay quiet on the link too. So when
- * the payer comes back from one, or taps "I've paid", they are asked whether
- * it went through (upi_ask). Their yes settles it the same way, on their
- * word, and the reference their UPI app showed is kept with it when they
- * type one in. Nobody is asked to confirm either.
+ * the payer comes back from one, they are asked whether it went through
+ * (upi_ask). Their yes settles it the same way, on their word, and the
+ * reference their UPI app showed is kept with it when they type one in.
+ * Tapping "I've paid" reports the payment straight away, with nothing to
+ * confirm: the tap itself is the payer's word. Nobody is asked to confirm
+ * either.
  *
  * Options are resolved up front from the recipient's state, so a blocked
  * recipient shows remedies before the user commits to anything. Only the ways
@@ -123,8 +126,8 @@ export interface SettleFlow {
   dismissCopied: () => void;
   /** The payer is being handed to a UPI app that won't say what happened. When they come back, the sheet asks. */
   leftForUpi: () => void;
-  /** Asks whether the payment went through. Also where "I've paid" goes. */
-  askPaid: () => void;
+  /** "I've paid": reports the payment straight away. */
+  sayPaid: () => Promise<void>;
   /**
    * Yes. Settles the debt, on their word. `reference` is what they typed in for the number their
    * UPI app showed: empty is fine, and anything else has to be able to be one.
@@ -331,6 +334,17 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
 
+  // The app's name only when they were sent to one: "I've paid" out of nowhere names none.
+  const report = async (reference?: string) => {
+    const input = {
+      ...pick(debt),
+      byPayer: true as const,
+      ...(reference && { reference }),
+      ...(paidByHand && copiedFor && { paidWith: copiedFor.name }),
+    };
+    onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
+  };
+
   return {
     step,
     opening,
@@ -364,10 +378,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
       setStep('upi');
     },
     leftForUpi: () => upiApp.leaving(),
-    askPaid: () => {
-      setError(null);
-      setStep('upi_ask');
-    },
+    sayPaid: () => run(() => report()),
     confirmPaid: (raw) =>
       run(async () => {
         let reference: string | undefined;
@@ -376,14 +387,7 @@ export function useSettleFlow(debt: Debt, members: Member[], groupName: string, 
           if (!parsed.ok) throw new Error(parsed.reason);
           reference = parsed.reference;
         }
-        // The app's name only when they were sent to one: "I've paid" out of nowhere names none.
-        const input = {
-          ...pick(debt),
-          byPayer: true as const,
-          ...(reference && { reference }),
-          ...(paidByHand && copiedFor && { paidWith: copiedFor.name }),
-        };
-        onUpdate(await keys.run('upi-paid', input, (k) => client.reportUpiPayment(input, k)));
+        await report(reference);
       }),
     notPaid: () => {
       setError(null);
