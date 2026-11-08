@@ -88,10 +88,7 @@ export function GroupsListScreen({
         ) : totals.size === 0 ? (
           <>
             <Text style={[s.big, { color: color.settled }]}>{formatAmount(0, prefs.newGroups)}</Text>
-            <Text style={s.nothingYet}>
-              <Text style={s.strong}>Nothing to settle yet. </Text>
-              Once you split a bill, what you’re owed and what you owe adds up here.
-            </Text>
+            <Text style={[s.nothingYet, s.strong]}>Nothing to settle yet.</Text>
           </>
         ) : (
           [...totals].map(([currency, t], i) => (
@@ -224,10 +221,7 @@ function FirstGroup({ onNewGroup, onJoin }: { onNewGroup?: (example?: string) =>
     <View style={{ gap: space.md }}>
       {onNewGroup && (
         <View style={s.start}>
-          <View style={{ gap: space.xs }}>
-            <Text style={s.startTitle}>What are you splitting?</Text>
-            <Text style={s.startBody}>Pick one to start a group. Friends see their share and pay you, without the app.</Text>
-          </View>
+          <Text style={s.startTitle}>What are you splitting?</Text>
           <View style={s.kinds}>
             {KINDS.map((k) => (
               <Pressable
