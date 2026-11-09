@@ -22,6 +22,7 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-na
 
 import {
   dateFormat,
+  describeGroupChange,
   formatAmount,
   formatRate,
   formatSats,
@@ -109,30 +110,39 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
   return (
     <Screen title="History" subtitle={data.name} onBack={onBack}>
       {data.entries.length === 0 ? (
-        <Text style={s.empty}>Nothing yet. What gets added, changed and paid in this group shows up here.</Text>
+        <Text style={s.empty}>Nothing yet. What gets added, changed and paid in this group, and changes to the group, show up here.</Text>
       ) : (
         <Card style={{ padding: 0 }}>
-          {data.entries.map((entry, i) => (
-            <View key={entry.id}>
-              {i > 0 && <Divider />}
-              <Pressable
-                onPress={() => {
-                  analytics.tap('History entry', { control: 'row', kind: entry.kind });
-                  onOpen(entry, data.members, data.currency);
-                }}
-                accessibilityRole="button"
-                style={({ pressed }) => [s.row, pressed && { backgroundColor: color.surfaceSunken }]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.rowTitle}>{titleOf(entry, nameOf)}</Text>
-                  <Text style={s.rowMeta}>
-                    {happened(entry, doer(entry, data.members))} · {when(entry.at)}
-                  </Text>
-                </View>
-                <RowAmount entry={entry} currency={data.currency} />
-              </Pressable>
-            </View>
-          ))}
+          {data.entries.map((entry, i) => {
+            const what = happened(entry, doer(entry, data.members));
+            const line = (
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowTitle}>{titleOf(entry, nameOf)}</Text>
+                <Text style={s.rowMeta}>{what ? `${what} · ${when(entry.at)}` : when(entry.at)}</Text>
+              </View>
+            );
+            return (
+              <View key={entry.id}>
+                {i > 0 && <Divider />}
+                {entry.kind === 'group_changed' ? (
+                  // Its line says all there is: nothing more to open.
+                  <View style={s.row}>{line}</View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      analytics.tap('History entry', { control: 'row', kind: entry.kind });
+                      onOpen(entry, data.members, data.currency);
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [s.row, pressed && { backgroundColor: color.surfaceSunken }]}
+                  >
+                    {line}
+                    <RowAmount entry={entry} currency={data.currency} />
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
         </Card>
       )}
     </Screen>
@@ -140,7 +150,7 @@ export function HistoryScreen({ groupId, onBack, onOpen }: HistoryScreenProps) {
 }
 
 type NameOf = (memberId: string) => string;
-type ExpenseEntry = Exclude<HistoryEntry, { kind: 'settled' }>;
+type ExpenseEntry = Extract<HistoryEntry, { kind: 'expense_added' | 'expense_changed' | 'expense_removed' }>;
 
 const namer =
   (members: Member[]): NameOf =>
@@ -157,16 +167,23 @@ const expenseOf = (entry: ExpenseEntry) => (entry.kind === 'expense_removed' ? e
 const overLightning = (st: Settlement) => st.rail !== 'manual' && st.rail !== 'upi';
 
 function titleOf(entry: HistoryEntry, nameOf: NameOf): string {
+  // A change to the group says who made it in its own words: "Om turned on Simplify debts".
+  if (entry.kind === 'group_changed') return describeGroupChange(entry.change, entry.byMemberId && nameOf(entry.byMemberId));
   if (entry.kind !== 'settled') return expenseOf(entry)?.description ?? 'An expense';
   const { fromMemberId, toMemberId, rail } = entry.settlement;
   // Marked as settled covers cash and a debt let go, so it doesn't say that anything was paid.
   return `${nameOf(fromMemberId)} ${rail === 'manual' ? 'settled with' : 'paid'} ${nameOf(toMemberId)}`;
 }
 
-/** What happened and who did it: "Added by Yash", "Marked as settled by Om", "Paid over Lightning". */
-function happened(entry: HistoryEntry, by: string | undefined): string {
+/**
+ * What happened and who did it: "Added by Yash", "Marked as settled by Om",
+ * "Paid over Lightning". A change to the group has said it all in its title.
+ */
+function happened(entry: HistoryEntry, by: string | undefined): string | null {
   const who = by ? ` by ${by}` : '';
   switch (entry.kind) {
+    case 'group_changed':
+      return null;
     case 'expense_added':
       return `Added${who}`;
     case 'expense_changed':
@@ -216,6 +233,7 @@ const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 function RowAmount({ entry, currency }: { entry: HistoryEntry; currency: string }) {
   const s = useStyles();
+  if (entry.kind === 'group_changed') return null;
   if (entry.kind === 'settled') return <Amount minor={entry.settlement.amount} currency={currency} size="md" />;
   const expense = expenseOf(entry);
   if (!expense) return null;
@@ -245,6 +263,8 @@ export function HistoryEntrySheet({ entry, members, currency, onClose }: History
       <Text style={s.title}>{titleOf(entry, nameOf)}</Text>
       {entry.kind === 'settled' ? (
         <SettlementDetail settlement={entry.settlement} at={entry.at} by={by} nameOf={nameOf} />
+      ) : entry.kind === 'group_changed' ? (
+        <Text style={s.rowMeta}>{exactly(entry.at)}</Text>
       ) : (
         <ExpenseDetail entry={entry} by={by} nameOf={nameOf} currency={currency} />
       )}

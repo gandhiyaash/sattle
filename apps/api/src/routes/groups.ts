@@ -130,12 +130,21 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     const g = repo.groupForUser(c.req.param('id'), user.id);
     const { name, simplifyDebts, approveJoins } = parse(ChangeGroupBody, await c.req.json());
     transaction(db, () => {
+      // Each change goes in the group's log, with who made it. Saying what it already was isn't one.
+      const by = repo.memberForUser(g.id, user.id)?.id;
       if (simplifyDebts !== undefined && simplifyDebts !== g.simplifyDebts) {
         checkDebtsCanChange(repo, g);
         repo.setSimplifyDebts(g.id, simplifyDebts);
+        repo.noteGroupChange(g.id, by, { kind: 'simplify_debts', on: simplifyDebts });
       }
-      if (approveJoins !== undefined) repo.setApproveJoins(g.id, approveJoins);
-      if (name !== undefined) repo.renameGroup(g.id, name);
+      if (approveJoins !== undefined && approveJoins !== g.approveJoins) {
+        repo.setApproveJoins(g.id, approveJoins);
+        repo.noteGroupChange(g.id, by, { kind: 'approve_joins', on: approveJoins });
+      }
+      if (name !== undefined && name !== g.name) {
+        repo.renameGroup(g.id, name);
+        repo.noteGroupChange(g.id, by, { kind: 'renamed', from: g.name, to: name });
+      }
     });
     return c.json(repo.groupForUser(g.id, user.id));
   });
@@ -162,7 +171,12 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
   r.post('/groups/:id/leave', once, (c) => {
     const user = c.get('user');
     const g = repo.groupForUser(c.req.param('id'), user.id);
-    transaction(db, () => leaveGroup(repo, g, user.id));
+    transaction(db, () => {
+      const me = repo.memberForUser(g.id, user.id)!;
+      leaveGroup(repo, g, user.id);
+      // One device of several going isn't the person leaving: they're still in on the others.
+      if (!repo.member(me.id)?.claimedByUserId) repo.noteGroupChange(g.id, me.id, { kind: 'left', name: me.displayName });
+    });
     return c.json({ ok: true });
   });
 
@@ -173,9 +187,15 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
 
   /** Appends a ghost after the existing members. */
   r.post('/groups/:id/members', once, async (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     const { displayName } = parse(AddMemberBody, await c.req.json());
-    return c.json(repo.appendMember({ id: newId('m'), groupId: g.id, displayName, status: 'ghost' }), 201);
+    const member = transaction(db, () => {
+      const added = repo.appendMember({ id: newId('m'), groupId: g.id, displayName, status: 'ghost' });
+      repo.noteGroupChange(g.id, repo.memberForUser(g.id, user.id)?.id, { kind: 'member_added', name: added.displayName });
+      return added;
+    });
+    return c.json(member, 201);
   });
 
   /**
@@ -184,12 +204,14 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
    * someone who has joined can only take themselves out (400).
    */
   r.delete('/groups/:id/members/:memberId', once, (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
     transaction(db, () => {
       const member = repo.member(c.req.param('memberId'));
       if (!member || member.groupId !== g.id) throw new SattleError('not_found', 'That member isn’t in this group.');
       checkMemberCanGo(repo, g, member);
       repo.deleteMember(member.id);
+      repo.noteGroupChange(g.id, repo.memberForUser(g.id, user.id)?.id, { kind: 'member_removed', name: member.displayName });
     });
     return c.json({ ok: true });
   });

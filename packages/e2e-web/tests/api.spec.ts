@@ -723,7 +723,9 @@ test.describe('Expenses', () => {
     const { A, aMember, bMember, group } = await pair(api);
     const e = await spend(A, group, { description: 'Cab', amount: 2000, paidBy: aMember, between: [aMember, bMember] });
     const before = await A.history(group.id);
-    expect(before.map((h) => h.kind)).toEqual(['expense_added']);
+    // The pair's link and joining are in the group's log; here it's the expense that counts.
+    const kinds = (history: typeof before) => history.map((h) => h.kind).filter((k) => k !== 'group_changed');
+    expect(kinds(before)).toEqual(['expense_added']);
     const same = await A.put<Expense>(`/groups/${group.id}/expenses/${e.id}`, {
       description: 'Cab',
       amount: 2000,
@@ -742,7 +744,7 @@ test.describe('Expenses', () => {
       parts: [{ memberId: aMember.id }, { memberId: bMember.id }],
     });
     const after = await A.history(group.id);
-    expect(after.map((h) => h.kind)).toEqual(['expense_changed', 'expense_added']);
+    expect(kinds(after)).toEqual(['expense_changed', 'expense_added']);
     const change = after[0];
     if (change.kind !== 'expense_changed') throw new Error('expected a change');
     expect(change.before?.amount).toBe(2000);

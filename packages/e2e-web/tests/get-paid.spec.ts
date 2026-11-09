@@ -15,7 +15,7 @@
 
 import type { Page } from '@playwright/test';
 
-import { back, button, closeSheet, makeAccount, pressable, section, sheet, tab } from '../src/actions';
+import { back, button, closeSheet, makeAccount, pressable, sheet, tab } from '../src/actions';
 import type { Api } from '../src/api';
 import { API_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
@@ -83,7 +83,7 @@ test.describe('asked where to be paid', () => {
     await expect(ask.getByText(/so does anyone holding one of your groups’ shared links/)).toBeVisible();
     // Only those two: connecting a wallet is left to Wallet.
     await expect(ask.getByText(/connect|nostr/i)).toHaveCount(0);
-    await expect(ask.getByText('You won’t be asked again. You can add or change these under Wallet.')).toBeVisible();
+    await expect(ask.getByText('You won’t be asked again. You can add or change these under Account.')).toBeVisible();
     await expect(pressable(ask, 'Save')).toHaveCSS('opacity', '0.4');
 
     await button(ask, 'Skip').click();
@@ -135,9 +135,9 @@ test.describe('asked where to be paid', () => {
     expect(await api.get('/me/upi')).toEqual({ upiId: 'yash@okhdfcbank', onGroupLinks: true });
     expect(await doneOnDevice(page)).toBe('1');
 
-    await tab(page, 'Wallet');
-    await expect(section(page, 'Or a Lightning address').getByText('yash@walletofsatoshi.com', { exact: true })).toBeVisible();
-    await expect(section(page, 'UPI').getByText('yash@okhdfcbank', { exact: true })).toBeVisible();
+    await tab(page, 'Account');
+    await expect(page.getByRole('button', { name: 'Lightning address, yash@walletofsatoshi.com' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'UPI ID, yash@okhdfcbank' })).toBeVisible();
   });
 
   test('what the server refuses stays to fix, what it took shows as saved, and Save sends only the rest', async ({
@@ -207,7 +207,7 @@ test.describe('asked where to be paid', () => {
     await expect(upiOnly.getByPlaceholder(UPI)).toBeVisible();
     await expect(upiOnly.getByPlaceholder(ADDRESS)).toHaveCount(0);
     await expect(upiOnly.getByText(/lightning|bitcoin/i)).toHaveCount(0);
-    await expect(upiOnly.getByText('You won’t be asked again. You can add or change it under Wallet.')).toBeVisible();
+    await expect(upiOnly.getByText('You won’t be asked again. You can add or change it under Account.')).toBeVisible();
     await closeSheet(rupees.page);
     expect(await doneOnDevice(rupees.page)).toBe('1');
 

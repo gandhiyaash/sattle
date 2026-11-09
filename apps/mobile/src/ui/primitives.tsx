@@ -157,12 +157,13 @@ function useKeyboardHeightIos() {
 }
 
 /**
- * For whatever sits above a bar that already clears the bottom of the display, like
- * the tab bar. The screens inside don't leave room for the home indicator a second time.
+ * For whatever a bar floats over at the bottom, like the tab bar: `bottom` is how much of
+ * the screen the bar covers, which the screens inside keep clear in place of the home
+ * indicator. Without it, the insets pass through as they are.
  */
-export function AboveBottomBar({ children }: { children: React.ReactNode }) {
+export function AboveBottomBar({ bottom, children }: { bottom?: number; children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
-  const value = useMemo(() => ({ ...insets, bottom: 0 }), [insets]);
+  const value = useMemo(() => (bottom === undefined ? insets : { ...insets, bottom }), [insets, bottom]);
   return <SafeAreaInsetsContext.Provider value={value}>{children}</SafeAreaInsetsContext.Provider>;
 }
 

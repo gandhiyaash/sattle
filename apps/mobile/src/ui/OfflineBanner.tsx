@@ -14,7 +14,8 @@ import { analytics } from '../analytics/analytics';
 import { useAppData } from '../data/useAppData';
 import { makeStyles, space, type } from './theme';
 
-export function OfflineBanner() {
+/** `inset`: room to leave below it, for the home indicator when it's at the very bottom. */
+export function OfflineBanner({ inset = 0 }: { inset?: number }) {
   const s = useStyles();
   const appData = useAppData();
   const offline = useSyncExternalStore(
@@ -29,7 +30,7 @@ export function OfflineBanner() {
 
   const when = syncedAt ? ` from ${dateFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(syncedAt))}` : '';
   return (
-    <View style={s.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+    <View style={[s.banner, inset > 0 && { paddingBottom: space.md + inset }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
       <Text style={s.text}>Can’t reach the server. Showing what was saved{when}.</Text>
       <Pressable
         onPress={() => {

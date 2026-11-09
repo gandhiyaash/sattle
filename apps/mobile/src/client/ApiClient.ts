@@ -231,7 +231,8 @@ export class ApiClient implements SattleClient {
           this.getUpiClaims(group.id),
           this.getPendingJoins(group.id),
         ]);
-        return { group, members, expenses, settlements, upiClaims, pendingJoins };
+        // A server from before /sync kept no log either.
+        return { group, members, expenses, settlements, upiClaims, pendingJoins, log: [] };
       })
     );
     return { version: '', user, groups: snapshots, joinRequests, upiProfile };

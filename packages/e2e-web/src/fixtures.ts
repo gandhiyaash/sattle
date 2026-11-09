@@ -43,7 +43,7 @@ export interface DeviceOptions {
   token?: string;
   /** The currencies this device's owner uses, as the Account screen stores them. Default: both. */
   currencies?: Currency[];
-  /** Light or dark, as the Wallet screen stores it. */
+  /** Light or dark, as Account stores it. */
   appearance?: 'system' | 'light' | 'dark';
   /**
    * The browser's share sheet. `none` (the default) is a browser without one,

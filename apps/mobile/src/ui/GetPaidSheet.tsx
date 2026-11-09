@@ -1,12 +1,12 @@
 /**
  * Asked once, at launch, of someone with nowhere yet to be paid: no Lightning
- * address, no UPI ID, and no wallet connected under Wallet either. Until they
+ * address, no UPI ID, and no wallet connected under Account either. Until they
  * add one, nobody who owes them can pay them in Sattle, and the group screen
  * only says so (GetPaidCard) once somebody does owe them.
  *
  * It offers the two ways most people have, typed in right here: a Lightning
  * address to be paid in bitcoin and a UPI ID to be paid in rupees, only those
- * that go with the currencies they use (payWays). Both are under Wallet
+ * that go with the currencies they use (payWays). Both are under Account
  * afterwards, to change or remove.
  *
  * Each device looks once, at the first launch that opens on the groups list,
@@ -117,8 +117,8 @@ const subtitleFor = (ways: PayWays) => SUBTITLES[ways.lightning && ways.upi ? 'b
  * Save sends what's typed, both at once. A field the server took shows what
  * it kept. One it refused keeps what was typed, with why, to fix and save
  * again, or to leave: Skip, which becomes Done once something is saved.
- * What it kept goes into the device's copy as Wallet's own saves do
- * (AppData), so the groups and Wallet show it at once.
+ * What it kept goes into the device's copy as Account's own saves do
+ * (AppData), so the groups and Account show it at once.
  */
 export function GetPaidSheet({
   upiOnLinks,
@@ -156,7 +156,7 @@ export function GetPaidSheet({
       toSave.address
         ? attempt(async () => {
             const kept = await client.setReceiveAddress(toSave.address);
-            // Under the key Wallet reads it by, so Wallet opens on it.
+            // Under the key Account reads it by, so Account opens on it.
             appData.remember('receive-address', kept, true);
             return kept.address;
           })
@@ -205,7 +205,7 @@ export function GetPaidSheet({
           placeholder="name@okhdfcbank"
           about={
             upiOnLinks
-              ? 'People who owe you see it, and so does anyone holding one of your groups’ shared links. You can turn that off under Wallet once it’s saved.'
+              ? 'People who owe you see it, and so does anyone holding one of your groups’ shared links. You can turn that off under Account once it’s saved.'
               : 'People who owe you see it. A group’s shared link shows it only if you turned that on for the group.'
           }
         >
@@ -231,7 +231,7 @@ export function GetPaidSheet({
         <Button label={address.saved || upi.saved ? 'Done' : 'Skip'} variant="quiet" onPress={onDone} />
       </View>
       <Text style={s.note}>
-        You won’t be asked again. You can add or change {both ? 'these' : 'it'} under Wallet.
+        You won’t be asked again. You can add or change {both ? 'these' : 'it'} under Account.
       </Text>
     </SheetBody>
   );

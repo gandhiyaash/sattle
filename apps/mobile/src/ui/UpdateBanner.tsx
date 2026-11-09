@@ -12,7 +12,8 @@ import { analytics } from '../analytics/analytics';
 import { useAppUpdate } from '../react/useAppUpdate';
 import { makeStyles, space, type } from './theme';
 
-export function UpdateBanner() {
+/** `inset`: room to leave below it, for the home indicator when it's at the very bottom. */
+export function UpdateBanner({ inset = 0 }: { inset?: number }) {
   const s = useStyles();
   const { phase, progress, update, restart } = useAppUpdate();
   if (phase === 'idle') return null;
@@ -32,7 +33,7 @@ export function UpdateBanner() {
   })();
 
   return (
-    <View style={s.banner}>
+    <View style={[s.banner, inset > 0 && { paddingBottom: space.md + inset }]}>
       <Text style={s.text}>{text}</Text>
       {action && (
         <Pressable

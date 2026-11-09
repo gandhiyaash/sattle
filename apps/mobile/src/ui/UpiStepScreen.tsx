@@ -1,13 +1,13 @@
 /**
  * Right after the first screen, for someone who ticked rupees: their UPI ID,
  * so that whoever owes them in a rupee group can pay them from any UPI app.
- * Skip, at the top, leaves it for Wallet, where it can be added or changed
+ * Skip, at the top, leaves it for Account, where it can be added or changed
  * any time.
  *
  * For them it is the launch's one question about getting paid: saving or
  * skipping answers the one the groups list would ask (GetPaidSheet), so they
  * aren't asked twice. Someone who also ticked bitcoin adds a Lightning
- * address under Wallet.
+ * address under Account.
  *
  * Shown once, as the account is made. Someone who closes the app here goes
  * on to the tour next time, and the groups list asks where they're paid, as
@@ -15,8 +15,8 @@
  *
  * Laid out, and moving, as the first screen does (FirstRunScreen), so the two
  * read as one. An ID saved here starts out shown on shared group links, as
- * one saved under Wallet does (WalletScreen UpiIdCard), so the one line under
- * the field says so; Wallet has the rest.
+ * one saved under Account does (AccountPages UpiIdCard), so the one line under
+ * the field says so; Account has the rest.
  */
 
 import React, { useState } from 'react';

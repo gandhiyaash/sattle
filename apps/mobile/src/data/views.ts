@@ -6,7 +6,9 @@
  */
 
 import {
+  buildHistory,
   computeBalances,
+  describeGroupChange,
   groupDebts,
   isHeldBy,
   type Debt,
@@ -42,6 +44,105 @@ export function groupRowsOf(view: SyncView): GroupRow[] {
       expenseCount: expenses.length,
     };
   });
+}
+
+/** One line of the Activity tab: an expense added, a debt settled, or a change to one of the user's groups. */
+export interface ActivityItem {
+  /** Unique across groups. */
+  id: string;
+  groupId: string;
+  groupName: string;
+  currency: string;
+  at: string;
+  kind: 'expense' | 'payment' | 'change';
+  /**
+   * The expense's description, who paid whom, or what changed and who changed
+   * it ("Om turned on Simplify debts"), with "You" for the user.
+   */
+  title: string;
+  /**
+   * Who did it, where the title doesn't say: who added an expense (and who
+   * paid it, if someone else), who marked a debt settled or confirmed a UPI
+   * payment. Empty for a change, whose title says it all.
+   */
+  detail: string;
+  /** 0 for a change. */
+  amount: number;
+  /**
+   * What it did for the user, signed as a balance is: more than 0 they're owed
+   * it, or it came to them; less than 0 they owe it, or they paid it. Null
+   * when they weren't in it, and for a change.
+   */
+  mine: number | null;
+}
+
+/**
+ * Every group's expenses, settled debts and changes to the group itself
+ * (its log), newest first, as one list, each saying who did it. Read from
+ * what the app already has from sync, so it needs nothing of its own from the
+ * server. Edits and removals of expenses are each group's History; this is
+ * what was spent, what was paid, and what changed about the groups.
+ */
+export function activityOf(view: SyncView, limit = 200): ActivityItem[] {
+  const items: ActivityItem[] = [];
+  // A server from before group logs (027) sends none, and that answer can be kept: read it as empty.
+  for (const { group, members, expenses, settlements, log = [] } of view.groups) {
+    const me = members.find((m) => isHeldBy(m, view.user.id))?.id;
+    /** "You" for the user, at the start of a line; "you" further in. */
+    const name = (id: string | undefined, start = true) =>
+      id === undefined ? undefined : id === me ? (start ? 'You' : 'you') : (members.find((m) => m.id === id)?.displayName ?? 'Someone');
+    for (const entry of buildHistory(expenses, [], settlements, log)) {
+      const base = { id: `${group.id}:${entry.id}`, groupId: group.id, groupName: group.name, currency: group.currency, at: entry.at };
+      if (entry.kind === 'expense_added') {
+        const e = entry.expense;
+        const part = e.parts.find((p) => p.memberId === me)?.amount ?? 0;
+        const paid = e.paidByMemberId === me;
+        const adder = e.addedByMemberId;
+        items.push({
+          ...base,
+          kind: 'expense',
+          title: e.description,
+          // Who put it in, and who paid it if that was someone else. One from before adders were kept says who paid.
+          detail: adder
+            ? `Added by ${name(adder, false)}${adder === e.paidByMemberId ? '' : ` · ${name(e.paidByMemberId)} paid`}`
+            : `${name(e.paidByMemberId)} paid`,
+          amount: e.amount,
+          mine: paid ? e.amount - part : part > 0 ? -part : null,
+        });
+      } else if (entry.kind === 'settled') {
+        const st = entry.settlement;
+        const by = name(st.recordedByMemberId, false);
+        items.push({
+          ...base,
+          kind: 'payment',
+          // Marked as settled covers cash and a debt let go, so it doesn't say that anything was paid.
+          title: `${name(st.fromMemberId)} ${st.rail === 'manual' ? 'settled with' : 'paid'} ${name(st.toMemberId, false)}`,
+          detail:
+            st.rail === 'manual'
+              ? by
+                ? `Marked as settled by ${by}`
+                : 'Marked as settled'
+              : st.rail === 'upi'
+                ? by && !st.upi
+                  ? `UPI, confirmed by ${by}`
+                  : 'UPI'
+                : 'Lightning',
+          amount: st.amount,
+          mine: st.fromMemberId === me ? -st.amount : st.toMemberId === me ? st.amount : null,
+        });
+      } else if (entry.kind === 'group_changed') {
+        items.push({
+          ...base,
+          kind: 'change',
+          title: describeGroupChange(entry.change, name(entry.byMemberId)),
+          detail: '',
+          amount: 0,
+          mine: null,
+        });
+      }
+    }
+  }
+  return items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, limit);
 }
 
 /** Everything the group's screen shows. */

@@ -1,7 +1,8 @@
 /**
  * GET /groups/:id/history: what has happened in a group, newest first. It is
- * read off the expenses, the changes to them and the settlements, so these
- * check that each of those keeps what the history needs.
+ * read off the expenses, the changes to them, the settlements and the group's
+ * log, so these check that each of those keeps what the history needs. The
+ * log has its own tests (groupLog.test.ts); here `history` is what's owed.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -47,9 +48,11 @@ async function setup() {
   const addExpense = async (description: string, paidByMemberId: string, amount: number, as = riya.token) =>
     (await call<Expense>('POST', `${base}/expenses`, { description, amount, paidByMemberId, ...equally(group.memberIds) }, as))
       .body;
-  const history = async (as = riya.token) => (await call<HistoryEntry[]>('GET', `${base}/history`, undefined, as)).body;
+  const everything = async (as = riya.token) => (await call<HistoryEntry[]>('GET', `${base}/history`, undefined, as)).body;
+  /** What's happened to what's owed: the history without the group's log, which setting up the group put lines in. */
+  const history = async (as = riya.token) => (await everything(as)).filter((e) => e.kind !== 'group_changed');
 
-  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, equally, addExpense, history };
+  return { db, call, signUp, riya, kabir, group, base, mRiya, mKabir, mAman, equally, addExpense, history, everything };
 }
 
 const waitFor = async <T>(fn: () => Promise<T>, ok: (v: T) => boolean) => {
@@ -62,9 +65,14 @@ const waitFor = async <T>(fn: () => Promise<T>, ok: (v: T) => boolean) => {
 };
 
 describe('GET /groups/:id/history', () => {
-  it('is empty for a group nothing has happened in', async () => {
-    const { history } = await setup();
+  it('has only the group’s own changes for a group nothing has been spent in', async () => {
+    const { history, everything, mRiya } = await setup();
     expect(await history()).toEqual([]);
+    // Riya made the link, then let Kabir in: newest first, each with who did it.
+    expect((await everything()).map((e) => [e.kind, e.byMemberId, e.kind === 'group_changed' ? e.change : null])).toEqual([
+      ['group_changed', mRiya, { kind: 'let_in', name: 'Kabir' }],
+      ['group_changed', mRiya, { kind: 'link_made' }],
+    ]);
   });
 
   it('shows an expense added, with who put it in, which needn’t be who paid', async () => {

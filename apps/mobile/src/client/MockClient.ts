@@ -38,7 +38,9 @@ import {
   type ExpenseInput,
   type Group,
   type GroupGuestView,
+  type GroupChange,
   type GroupLink,
+  type GroupLogEntry,
   type GuestView,
   type JoinView,
   type JoinAs,
@@ -88,6 +90,8 @@ export class MockClient implements SattleClient {
   private expenses: Expense[];
   /** Every edit and removal, in the order they were made, as the server notes them. The history is read off these. */
   private expenseChanges: Array<ExpenseChange & { groupId: string }> = [];
+  /** Each group's log, as the server keeps it (group_log). */
+  private groupLog: GroupLogEntry[] = [];
   private settlements: Settlement[];
   private payLinks: PayLink[];
   /** token → the settlement that link last opened */
@@ -259,6 +263,7 @@ export class MockClient implements SattleClient {
             settlements: this.settlements.filter((st) => st.groupId === group.id),
             upiClaims: this.claimsOf(group.id),
             pendingJoins: this.pendingJoinsOf(group.id),
+            log: this.groupLog.filter((l) => l.groupId === group.id),
           })),
         joinRequests: this.myJoinRequests(),
         upiProfile: this.upiProfile(),
@@ -323,6 +328,7 @@ export class MockClient implements SattleClient {
       const member: Member = { id: this.id('m'), groupId, displayName: name, status: 'ghost' };
       this.members.push(member);
       g.memberIds.push(member.id);
+      this.noteGroupChange(groupId, { kind: 'member_added', name });
       return member;
     }, idempotencyKey);
   }
@@ -374,12 +380,17 @@ export class MockClient implements SattleClient {
     return this.call(() => this.debtsOf(groupId));
   }
 
-  /** Built the way the server builds it, from the same three lists. */
+  /** Built the way the server builds it, from the same four lists. */
   getHistory(groupId: string) {
     return this.call(() => {
       this.findGroup(groupId);
       const here = (x: { groupId: string }) => x.groupId === groupId;
-      return buildHistory(this.expenses.filter(here), this.expenseChanges.filter(here), this.settlements.filter(here));
+      return buildHistory(
+        this.expenses.filter(here),
+        this.expenseChanges.filter(here),
+        this.settlements.filter(here),
+        this.groupLog.filter(here)
+      );
     });
   }
 
@@ -769,6 +780,7 @@ export class MockClient implements SattleClient {
       }
       if (g.approveJoins) throw new SattleError('conflict', `Someone in ${g.name} has to let you in. Ask to join instead.`);
       let member: Member;
+      let arriving = true;
       if ('displayName' in as) {
         const displayName = as.displayName.trim();
         const same = (m: Member) => m.displayName.trim().toLowerCase() === displayName.toLowerCase();
@@ -789,10 +801,13 @@ export class MockClient implements SattleClient {
       } else {
         const picked = members.find((m) => this.memberRef(token, m.id) === as.ref);
         if (!picked) throw new SattleError('not_found', 'That person is no longer in this group.');
+        arriving = !picked.claimedByUserId;
         member = this.admit(picked, me.id);
       }
       // Their own request for this group is done with.
       this.joinRequests = this.joinRequests.filter((x) => !(x.groupId === g.id && x.userId === me.id));
+      // As the server: someone already in, on another device, isn't someone joining.
+      if (arriving) this.noteGroupChange(g.id, { kind: 'joined', name: member.displayName }, member.id);
       return member;
     }, idempotencyKey);
   }
@@ -920,13 +935,16 @@ export class MockClient implements SattleClient {
         throw new SattleError('conflict', `${req.displayName} is already in this group.`);
       }
       this.joinRequests = this.joinRequests.filter((x) => x !== req);
+      let admitted: Member;
       if (!req.memberId) {
-        const added: Member = { id: this.id('m'), groupId: g.id, displayName: req.displayName, status: 'joined', claimedByUserId: req.userId };
-        this.members.push(added);
-        g.memberIds.push(added.id);
-        return added;
+        admitted = { id: this.id('m'), groupId: g.id, displayName: req.displayName, status: 'joined', claimedByUserId: req.userId };
+        this.members.push(admitted);
+        g.memberIds.push(admitted.id);
+      } else {
+        admitted = this.admit(this.members.find((m) => m.id === req.memberId)!, req.userId);
       }
-      return this.admit(this.members.find((m) => m.id === req.memberId)!, req.userId);
+      this.noteGroupChange(g.id, { kind: 'let_in', name: admitted.displayName });
+      return admitted;
     }, idempotencyKey);
   }
 
@@ -967,9 +985,11 @@ export class MockClient implements SattleClient {
   createGroupLink(groupId: string, idempotencyKey?: string) {
     return this.call(() => {
       this.findGroup(groupId);
+      const had = this.groupLinks.some((l) => l.groupId === groupId);
       const link: GroupLink = { token: Math.random().toString(36).slice(2, 12), groupId, createdAt: this.now() };
       // One at a time: the new one takes the old one's place.
       this.groupLinks = [...this.groupLinks.filter((l) => l.groupId !== groupId), link];
+      this.noteGroupChange(groupId, { kind: had ? 'link_replaced' : 'link_made' });
       return link;
     }, idempotencyKey);
   }
@@ -977,7 +997,9 @@ export class MockClient implements SattleClient {
   removeGroupLink(groupId: string, idempotencyKey?: string) {
     return this.call(() => {
       this.findGroup(groupId);
+      if (!this.groupLinks.some((l) => l.groupId === groupId)) return;
       this.groupLinks = this.groupLinks.filter((l) => l.groupId !== groupId);
+      this.noteGroupChange(groupId, { kind: 'link_off' });
     }, idempotencyKey);
   }
 
@@ -1129,6 +1151,11 @@ export class MockClient implements SattleClient {
     return e;
   }
 
+  /** Notes a change to the group itself, and who made it: by default the user's member there, as the server does. */
+  private noteGroupChange(groupId: string, change: GroupChange, byMemberId = this.myMember(groupId)?.id) {
+    this.groupLog.push({ id: this.id('log'), groupId, at: this.now(), byMemberId, change });
+  }
+
   /** Notes an edit or a removal, with how the expense read before and who did it, as the server does. */
   private noteChange(groupId: string, change: Pick<ExpenseChange, 'expenseId' | 'before' | 'after'>) {
     this.expenseChanges.push({
@@ -1188,6 +1215,7 @@ export class MockClient implements SattleClient {
       const g = this.findGroup(groupId);
       const next = name.trim();
       if (!next) throw new SattleError('invalid_input', 'Give the group a name.');
+      if (next !== g.name) this.noteGroupChange(groupId, { kind: 'renamed', from: g.name, to: next });
       g.name = next;
       return g;
     }, idempotencyKey);
@@ -1206,6 +1234,7 @@ export class MockClient implements SattleClient {
         throw new SattleError('conflict', 'A payment someone said they made in this group hasn’t been confirmed yet. Wait until it has.');
       }
       g.simplifyDebts = on;
+      this.noteGroupChange(groupId, { kind: 'simplify_debts', on });
       return g;
     }, idempotencyKey);
   }
@@ -1213,7 +1242,9 @@ export class MockClient implements SattleClient {
   setApproveJoins(groupId: string, on: boolean, idempotencyKey?: string) {
     return this.call(() => {
       const g = this.findGroup(groupId);
+      if (g.approveJoins === on) return g;
       g.approveJoins = on;
+      this.noteGroupChange(groupId, { kind: 'approve_joins', on });
       return g;
     }, idempotencyKey);
   }
@@ -1232,6 +1263,7 @@ export class MockClient implements SattleClient {
       this.members = this.members.filter((x) => !mine(x));
       this.expenses = this.expenses.filter((x) => !mine(x));
       this.expenseChanges = this.expenseChanges.filter((x) => !mine(x));
+      this.groupLog = this.groupLog.filter((x) => !mine(x));
       this.settlements = this.settlements.filter((x) => !mine(x));
       this.payLinks = this.payLinks.filter((x) => !mine(x));
       this.groupLinks = this.groupLinks.filter((x) => !mine(x));
@@ -1255,6 +1287,7 @@ export class MockClient implements SattleClient {
       }
       this.members = this.members.filter((m) => m !== member);
       g.memberIds = g.memberIds.filter((id) => id !== memberId);
+      this.noteGroupChange(groupId, { kind: 'member_removed', name: member.displayName });
       for (const x of this.joinRequests) {
         if (x.memberId === memberId) Object.assign(x, { status: 'declined', memberId: undefined });
       }
@@ -1284,6 +1317,8 @@ export class MockClient implements SattleClient {
       }
       delete me.claimedByUserId;
       me.status = 'ghost';
+      // Only now are they gone: one device of several leaving isn't the person leaving.
+      this.noteGroupChange(g.id, { kind: 'left', name: me.displayName }, me.id);
       // What they chose about this group's link was theirs, so it goes with them.
       delete this.upiOnLinkChoices[me.id];
     }, idempotencyKey);

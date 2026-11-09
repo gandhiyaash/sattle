@@ -136,17 +136,27 @@ export function groupLinkRoutes({ db, repo, payments, wallets }: Ctx) {
    * link that went to the wrong place is taken back. Returns 201 GroupLink.
    */
   r.post('/groups/:id/link', once, (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    const link = transaction(db, () =>
-      repo.replaceGroupLink({ token: newGroupLinkToken(), groupId: g.id, createdAt: nowIso() })
-    );
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    const link = transaction(db, () => {
+      const had = Boolean(repo.groupLinkFor(g.id));
+      const made = repo.replaceGroupLink({ token: newGroupLinkToken(), groupId: g.id, createdAt: nowIso() });
+      repo.noteGroupChange(g.id, repo.memberForUser(g.id, user.id)?.id, { kind: had ? 'link_replaced' : 'link_made' });
+      return made;
+    });
     return c.json(link, 201);
   });
 
   /** Authed. Anyone in the group can turn the link off. */
   r.delete('/groups/:id/link', once, (c) => {
-    const g = repo.groupForUser(c.req.param('id'), c.get('user').id);
-    repo.deleteGroupLink(g.id);
+    const user = c.get('user');
+    const g = repo.groupForUser(c.req.param('id'), user.id);
+    transaction(db, () => {
+      // Turning off a link that's already off changes nothing, so nothing is noted.
+      if (!repo.groupLinkFor(g.id)) return;
+      repo.deleteGroupLink(g.id);
+      repo.noteGroupChange(g.id, repo.memberForUser(g.id, user.id)?.id, { kind: 'link_off' });
+    });
     return c.json({ ok: true });
   });
 

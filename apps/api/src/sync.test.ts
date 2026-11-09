@@ -98,6 +98,7 @@ describe('GET /sync', () => {
         expect(JSON.stringify(g.settlements)).toBe(await get(`${at}/settlements`));
         expect(JSON.stringify(g.upiClaims)).toBe(await get(`${at}/upi-claims`));
         expect(JSON.stringify(g.pendingJoins)).toBe(await get(`${at}/join-requests`));
+        expect(JSON.stringify(g.log)).toBe(await get(`${at}/log`));
       }
     }
 

@@ -97,6 +97,7 @@ function goa(expenses: Expense[] = []): GroupSnapshot {
     settlements: [],
     upiClaims: [],
     pendingJoins: [],
+    log: [],
   };
 }
 function flat(expenses: Expense[] = []): GroupSnapshot {
@@ -107,6 +108,7 @@ function flat(expenses: Expense[] = []): GroupSnapshot {
     settlements: [],
     upiClaims: [],
     pendingJoins: [],
+    log: [],
   };
 }
 const world = (groups: GroupSnapshot[] = [goa(), flat()]): SyncView => ({

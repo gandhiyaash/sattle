@@ -1,17 +1,17 @@
 /**
- * The FAQ, behind the button at the top of Wallet: how getting paid and
+ * The FAQ, under Account: how getting paid and
  * paying work, how a payment comes to count as paid, and what the links and
- * the account can do. Wallet's "What you're trusting" says what is trusted
+ * the account can do. Account's "What you're trusting" says what is trusted
  * and stops; the how and the why are here, so that block can stay short.
  *
  * The rule is the same for both: every answer states what the code does
- * today, and changes with it. The map above TrustModel in WalletScreen.tsx
+ * today, and changes with it. The map above TrustModel in AccountPages.tsx
  * names the code behind each claim. Two answers rest on the world outside
  * the code and say when they were last checked: which wallets' connections
  * Sattle has been used with, and which Lightning address providers give a
  * verify link (LUD-21), found by asking each of them for an invoice.
  *
- * `ways` is what Wallet shows: the ways to pay they use, and anything they
+ * `ways` is what Account shows: the ways to pay they use, and anything they
  * have set up. Someone who never chose bitcoin isn't given the Lightning
  * questions, nor someone who never chose rupees the UPI ones, and the
  * questions that remain are worded for what they do use. Nostr goes with
@@ -57,7 +57,7 @@ const LIGHTNING_FAQS: Faq[] = [
   {
     question: 'How do I get paid over Lightning?',
     answer: [
-      'Connect a wallet with Nostr Wallet Connect, or add your Lightning address, on the Wallet screen. When someone pays you, Sattle’s server asks that wallet or address for an invoice for the amount and shows it to them. They pay it from any Lightning wallet, and the sats land in yours. Nothing passes through Sattle.',
+      'Connect a wallet with Nostr Wallet Connect, or add your Lightning address, under Account. When someone pays you, Sattle’s server asks that wallet or address for an invoice for the amount and shows it to them. They pay it from any Lightning wallet, and the sats land in yours. Nothing passes through Sattle.',
       'If you set up both, the connected wallet is used first.',
     ],
   },
@@ -94,7 +94,7 @@ const LIGHTNING_FAQS: Faq[] = [
     question: 'What does the wallet connection let Sattle do?',
     answer: [
       'The connection string you paste is a key to your wallet. Sattle’s server uses it for three things: to read what the connection allows, to create an invoice when someone pays you, and to check whether that invoice was paid. It has no code that spends.',
-      'If the string also allows spending, the Wallet screen warns you, because the server keeps the string and anyone who took it from there could spend with it. Make a connection in your wallet that allows only creating and checking invoices. Disconnect makes the server forget the string; delete the connection in your wallet as well to be sure.',
+      'If the string also allows spending, Account warns you, because the server keeps the string and anyone who took it from there could spend with it. Make a connection in your wallet that allows only creating and checking invoices. Disconnect makes the server forget the string; delete the connection in your wallet as well to be sure.',
       'Requests travel through the Nostr relay named in the string, encrypted. The relay sees that a request was sent, not what it says.',
     ],
   },
@@ -119,8 +119,8 @@ const UPI_FAQS: Faq[] = [
     question: 'How does paying by UPI work?',
     answer: [
       IPHONE
-        ? 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI shows their ID and the amount, and Open UPI app hands both to a UPI app on your iPhone, with a note, for you to pay there, from your bank account to theirs. Google Pay and PhonePe don’t take that from another app; if one of them opens, copy the UPI ID and pay it in that app by hand.'
-        : 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI then shows the UPI apps on your phone. Pick one and it opens with their ID, the amount and a note filled in, and you pay there, from your bank account to theirs. Google Pay and PhonePe don’t take a link from another app, so for those the UPI ID is copied instead, the app opens, and you paste it in and type the amount. In a browser, the same is shown as a QR code to scan from your phone.',
+        ? 'The person you owe adds their UPI ID under Account. In a group kept in rupees, Pay by UPI shows their ID and the amount, and Open UPI app hands both to a UPI app on your iPhone, with a note, for you to pay there, from your bank account to theirs. Google Pay and PhonePe don’t take that from another app; if one of them opens, copy the UPI ID and pay it in that app by hand.'
+        : 'The person you owe adds their UPI ID under Account. In a group kept in rupees, Pay by UPI then shows the UPI apps on your phone. Pick one and it opens with their ID, the amount and a note filled in, and you pay there, from your bank account to theirs. Google Pay and PhonePe don’t take a link from another app, so for those the UPI ID is copied instead, the app opens, and you paste it in and type the amount. In a browser, the same is shown as a QR code to scan from your phone.',
       'Sattle isn’t in the payment. No bank or UPI app tells anyone else that one person paid another, so the server never sees the money move.',
     ],
   },
@@ -144,8 +144,8 @@ const UPI_FAQS: Faq[] = [
   {
     question: 'Who sees my UPI ID?',
     answer: [
-      'People in your groups who owe you right now, when they choose to pay you. Also anyone holding one of your groups’ shared links, when they choose to pay you from it, unless you turn that off: on the Wallet screen for all your groups, or under a group’s Manage for that one. It isn’t in the member list.',
-      'Many UPI IDs are a mobile number, and whoever sees the ID sees the number. Most UPI apps let you add an ID without one, like name@okhdfcbank, and Wallet warns when the one you type has a number in it.',
+      'People in your groups who owe you right now, when they choose to pay you. Also anyone holding one of your groups’ shared links, when they choose to pay you from it, unless you turn that off: under Account for all your groups, or under a group’s Manage for that one. It isn’t in the member list.',
+      'Many UPI IDs are a mobile number, and whoever sees the ID sees the number. Most UPI apps let you add an ID without one, like name@okhdfcbank, and Account warns when the one you type has a number in it.',
     ],
   },
   {
