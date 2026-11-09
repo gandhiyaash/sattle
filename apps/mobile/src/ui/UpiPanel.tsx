@@ -4,16 +4,20 @@
  *   Android   the phone's UPI apps, each a button. The one tapped is opened on
  *             the link and reports back, or, when it refuses links, has the
  *             UPI ID copied for it (useSettleFlow payWith). A build without
- *             the native module gets the iPhone's button instead
- *   iPhone    a button that opens a UPI app, which says nothing back
+ *             the native module gets one button that opens a UPI app instead
+ *   iPhone    the same, for the UPI apps an iPhone can look for
+ *             (IPHONE_UPI_APPS), none of which reports back. With none of
+ *             them on the phone, the one button, for whatever iOS picks
  *   web       a QR code to scan from a phone, and on a phone's browser the
- *             same button
+ *             one button
  *
  * The UPI ID is on screen everywhere, with Copy beside it, so it can be
  * pasted into a UPI app by hand whatever opens.
  *
- * The icons are the phone's own, read from each installed app the way
- * Android's chooser reads them. Nothing of those apps' ships in this one.
+ * On Android the icons are the phone's own, read from each installed app the
+ * way Android's chooser reads them. An iPhone can't read another app's icon,
+ * so there each is the app's App Store icon, from Apple; an app without one
+ * shows its initial. Nothing of those apps' ships in this one.
  */
 
 import React, { useState } from 'react';
@@ -27,6 +31,9 @@ import { Button, IconButton } from './primitives';
 import { QrCode } from './QrCode';
 import { copyText } from './share';
 import { makeStyles, radius, space, type } from './theme';
+
+/** The most app buttons on a row. Four fit the narrowest phone with their names readable. */
+const COLUMNS = 4;
 
 /** A phone's browser can open a UPI app from a link; a computer's can't, and scans instead. */
 const onPhoneBrowser = () =>
@@ -43,9 +50,9 @@ export function UpiPanel({
   payee: UpiPayee;
   uri: string;
   busy?: boolean;
-  /** Android: the UPI apps on the phone, one button each. Null or absent: the one button that opens whatever takes the link. */
+  /** The UPI apps on the phone, one button each. Null or absent: the one button that opens whatever takes the link. */
   apps?: UpiApp[] | null;
-  /** Android: pays in the app tapped, or in the phone's pick of one when there is no list. Absent elsewhere: the link is just opened. */
+  /** In the app: pays in the app tapped, or in the phone's pick of one when there is no list. Absent in a browser: the link is just opened. */
   onPay?: (app: UpiApp | null) => void;
   /**
    * Elsewhere: the link is being handed to a UPI app, which will say nothing back. Whoever shows
@@ -101,7 +108,14 @@ export function UpiPanel({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Pay with ${app.name}`}
-                style={({ pressed }) => [s.app, pressed && { opacity: 0.7 }, busy && { opacity: 0.4 }]}
+                style={({ pressed }) => [
+                  s.app,
+                  // Equal columns across the whole width, so no row ends in a gap: up to four, and
+                  // fewer apps share the row between them.
+                  { width: `${100 / Math.min(apps.length, COLUMNS)}%` },
+                  pressed && { opacity: 0.7 },
+                  busy && { opacity: 0.4 },
+                ]}
               >
                 {app.icon ? (
                   <Image source={{ uri: app.icon }} style={s.appIcon} />
@@ -145,8 +159,8 @@ const useStyles = makeStyles((color) => ({
   idLabel: { ...type.caption, color: color.inkFaint },
   id: { ...type.amountMd, color: color.ink },
   copied: { ...type.caption, color: color.inkMuted },
-  apps: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  app: { width: 76, alignItems: 'center', gap: space.xs, paddingVertical: space.sm, borderRadius: radius.md },
+  apps: { flexDirection: 'row', flexWrap: 'wrap', rowGap: space.sm },
+  app: { alignItems: 'center', gap: space.xs, paddingVertical: space.sm, paddingHorizontal: space.xs, borderRadius: radius.md },
   appIcon: { width: 48, height: 48, borderRadius: 12 },
   appIconBlank: { backgroundColor: color.surfaceSunken, alignItems: 'center', justifyContent: 'center' },
   appInitial: { ...type.heading, color: color.ink },
