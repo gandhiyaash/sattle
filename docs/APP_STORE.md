@@ -95,7 +95,9 @@ Answers for App Store Connect's App Privacy section, from what the app and serve
 
 Not collected: email, phone number, physical address, contacts, location, photos, health, browsing or search history, sensitive info, crash logs, the advertising identifier.
 
-The update check (`src/updates/appStore.ts`) asks Apple's public lookup for the newest version, naming the bundle ID and the phone's region. It goes to Apple and nothing of it reaches Sattle, so it isn't collected data, but the privacy policy names it under section 4.
+The update check (`src/updates/appStore.ts`) asks Apple's public lookup for the newest version, naming the bundle ID and the phone's region. Paying by UPI asks the same lookup for the UPI apps' icons (`src/upi/launchUpi.ios.ts`), naming every app on the list whichever are installed, so it says nothing about the phone. Both go to Apple and nothing of them reaches Sattle, so they aren't collected data, but the privacy policy names them under section 4.
+
+Checking which UPI apps are installed (`canOpenURL`, for the schemes under `LSApplicationQueriesSchemes` in `app.json`) happens on the phone and isn't sent anywhere.
 
 A UPI ID is often a phone number. It is declared as Payment Info, since that is what it is used for; Sattle never asks for a phone number.
 

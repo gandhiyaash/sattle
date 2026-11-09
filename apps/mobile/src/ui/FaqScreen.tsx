@@ -45,8 +45,9 @@ interface Faq {
 const WALLETS_CHECKED = 'October 2026';
 
 /**
- * An iPhone can't list the UPI apps or hear back from one (UpiPanel), so its UPI answers say what
- * it does and nothing else. They name no other phone: App Review turns down an app that does.
+ * An iPhone only finds the UPI apps it knows to look for, and hears nothing back from one
+ * (UpiPanel), so its UPI answers say what it does and nothing else. They name no other phone: App
+ * Review turns down an app that does.
  */
 const IPHONE = Platform.OS === 'ios';
 
@@ -116,7 +117,7 @@ const UPI_FAQS: Faq[] = [
     question: 'How does paying by UPI work?',
     answer: [
       IPHONE
-        ? 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI shows their ID and the amount, and Open UPI app hands both to a UPI app on your iPhone, with a note, for you to pay there, from your bank account to theirs. Google Pay and PhonePe don’t take that from another app; if one of them opens, copy the UPI ID and pay it in that app by hand.'
+        ? 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI then shows the UPI apps on your iPhone that Sattle can find: Google Pay, PhonePe, Paytm, CRED, BHIM, YONO SBI and Navi. Pick one and you pay there, from your bank account to theirs. CRED opens with their ID, the amount and a note filled in. The others don’t take a payment to a person from another app, so for those the UPI ID is copied, the app opens, and you paste it in and type the amount. With none of those apps on your iPhone, Open UPI app hands the payment to whichever UPI app your iPhone picks.'
         : 'The person you owe adds their UPI ID on the Wallet screen. In a group kept in rupees, Pay by UPI then shows the UPI apps on your phone. Pick one and it opens with their ID, the amount and a note filled in, and you pay there, from your bank account to theirs. Google Pay and PhonePe don’t take a link from another app, so for those the UPI ID is copied instead, the app opens, and you paste it in and type the amount. In a browser, the same is shown as a QR code to scan from your phone.',
       'Sattle isn’t in the payment. No bank or UPI app tells anyone else that one person paid another, so the server never sees the money move.',
     ],
@@ -146,11 +147,11 @@ const UPI_FAQS: Faq[] = [
     ],
   },
   {
-    question: 'Why do Google Pay and PhonePe need the UPI ID pasted in?',
+    question: IPHONE ? 'Why do most UPI apps need the UPI ID pasted in?' : 'Why do Google Pay and PhonePe need the UPI ID pasted in?',
     answer: [
       'They refuse a payment that another app starts with a link to a personal UPI ID. NPCI, which runs UPI, told every payment app to refuse these from 1 April 2024 (circular OC/76A), to stop fraud through links sent around. The apps say something about a limit when they refuse, but it isn’t your limit: the same payment goes through when you type the ID in yourself.',
       IPHONE
-        ? 'An iPhone doesn’t tell Sattle which app it hands the payment to. If it is one of these two, copy the UPI ID, paste it into the app’s search, pick the person, type the amount and pay. CRED, Paytm and most other apps still take it and open with everything filled in.'
+        ? 'On an iPhone, CRED is the only one Sattle has seen take the link, so it is the only one sent it. For the others Sattle copies the UPI ID and opens the app, and you paste the ID into its search, pick the person, type the amount and pay. When you come back, Sattle asks whether it went through, and your yes settles it.'
         : 'So Sattle doesn’t send them the link. It copies the UPI ID and opens the app, and you paste the ID into its search, pick the person, type the amount and pay. When you come back, Sattle asks whether it went through, and your yes settles it. CRED, Paytm and most other apps still take the link, open with everything filled in, and tell Sattle how it went.',
       'A QR code is treated differently: scanning one with the app’s camera is allowed, with no cap, which is why a browser shows one. A QR code opened from your photos is capped at ₹2,000 by the same rule.',
       'If another app refuses the link, pay the ID shown on the screen by hand from it, then tap I’ve paid.',

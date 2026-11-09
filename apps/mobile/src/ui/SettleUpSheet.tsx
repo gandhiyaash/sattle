@@ -38,7 +38,6 @@ import { formatAmount, isBitcoin, type Debt, type Member, type PayWays } from '@
 import { useScreenView } from '../analytics/useScreenView';
 import { useSettleFlow } from '../react/useSettleFlow';
 import { InvoicePanel } from './InvoicePanel';
-import { refusesLinks } from '../upi/upiApps';
 import { Button, Card, Dialog, ErrorState, QuoteBreakdown, SatLine } from './primitives';
 import { share } from './share';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -155,10 +154,11 @@ export function SettleUpSheet({
             : said === 'unknown'
               ? 'Did it go through? If so, tap I’ve paid.'
               : flow.upi.apps?.length
-                ? pickAppLine(flow.upi.apps.filter(refusesLinks).map((app) => app.name))
-                : // No list at all: the one button that opens whatever takes the link. An empty list is a
-                  // phone with no UPI app, which the panel says, so it reads as an iPhone does.
-                  flow.payWith && !flow.upi.apps
+                ? pickAppLine(flow.upi.apps.filter((app) => !app.takesLink).map((app) => app.name))
+                : // No list at all: the one button that opens whatever takes the link. On an iPhone
+                  // that may be an app that refuses it, so it promises nothing. An empty list is a
+                  // phone with no UPI app, which the panel says.
+                  flow.payWith && !flow.upi.apps && Platform.OS === 'android'
                   ? 'Your UPI app opens with the amount filled in.'
                   : `Pay in any UPI app, then tap I’ve paid.`;
     return (

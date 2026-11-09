@@ -15,7 +15,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "CFBundleDisplayName": "Sattle"
+        "CFBundleDisplayName": "Sattle",
+        "LSApplicationQueriesSchemes": ["tez", "gpay", "phonepe", "paytmmp", "credpay", "bhim", "sbiyono", "navipay"]
       }
     },
     "android": {
