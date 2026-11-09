@@ -7,8 +7,9 @@
  * code they may ask you for (WaitingToJoin).
  *
  * Once in, you are that member, with the balance already on that name, and
- * can see and add to everything in the group. The screen says so above the
- * button.
+ * can see and add to everything in the group. The screen says so under the
+ * list. Join stays at the bottom of the screen once someone is picked, so a
+ * long list never hides it.
  *
  * Nobody on the list types who they are. The group already has a row for each
  * person, so the page lists them all and the person picks one. Someone who
@@ -77,30 +78,26 @@ export function JoinScreen({ token, onBack, onAsked, onJoined, onAlreadyIn }: Jo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, active]);
 
-  return (
-    <Screen title="Join a group" onBack={onBack}>
-      {active && outside !== active ? (
-        <Loading lines={3} />
-      ) : active ? (
-        <WhoAreYou
-          token={active}
-          suggestedName={me.data?.displayName}
-          join={async (as, _name, atOnce) => {
-            const input = { token: active, as };
-            if (atOnce) {
-              const member = await keys.run('join', input, (k) => client.join(input.token, input.as, k));
-              onJoined(member.groupId);
-            } else {
-              await keys.run('ask-to-join', input, (k) => client.askToJoin(input.token, input.as, k));
-              onAsked();
-            }
-          }}
-          otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
-        />
-      ) : (
-        <PasteLink onToken={setActive} />
-      )}
-    </Screen>
+  const frame = { title: 'Join a group', onBack };
+  return active && outside === active ? (
+    <WhoAreYou
+      frame={frame}
+      token={active}
+      suggestedName={me.data?.displayName}
+      join={async (as, _name, atOnce) => {
+        const input = { token: active, as };
+        if (atOnce) {
+          const member = await keys.run('join', input, (k) => client.join(input.token, input.as, k));
+          onJoined(member.groupId);
+        } else {
+          await keys.run('ask-to-join', input, (k) => client.askToJoin(input.token, input.as, k));
+          onAsked();
+        }
+      }}
+      otherwise={{ label: 'Use a different link', onPress: () => setActive(null) }}
+    />
+  ) : (
+    <Screen {...frame}>{active ? <Loading lines={3} /> : <PasteLink onToken={setActive} />}</Screen>
   );
 }
 
@@ -139,40 +136,39 @@ export function JoinAsNewScreen({
   };
 
   return (
-    <Screen title="Sattle" subtitle="Split bills in sats. Only one of you needs the app.">
-      <WhoAreYou
-        // Another link starts its answers over. The screen itself stays, and with it the account in `made`.
-        key={token}
-        token={token}
-        aboutAccount="No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
-        join={async (as, name, atOnce) => {
-          if (made.current && made.current.name !== name) await forget();
-          if (!made.current) {
-            const account = await createAccount(API_URL, name);
-            await writeToken(account.token);
-            made.current = { token: account.token, name };
-          }
-          const accountToken = made.current.token;
-          const input = { token, as };
-          const client = buildClient(accountToken);
-          await keys
-            .run<unknown>(atOnce ? 'join' : 'ask-to-join', input, (k) =>
-              atOnce ? client.join(input.token, input.as, k) : client.askToJoin(input.token, input.as, k)
-            )
-            .catch(async (e) => {
-              // A lost connection is worth keeping the account for: the retry replays this join.
-              // Anything else means they can't be this person, so the account goes.
-              if (!(e instanceof SattleError && e.code === 'network')) await forget();
-              throw e;
-            });
-          onJoined(accountToken);
-        }}
-        otherwise={{
-          label: 'Start without it',
-          onPress: () => (made.current ? onJoined(made.current.token) : onSkip()),
-        }}
-      />
-    </Screen>
+    <WhoAreYou
+      // Another link starts its answers over. This screen stays, and with it the account in `made`.
+      key={token}
+      frame={{ title: 'Sattle', subtitle: 'Split bills in sats. Only one of you needs the app.' }}
+      token={token}
+      aboutAccount="No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
+      join={async (as, name, atOnce) => {
+        if (made.current && made.current.name !== name) await forget();
+        if (!made.current) {
+          const account = await createAccount(API_URL, name);
+          await writeToken(account.token);
+          made.current = { token: account.token, name };
+        }
+        const accountToken = made.current.token;
+        const input = { token, as };
+        const client = buildClient(accountToken);
+        await keys
+          .run<unknown>(atOnce ? 'join' : 'ask-to-join', input, (k) =>
+            atOnce ? client.join(input.token, input.as, k) : client.askToJoin(input.token, input.as, k)
+          )
+          .catch(async (e) => {
+            // A lost connection is worth keeping the account for: the retry replays this join.
+            // Anything else means they can't be this person, so the account goes.
+            if (!(e instanceof SattleError && e.code === 'network')) await forget();
+            throw e;
+          });
+        onJoined(accountToken);
+      }}
+      otherwise={{
+        label: 'Start without it',
+        onPress: () => (made.current ? onJoined(made.current.token) : onSkip()),
+      }}
+    />
   );
 }
 
@@ -225,16 +221,21 @@ const NEW = '+';
  * since the group may have started approving joins, or the person may have
  * been removed. A group that stopped approving since is found on the tap:
  * they join instead of asking.
+ *
+ * It draws the screen around it, so Join can sit in the screen's footer.
  */
 function WhoAreYou({
+  frame,
   token,
   aboutAccount,
   suggestedName,
   join,
   otherwise,
 }: {
+  /** The header of the screen this is on. */
+  frame: Pick<React.ComponentProps<typeof Screen>, 'title' | 'subtitle' | 'onBack'>;
   token: string;
-  /** Said after what joining means, above the button: for someone whose account this tap makes. */
+  /** Said after what joining means: for someone whose account this tap makes. */
   aboutAccount?: string;
   /** What someone adding themselves is already called, if they have an account. */
   suggestedName?: string;
@@ -257,16 +258,22 @@ function WhoAreYou({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
-  if (loading) return <Loading lines={3} />;
+  if (loading) {
+    return (
+      <Screen {...frame}>
+        <Loading lines={3} />
+      </Screen>
+    );
+  }
 
   if (error || !data) {
     // Only a network failure is worth retrying; a dead link stays dead.
     const retry = error instanceof SattleError && error.code === 'network' ? reload : undefined;
     return (
-      <>
+      <Screen {...frame}>
         <ErrorState message={error?.message ?? 'Couldn’t load this group.'} error={error} onRetry={retry} />
         <Button label={otherwise.label} onPress={otherwise.onPress} />
-      </>
+      </Screen>
     );
   }
 
@@ -298,8 +305,28 @@ function WhoAreYou({
     }
   };
 
+  // Once they've picked a row, Join stays at the bottom of the screen, however long the list is
+  // and wherever it's scrolled to. Before that there's nothing to join as, so there's no button.
+  // A row picked and then gone from the list, because that person was removed, keeps it: the
+  // failure that found them gone is said there.
+  const footer =
+    picked !== null || adding ? (
+      <View style={{ gap: space.md }}>
+        {failed && <ErrorState message={failed} />}
+        <Button
+          label={atOnce ? (name ? `Join as ${name}` : 'Join') : name ? `Ask to join as ${name}` : 'Ask to join'}
+          // Only pressable once there's a name.
+          track={atOnce ? 'Join as them' : 'Ask to join as them'}
+          variant="primary"
+          busy={busy}
+          disabled={!name}
+          onPress={submit}
+        />
+      </View>
+    ) : undefined;
+
   return (
-    <>
+    <Screen {...frame} footer={footer}>
       <Card style={{ gap: space.xs }}>
         <Text style={s.label}>{atOnce ? 'You’re joining' : 'You’re asking to join'}</Text>
         <Text style={s.group}>{data.groupName}</Text>
@@ -386,17 +413,7 @@ function WhoAreYou({
           : 'Someone in the group lets you in. Then you can see everything in it and add to it.'}
         {aboutAccount ? ` ${aboutAccount}` : ''}
       </Text>
-      {failed && <ErrorState message={failed} />}
-      <Button
-        label={atOnce ? (name ? `Join as ${name}` : 'Join') : name ? `Ask to join as ${name}` : 'Ask to join'}
-        // Only pressable once there's a name.
-        track={atOnce ? 'Join as them' : 'Ask to join as them'}
-        variant="primary"
-        busy={busy}
-        disabled={!name}
-        onPress={submit}
-      />
-    </>
+    </Screen>
   );
 }
 
