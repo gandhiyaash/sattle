@@ -26,7 +26,11 @@ function results() {
 function titles(report) {
   const failed = [];
   const walk = (suite) => {
-    for (const spec of suite.specs ?? []) if (!spec.ok) failed.push(spec.title);
+    for (const spec of suite.specs ?? []) {
+      // A test that only passed on its retry has spec.ok = true, but the run fails on it (failOnFlakyTests).
+      const flaky = spec.tests?.some((t) => t.status === 'flaky');
+      if (!spec.ok || flaky) failed.push(flaky ? `${spec.title} (passed only on retry)` : spec.title);
+    }
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites ?? []) walk(suite);
@@ -42,7 +46,8 @@ const livePassed = ran && failed.length === 0 && env.LIVE_OUTCOME === 'success';
 
 const afterPublish = trigger === 'workflow_run';
 const upstream = env.UPSTREAM_NAME || 'publish';
-const upstreamOk = env.UPSTREAM_CONCLUSION === 'success';
+// A skipped run (a job-level `if`) shipped nothing and broke nothing; a cancelled one is still red.
+const upstreamOk = ['success', 'skipped'].includes(env.UPSTREAM_CONCLUSION);
 const allOk = livePassed && (!afterPublish || upstreamOk);
 
 const lines = [];

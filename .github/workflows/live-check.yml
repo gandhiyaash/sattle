@@ -14,6 +14,8 @@ on:
   workflow_run:
     workflows: [publish, deploy]
     types: [completed]
+    # Only main is deployed: a run on another branch must not page about production.
+    branches: [main]
   schedule:
     # Every 12 hours: 09:00 and 21:00 IST.
     - cron: '30 3,15 * * *'
