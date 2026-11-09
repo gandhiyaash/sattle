@@ -123,6 +123,7 @@ apps/api/src/                @sattle/api: Hono + node:sqlite
 apps/mobile/                 @sattle/mobile: Expo
   App.tsx                    Routes /s/<token> to the guest page, /g/<token> to the group page, /join/<token> to joining and /restore to restoring; otherwise the app.
   modules/in-app-updates/    Local Expo module (Kotlin): Google Play in-app updates.
+  modules/app-store-updates/ Local Expo module (Swift): what this iPhone install is, and its App Store page in a sheet.
   modules/upi-apps/          Local Expo module (Kotlin): the phone's UPI apps, and opening one on a link or plain.
   src/
     account/
@@ -150,6 +151,8 @@ apps/mobile/                 @sattle/mobile: Expo
     updates/
       updater.ts             When to ask about an update, and what the banner shows.
       nativeUpdates.ts       Native seam. Android talks to Play; iOS and web get null.
+      appStore.ts            The same for an iPhone: a newer version on the App Store, and Update showing its page.
+      nativeAppStore.ts      Native seam. iOS reports its install and shows the App Store page; Android and web get null.
     upi/
       launchUpi.ts           Native seam. Android lists the phone's UPI apps, opens one and hears back; iOS and web get null.
       upiApps.ts             Which apps refuse a link from another app (GPay, PhonePe), and so are paid in by hand.
@@ -640,6 +643,16 @@ The line between the bands is `URGENT_PRIORITY` in `src/updates/updater.ts`.
 `src/updates/updater.ts` holds the rules and runs under vitest against a fake Play. The native half is a local Expo module in `apps/mobile/modules/in-app-updates`, which autolinking picks up on `expo prebuild`, so there is nothing to add to `app.json`.
 
 Play only answers for a copy it installed. A debug build or the APK from a GitHub release gets no prompts, so the real flow can only be tried from a Play track: install one release from the internal track, publish a second, and open the app.
+
+### iPhone updates
+
+iOS has no way for an app to download its own update, and iPhones install App Store updates by themselves by default, usually overnight while charging. The app covers the time until then, and the people who have turned that off. On launch and on returning to the foreground, at most once an hour, it asks Apple's public lookup (`itunes.apple.com/lookup`) for the newest version of its bundle ID on the App Store, in the storefront of the phone's region. While that is newer than the one running, and the phone's iOS can run it, the line above the tab bar offers **Update**. That opens Sattle's App Store page in a sheet inside the app, where one tap updates it, and iOS closes the app to install it. If the sheet can't load the page, the App Store app opens on it instead.
+
+Nothing opens by itself, and there is no update priority: every release gets the same line, and `update_priority` only reaches Play. A version is offered once Apple has released it, and the lookup can take a while to catch up. During a phased release the line offers it to everyone, since updating by hand skips the phasing.
+
+`src/updates/appStore.ts` holds the rules and runs under vitest against a fake App Store. The native half is a local Expo module in `apps/mobile/modules/app-store-updates`, which autolinking picks up on `expo prebuild` like the Android one.
+
+Only a copy from the App Store asks. TestFlight, an Xcode build and the simulator have a sandbox receipt and never look, so the real flow can only be tried from the App Store: with one version live, install it, release the next, and open the app.
 
 ## Wiring the wallet
 
