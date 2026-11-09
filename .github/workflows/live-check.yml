@@ -1,0 +1,99 @@
+name: live-check
+
+# The hosted app and API, tested from outside (packages/e2e-web/live): after every publish, after
+# a deploy run on its own, and once a day. It messages Om on WhatsApp through wa-relay: always
+# after a publish or deploy, pass or fail; from the daily run only when something failed. A failed
+# check also fails this workflow, so GitHub flags it too.
+#
+# Secrets (repo settings, never in the repo or the log):
+#   LIVE_WEB_URL           the web app, https://…
+#   LIVE_API_URL           the API, https://…
+#   WHATSAPP_NOTIFY_URL    wa-relay's intake
+#   WHATSAPP_NOTIFY_TOKEN  wa-relay's NOTIFY_TOKEN (its own token, revocable alone)
+on:
+  workflow_run:
+    workflows: [publish, deploy]
+    types: [completed]
+  schedule:
+    # 09:00 IST.
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-check
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LIVE_WEB_URL: ${{ secrets.LIVE_WEB_URL }}
+      LIVE_API_URL: ${{ secrets.LIVE_API_URL }}
+    steps:
+      - name: Secrets are set
+        env:
+          NOTIFY_URL: ${{ secrets.WHATSAPP_NOTIFY_URL }}
+          NOTIFY_TOKEN: ${{ secrets.WHATSAPP_NOTIFY_TOKEN }}
+        run: |
+          missing=""
+          for name in LIVE_WEB_URL LIVE_API_URL NOTIFY_URL NOTIFY_TOKEN; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Live check secrets not set:$missing"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Live check
+        id: live
+        continue-on-error: true
+        run: npm run e2e:live -w @sattle/e2e-web
+
+      - name: Message
+        id: report
+        if: ${{ always() }}
+        working-directory: packages/e2e-web
+        env:
+          TRIGGER: ${{ github.event_name }}
+          LIVE_OUTCOME: ${{ steps.live.outcome }}
+          UPSTREAM_NAME: ${{ github.event.workflow_run.name }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          UPSTREAM_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node live/report.mjs
+
+      - name: WhatsApp
+        if: ${{ always() && steps.report.outputs.send == 'true' }}
+        env:
+          NOTIFY_URL: ${{ secrets.WHATSAPP_NOTIFY_URL }}
+          NOTIFY_TOKEN: ${{ secrets.WHATSAPP_NOTIFY_TOKEN }}
+          TEXT: ${{ steps.report.outputs.text }}
+        run: |
+          jq -n --arg text "$TEXT" '{text: $text}' > body.json
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$NOTIFY_URL" \
+              -H "Authorization: Bearer $NOTIFY_TOKEN" -H 'Content-Type: application/json' --data @body.json || echo 000)
+            [ "$code" = 200 ] && exit 0
+            echo "WhatsApp relay answered $code (attempt $attempt)"
+            sleep $((attempt * 10))
+          done
+          echo "::error::Couldn't message WhatsApp: the relay kept refusing"
+          exit 1
+
+      - name: Fail when anything failed
+        if: ${{ always() && steps.report.outputs.ok != 'true' }}
+        run: |
+          echo "::error::Sattle live check failed (or the publish it followed did)"
+          exit 1
