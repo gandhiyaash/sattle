@@ -1,6 +1,6 @@
 /**
- * A group's history: every expense added, changed or removed, and every debt
- * settled, newest first.
+ * A group's history: every expense added, changed or removed, every debt
+ * settled, and every change to the group itself (its log), newest first.
  *
  * It isn't kept anywhere as a history. The expenses say how each reads now,
  * the changes say what every edit and removal did, and the settlements say
@@ -8,10 +8,23 @@
  * The server and the mock both build it here, so they tell the same story.
  */
 
-import { LEDGER_STATUSES, type Expense, type ExpenseChange, type HistoryEntry, type Settlement } from './types';
+import {
+  LEDGER_STATUSES,
+  type Expense,
+  type ExpenseChange,
+  type GroupChange,
+  type GroupLogEntry,
+  type HistoryEntry,
+  type Settlement,
+} from './types';
 
-/** `changes` in the order they were made. */
-export function buildHistory(expenses: Expense[], changes: ExpenseChange[], settlements: Settlement[]): HistoryEntry[] {
+/** `changes` and `log` in the order they were made. */
+export function buildHistory(
+  expenses: Expense[],
+  changes: ExpenseChange[],
+  settlements: Settlement[],
+  log: GroupLogEntry[] = []
+): HistoryEntry[] {
   // An expense was added as it first read: before its first change, if it has had one. A change
   // noted before `before` was kept can't say how that was, so its expense is shown as it read after.
   const firstReading = new Map(expenses.map((e) => [e.id, e]));
@@ -39,6 +52,9 @@ export function buildHistory(expenses: Expense[], changes: ExpenseChange[], sett
     if (!LEDGER_STATUSES.includes(s.status)) continue;
     entries.push({ kind: 'settled', id: `settled-${s.id}`, at: s.updatedAt, byMemberId: s.recordedByMemberId, settlement: s });
   }
+  for (const l of log) {
+    entries.push({ kind: 'group_changed', id: `log-${l.id}`, at: l.at, byMemberId: l.byMemberId, change: l.change });
+  }
 
   // Newest first. Things that happened in the same instant go the other way round from how they
   // were put in above, so a change sits above the expense being added, and a later change above
@@ -47,6 +63,40 @@ export function buildHistory(expenses: Expense[], changes: ExpenseChange[], sett
     .map((entry, i) => ({ entry, i }))
     .sort((a, b) => (a.entry.at < b.entry.at ? 1 : a.entry.at > b.entry.at ? -1 : b.i - a.i))
     .map(({ entry }) => entry);
+}
+
+/**
+ * A change to the group, as a line that says who did it: "Om turned on
+ * Simplify debts", "You renamed the group to “Goa 2026”". `by` is their name
+ * as the reader should see it ("You" for the reader), or nothing if it isn't
+ * known.
+ */
+export function describeGroupChange(change: GroupChange, by: string | undefined): string {
+  const who = by ?? 'Someone';
+  switch (change.kind) {
+    case 'simplify_debts':
+      return `${who} turned ${change.on ? 'on' : 'off'} Simplify debts`;
+    case 'approve_joins':
+      return `${who} turned ${change.on ? 'on' : 'off'} Approve who joins`;
+    case 'renamed':
+      return `${who} renamed the group to “${change.to}”`;
+    case 'member_added':
+      return `${who} added ${change.name}`;
+    case 'member_removed':
+      return `${who} removed ${change.name}`;
+    case 'joined':
+      return `${by ?? change.name} joined`;
+    case 'let_in':
+      return `${who} let ${change.name} in`;
+    case 'left':
+      return `${by ?? change.name} left`;
+    case 'link_made':
+      return `${who} made the group link`;
+    case 'link_replaced':
+      return `${who} replaced the group link`;
+    case 'link_off':
+      return `${who} turned off the group link`;
+  }
 }
 
 /** One person's part of an expense on either side of an edit. A side is absent when they weren't in the split then. */

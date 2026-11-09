@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildHistory, partChanges, sameExpense } from './history';
+import { buildHistory, describeGroupChange, partChanges, sameExpense } from './history';
 import type { Expense, ExpenseChange, Settlement } from './types';
 
 const at = (minute: number) => `2026-10-05T10:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -36,6 +36,17 @@ const settlement = (id: string, minute: number, over: Partial<Settlement> = {}):
 });
 
 describe('buildHistory', () => {
+  it('puts changes to the group itself in among the rest, with who made them', () => {
+    const history = buildHistory([], [], [], [
+      { id: '1', groupId: 'g', at: at(1), byMemberId: 'a', change: { kind: 'simplify_debts', on: false } },
+      { id: '2', groupId: 'g', at: at(3), byMemberId: 'b', change: { kind: 'renamed', from: 'Goa', to: 'Goa 2026' } },
+    ]);
+    expect(history).toEqual([
+      { kind: 'group_changed', id: 'log-2', at: at(3), byMemberId: 'b', change: { kind: 'renamed', from: 'Goa', to: 'Goa 2026' } },
+      { kind: 'group_changed', id: 'log-1', at: at(1), byMemberId: 'a', change: { kind: 'simplify_debts', on: false } },
+    ]);
+  });
+
   it('lists what was added and what was settled, newest first', () => {
     const cab = expense('cab', 1);
     const tea = expense('tea', 3);
@@ -149,5 +160,26 @@ describe('sameExpense', () => {
     ['who is in it', { parts: [{ memberId: 'a', amount: 1000 }] }],
   ])('is false once %s has changed', (_what, over) => {
     expect(sameExpense(cab, { ...cab, ...over })).toBe(false);
+  });
+});
+
+describe('describeGroupChange', () => {
+  it('says what changed and who changed it', () => {
+    expect(describeGroupChange({ kind: 'simplify_debts', on: true }, 'Om')).toBe('Om turned on Simplify debts');
+    expect(describeGroupChange({ kind: 'approve_joins', on: false }, 'You')).toBe('You turned off Approve who joins');
+    expect(describeGroupChange({ kind: 'renamed', from: 'Goa', to: 'Goa 2026' }, 'Riya')).toBe('Riya renamed the group to “Goa 2026”');
+    expect(describeGroupChange({ kind: 'member_added', name: 'Kabir' }, 'You')).toBe('You added Kabir');
+    expect(describeGroupChange({ kind: 'member_removed', name: 'Kabir' }, 'Om')).toBe('Om removed Kabir');
+    expect(describeGroupChange({ kind: 'let_in', name: 'Priya' }, 'Om')).toBe('Om let Priya in');
+    expect(describeGroupChange({ kind: 'link_made' }, 'Om')).toBe('Om made the group link');
+    expect(describeGroupChange({ kind: 'link_replaced' }, 'Om')).toBe('Om replaced the group link');
+    expect(describeGroupChange({ kind: 'link_off' }, 'Om')).toBe('Om turned off the group link');
+  });
+
+  it('names whoever joined or left, and says Someone when the doer isn’t known', () => {
+    expect(describeGroupChange({ kind: 'joined', name: 'Priya' }, 'Priya')).toBe('Priya joined');
+    expect(describeGroupChange({ kind: 'joined', name: 'Priya' }, undefined)).toBe('Priya joined');
+    expect(describeGroupChange({ kind: 'left', name: 'Kabir' }, 'You')).toBe('You left');
+    expect(describeGroupChange({ kind: 'link_off' }, undefined)).toBe('Someone turned off the group link');
   });
 });

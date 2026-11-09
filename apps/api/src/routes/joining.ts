@@ -228,7 +228,11 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
       }
       const asked = repo.joinRequestsOf(user.id).find((x) => x.groupId === link.groupId);
       if (asked) repo.deleteJoinRequest(asked.id);
-      return admit(link.groupId, user.id, picked);
+      // Someone already in, on another device, isn't someone joining: only a new name or a ghost is.
+      const arriving = !picked.memberId || !repo.member(picked.memberId)?.claimedByUserId;
+      const joined = admit(link.groupId, user.id, picked);
+      if (arriving) repo.noteGroupChange(link.groupId, joined.id, { kind: 'joined', name: joined.displayName });
+      return joined;
     });
     return c.json(member, 201);
   });
@@ -336,7 +340,9 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
         throw new SattleError('conflict', `${req.displayName} is already in this group.`);
       }
       repo.deleteJoinRequest(req.id);
-      return admit(req.groupId, req.userId, { memberId: req.memberId, displayName: req.displayName });
+      const admitted = admit(req.groupId, req.userId, { memberId: req.memberId, displayName: req.displayName });
+      repo.noteGroupChange(req.groupId, repo.memberForUser(req.groupId, user.id)?.id, { kind: 'let_in', name: admitted.displayName });
+      return admitted;
     });
     return c.json(member);
   });

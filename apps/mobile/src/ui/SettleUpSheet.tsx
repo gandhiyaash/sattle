@@ -456,10 +456,10 @@ export function SettleUpSheet({
 
 /** What the reminder asks the person owed to do, in terms of the ways this payer could then pay them. */
 function howToGetPaid(ways: PayWays): string {
-  if (!ways.lightning) return 'Add your UPI ID in Sattle, under Wallet, so I can pay you.';
+  if (!ways.lightning) return 'Add your UPI ID in Sattle, under Account, so I can pay you.';
   return ways.upi
-    ? 'Set up getting paid in Sattle, under Wallet, so I can pay you.'
-    : 'Set up getting paid in Sattle, under Wallet, so I can pay you.';
+    ? 'Set up getting paid in Sattle, under Account, so I can pay you.'
+    : 'Set up getting paid in Sattle, under Account, so I can pay you.';
 }
 
 const useStyles = makeStyles((color) => ({

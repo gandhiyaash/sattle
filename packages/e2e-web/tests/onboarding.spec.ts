@@ -13,12 +13,12 @@ import type { Page } from '@playwright/test';
 import {
   UPI_STEP,
   WELCOME,
+  accountPage,
   back,
   button,
   currencyBox,
   makeAccount,
   pressable,
-  section,
   tab,
   tickCurrencies,
 } from '../src/actions';
@@ -105,7 +105,7 @@ test.describe('the first screen', () => {
 
     await makeAccount(page, '   Yash Gandhi   ');
     await tab(page, 'Account');
-    await expect(page.getByText('Signed in as')).toBeVisible();
+    await expect(page.getByText('Signed in on this device')).toBeVisible();
     await expect(page.getByText('Yash Gandhi', { exact: true })).toBeVisible();
   });
 
@@ -127,7 +127,7 @@ test.describe('the first screen', () => {
     await page.goto('/');
     await makeAccount(page, 'Sats', { currencies: ['BTC'] });
     await page.reload();
-    await tab(page, 'Account');
+    await accountPage(page, 'Currencies');
     await expect(currencyBox(page, 'INR')).not.toBeChecked();
     await expect(currencyBox(page, 'BTC')).toBeChecked();
   });
@@ -178,7 +178,7 @@ test.describe('the first screen', () => {
     await untouched.page.goto('/');
     await signIn(untouched.page);
     expect(await untouched.page.evaluate(() => localStorage.getItem('sattle.currencies'))).toBeNull();
-    await tab(untouched.page, 'Account');
+    await accountPage(untouched.page, 'Currencies');
     await expect(currencyBox(untouched.page, 'INR')).toBeChecked();
     await expect(currencyBox(untouched.page, 'BTC')).toBeChecked();
 
@@ -187,7 +187,7 @@ test.describe('the first screen', () => {
     await picked.page.goto('/');
     await tickCurrencies(picked.page, ['BTC']);
     await signIn(picked.page);
-    await tab(picked.page, 'Account');
+    await accountPage(picked.page, 'Currencies');
     await expect(currencyBox(picked.page, 'INR')).not.toBeChecked();
     await expect(currencyBox(picked.page, 'BTC')).toBeChecked();
   });
@@ -229,8 +229,8 @@ test.describe('the UPI step', () => {
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     const token = await page.evaluate(() => localStorage.getItem('sattle.token'));
     expect(await api.as(token).get('/me/upi')).toEqual({ upiId: 'yash@okhdfcbank', onGroupLinks: true });
-    await tab(page, 'Wallet');
-    await expect(section(page, 'UPI').getByText('yash@okhdfcbank', { exact: true })).toBeVisible();
+    await tab(page, 'Account');
+    await expect(page.getByRole('button', { name: 'UPI ID, yash@okhdfcbank' })).toBeVisible();
   });
 
   test('warns about a phone number in the ID, and saves it anyway', async ({ device }) => {
@@ -309,7 +309,7 @@ test.describe('the tour', () => {
     await expect(page.getByText('Settle up your way')).toBeVisible();
     await expect(page.getByText('UPI', { exact: true })).toBeVisible();
     await expect(page.getByText('Bitcoin, over Lightning')).toHaveCount(0);
-    await expect(page.getByText(/To get paid yourself, add a UPI ID under Wallet\.$/)).toBeVisible();
+    await expect(page.getByText(/To get paid yourself, add a UPI ID under Account\.$/)).toBeVisible();
   });
 
   test('skipping is remembered too', async ({ device }) => {
@@ -344,16 +344,18 @@ test.describe('rupees alone', () => {
     await page.goto('/');
     await makeAccount(page, 'Yash', { currencies: ['INR'] });
 
-    await tab(page, 'Wallet');
-    await expect(page.getByText('Get paid by UPI')).toBeVisible();
-    await expect(page.getByText('Your own wallet', { exact: true })).toHaveCount(0);
+    await tab(page, 'Account');
+    await expect(page.getByText('UPI ID', { exact: true })).toBeVisible();
+    await expect(page.getByText('Lightning wallet', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Lightning address', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Nostr', { exact: true })).toHaveCount(0);
+    await accountPage(page, 'What you’re trusting');
     await expect(page.getByText(/or a Nostr key linked there/)).toHaveCount(0);
 
-    await tab(page, 'Account');
-    await expect(page.getByText('Sign in with Nostr', { exact: true })).toHaveCount(0);
+    await accountPage(page, 'Currencies');
     await currencyBox(page, 'BTC').click();
-    await expect(section(page, 'Sign in with Nostr').getByPlaceholder('bunker://…')).toBeVisible();
+    await accountPage(page, 'Nostr');
+    await expect(page.getByPlaceholder('bunker://…')).toBeVisible();
   });
 });
 
@@ -385,7 +387,7 @@ test.describe('I have a sign-in key', () => {
   test('the key copied from Account signs a second device in as the same person', async ({ person, device }) => {
     const owner = await person('Owner');
     await owner.api.seedGroup({ name: 'Owner’s flat', people: ['Mo'] });
-    await tab(owner.page, 'Account');
+    await accountPage(owner.page, 'Sign-in key');
     await button(owner.page, 'Copy sign-in key').click();
     const shown = owner.page.getByText(/^sattle-signin:[A-Za-z0-9_-]{43}$/);
     await expect(shown).toBeVisible();
@@ -399,7 +401,7 @@ test.describe('I have a sign-in key', () => {
     await page.getByPlaceholder('sattle-signin:…').fill(key);
     await button(page, 'Sign in').click();
     await expect(page.getByText('Owner’s flat')).toBeVisible();
-    // An account that already exists isn't asked its UPI ID: that's Wallet's, if it has one.
+    // An account that already exists isn't asked its UPI ID: that's under Account, if it has one.
     await expect(page.getByText(UPI_STEP)).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('sattle.token'))).toBe(owner.token);
 

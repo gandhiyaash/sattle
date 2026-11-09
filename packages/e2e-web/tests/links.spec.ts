@@ -28,6 +28,7 @@ import {
   tokenOf,
   clipboard,
   currencyBox,
+  accountPage,
 } from '../src/actions';
 import { WEB_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
@@ -445,7 +446,7 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(guest.page.getByText('Priya (you)')).toBeVisible();
     await closePeople(guest.page);
     await tab(guest.page, 'Account');
-    await expect(guest.page.getByText('Signed in as')).toBeVisible();
+    await expect(guest.page.getByText('Signed in on this device')).toBeVisible();
     await expect(guest.page.getByText('Priya', { exact: true })).toBeVisible();
 
     await expect(memberRow(yash.page, 'Priya').getByText('Joined', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -485,9 +486,11 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(guest.page.getByText('Goa trip', { exact: true })).toBeVisible();
     // A rupee group: rupees alone, so nothing of bitcoin or Nostr, and Account can change that.
     await tab(guest.page, 'Account');
+    await expect(guest.page.getByText('Nostr', { exact: true })).toHaveCount(0);
+    await expect(guest.page.getByText('Lightning wallet', { exact: true })).toHaveCount(0);
+    await accountPage(guest.page, 'Currencies');
     await expect(currencyBox(guest.page, 'INR')).toBeChecked();
     await expect(currencyBox(guest.page, 'BTC')).not.toBeChecked();
-    await expect(guest.page.getByText('Sign in with Nostr', { exact: true })).toHaveCount(0);
   });
 
   test('a typed name that is already on the list, or already joined, is refused with the right words', async ({
@@ -979,11 +982,11 @@ test.describe('Paying from the group page by UPI', () => {
     await expect(button(guest.page, 'Pay by UPI')).toBeVisible();
     expect((await api.raw('GET', `/g/${token}/debts/${ref}/upi`, undefined, { token: null })).status).toBe(200);
 
-    // For all their groups, from Wallet.
-    await tab(yash.page, 'Wallet');
-    const upi = section(yash.page, 'UPI');
+    // For all their groups, from Account.
+    await accountPage(yash.page, 'UPI ID');
+    const upi = yash.page;
     await button(upi, 'Turn off for shared links').click();
-    await expect(upi.getByText(/^Off\. Someone paying from a group’s shared link, without the app, can’t pay you by UPI\./)).toBeVisible();
+    await expect(upi.getByText('Off. Paying from a group link can’t use UPI.')).toBeVisible();
     await expect(button(guest.page, 'Pay by UPI')).toBeHidden({ timeout: 15_000 });
     await expect(button(guest.page, 'Pay with Lightning')).toBeVisible();
     const refused = await api.raw<{ code: string }>('GET', `/g/${token}/debts/${ref}/upi`, undefined, { token: null });
@@ -997,12 +1000,12 @@ test.describe('Paying from the group page by UPI', () => {
     await openGroup(yash.page, 'Goa trip', { reload: true });
     await openManage(yash.page);
     const link = section(yash.page, 'Group link');
-    await expect(link.getByText('On, as in Wallet for all your groups.')).toBeVisible();
+    await expect(link.getByText('On, as under Account for all your groups.')).toBeVisible();
     await button(link, 'Turn off for this group').click();
     await expect(link.getByText('Off, chosen for this group.')).toBeVisible();
     await expect(button(guest.page, 'Pay by UPI')).toBeHidden({ timeout: 15_000 });
-    await button(link, 'Use my Wallet setting here').click();
-    await expect(link.getByText('On, as in Wallet for all your groups.')).toBeVisible();
+    await button(link, 'Use my Account setting here').click();
+    await expect(link.getByText('On, as under Account for all your groups.')).toBeVisible();
     await expect(button(guest.page, 'Pay by UPI')).toBeVisible({ timeout: 15_000 });
   });
 });

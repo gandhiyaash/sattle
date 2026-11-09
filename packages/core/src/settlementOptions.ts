@@ -203,7 +203,7 @@ function blockedFor(recipient: Member, mode: PaymentMode, ways: PayWays): NonNul
   if (!ways.lightning) {
     if (recipient.claimedByUserId) {
       return {
-        message: `${name} hasn't added a UPI ID yet, so there's nowhere to pay them here. Ask them to add one from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
+        message: `${name} hasn't added a UPI ID yet, so there's nowhere to pay them here. Ask them to add one from Account in Sattle. If you paid another way, ask them to mark it settled.`,
         remedies: ['remind'],
       };
     }
@@ -223,7 +223,7 @@ function blockedFor(recipient: Member, mode: PaymentMode, ways: PayWays): NonNul
     return {
       message: `${name} hasn't set up a way to get paid yet. Ask them to ${
         ways.upi ? 'add a UPI ID, connect a wallet' : 'connect a wallet'
-      } or add their Lightning address from Wallet in Sattle. If you paid another way, ask them to mark it settled.`,
+      } or add their Lightning address from Account in Sattle. If you paid another way, ask them to mark it settled.`,
       remedies: ['remind'],
     };
   }

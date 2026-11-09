@@ -1,258 +1,180 @@
 /**
- * Your account: who you're signed in as, what you use, and the way out.
+ * Account: who you're signed in as, and every setting, as short rows in
+ * groups the way a phone's Settings are. Each row shows where it stands and
+ * opens a page with the rest (AccountPages):
  *
- * An account here is a name and a key on this device, so there is little to
- * manage. The key can be copied, which is how the account gets onto another
- * device or back after this one's data is cleared, and replaced if it may
- * have got out, which signs out every other device. Which currencies they use
- * is the one setting for the whole app, as opposed to one group's
- * (GroupSettingsScreen): the first screen asks, and this is where one is
- * turned off or added back. A Nostr key is only offered to someone who uses
- * bitcoin, or who linked one already, so they can unlink it. Deleting the
- * account is the one thing that can't
- * be taken back, and it reaches into every group, so the screen spells out
- * what goes and what stays before the second tap.
+ *   Get paid      UPI ID, Lightning wallet, Lightning address (and the demo's
+ *                 in-app wallet), only the ones that go with what they use,
+ *                 or that they've set up already (useGetPaid)
+ *   Preferences   currencies, and appearance, chosen right here
+ *   Sign-in       the sign-in key, and Nostr for someone who uses bitcoin or
+ *                 has a key linked already
+ *   About         the FAQ, what you're trusting, the privacy policy
+ *   Delete account, last, on its own
+ *
+ * Nothing on it is long: what each thing means is on its page, and how it
+ * works is in the FAQ.
  */
 
-import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { Linking, Pressable, Text, View } from 'react-native';
 
-import { NOSTR_AUTH_PATHS, type User } from '@sattle/core';
-import { signInKey } from '../account/signInKey';
-import { readToken, writeToken } from '../account/tokenStore';
+import type { PayWays } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
+import { useFirstLoad, useViewPart } from '../data/useAppData';
 import { showsNostr } from '../prefs/currencyPrefs';
-import { chooseCurrencies, useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
-import { useAppData, useFirstLoad, useViewPart } from '../data/useAppData';
-import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
-import { CurrencyPicker } from './CurrencyPicker';
-import { NostrKeyForm } from './NostrKeyForm';
-import { copyText } from './share';
-import { Button, Card, ConfirmButton, ErrorState, Loading, Screen, SectionLabel } from './primitives';
-import { makeStyles, space, type } from './theme';
+import { useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
+import { isMock, useWallet } from '../react/SattleProvider';
+import { APP_URL } from '../react/useSettleFlow';
+import { AppearancePicker, PAGE_TITLES, useGetPaid, type AccountPage } from './AccountPages';
+import { Avatar, Card, Divider, ErrorState, Glyph, Loading, Screen, SectionLabel } from './primitives';
+import { makeStyles, space, type, useColors } from './theme';
 
 export interface AccountScreenProps {
-  onBack: () => void;
-  /** The account is gone from the server. Whoever owns the token forgets it. */
-  onDeleted: () => void;
-  /** The account has a new sign-in key, already saved on this device. Whoever holds the client switches to it. */
-  onKeyReplaced?: (token: string) => void;
+  onOpen: (page: AccountPage) => void;
+  /** The FAQ, for the ways to get paid on show here. */
+  onOpenFaq: (ways: PayWays) => void;
 }
 
-export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScreenProps) {
+export function AccountScreen({ onOpen, onOpenFaq }: AccountScreenProps) {
   useScreenView('Account');
   const s = useStyles();
-  const client = useClient();
   const prefs = useCurrencyPrefs();
+  const wallet = useWallet();
   // Who they are is what the app already has (AppData): nothing to wait for.
-  const data = useViewPart((v) => v?.user);
+  const user = useViewPart((v) => v?.user);
   const first = useFirstLoad();
-  const loading = first.waiting;
-  const error = first.error;
-  const reload = first.retry;
-  // Deleting forgets a connected wallet whether or not they still use bitcoin, so someone who
-  // turned it off with one connected is told too. If this can't be read, what they use decides.
-  const wallet = useAsync(() => client.getWalletConnection(), [], { key: 'wallet', save: true });
-  const forgetsWallet = prefs.uses.includes('BTC') || Boolean(wallet.data?.connected);
+  const { connection, receiveAt, upi, show, ways } = useGetPaid();
+  // The demo's in-app wallet holds sats, so it goes with Lightning.
+  const demoWallet = wallet.isAvailable && ways.lightning;
+  const nostr = !isMock() && Boolean(user) && (showsNostr(prefs) || Boolean(user?.npub));
+  const row = (page: AccountPage, value?: string) => (
+    <Row key={page} label={PAGE_TITLES[page]} value={value} onPress={() => onOpen(page)} />
+  );
+
+  const getPaid = [
+    show.upi && row('upi', upi.data ? (upi.data.upiId ?? 'Add') : undefined),
+    show.wallet &&
+      row('lightningWallet', connection.data ? (connection.data.connected ? (connection.data.alias ?? 'Connected') : 'Connect') : undefined),
+    show.address && row('lightningAddress', receiveAt.data ? (receiveAt.data.address ?? 'Add') : undefined),
+    demoWallet && row('demoWallet'),
+  ].filter(Boolean);
 
   return (
-    <Screen title="Account" onBack={onBack}>
-      {loading && <Loading lines={1} />}
-      {error && <ErrorState message={error.message} error={error} onRetry={reload} />}
+    <Screen title="Account">
+      {first.waiting && !user && <Loading lines={1} />}
+      {first.error && !user && <ErrorState message={first.error.message} error={first.error} onRetry={first.retry} />}
 
-      {data && (
-        <Card style={{ gap: space.xs }}>
-          <Text style={s.label}>Signed in as</Text>
-          <Text style={s.name}>{data.displayName}</Text>
-          <Text style={s.body}>
-            Your account lives on this device. There’s no email or password: your sign-in key is the only way back
-            into it.
-          </Text>
-        </Card>
+      {user && (
+        <View style={s.me}>
+          <Avatar name={user.displayName} me size={56} />
+          <View style={{ flex: 1 }}>
+            <Text style={s.name} numberOfLines={1}>
+              {user.displayName}
+            </Text>
+            <Text style={s.meta}>Signed in on this device</Text>
+          </View>
+        </View>
       )}
 
-      {data && !isMock() && <SignInKeyCard onReplaced={onKeyReplaced} />}
+      <Group label="Get paid">{getPaid}</Group>
 
-      {/* Nostr goes with bitcoin. A key already linked stays on show, to be unlinked. */}
-      {data && !isMock() && (showsNostr(prefs) || Boolean(data.npub)) && <NostrCard user={data} />}
-
-      {/* Kept on this device, so there is nothing to wait for and nothing here that can fail. */}
-      <View>
-        <SectionLabel>Currencies</SectionLabel>
-        <CurrencyPicker prefs={prefs} onChange={chooseCurrencies} />
-        <Text style={s.note}>
-          Turning one off only hides it. A group keeps its currency, so one kept in bitcoin still shows Lightning.
-          Without bitcoin, Nostr is hidden too. What you’ve set up to get paid stays until you remove it in Wallet.
-        </Text>
-      </View>
-
-      {data && (
-        <View>
-          <SectionLabel>Delete account</SectionLabel>
-          <Card style={{ gap: space.md }}>
-            <Text style={s.body}>
-              This ends your account for good. {forgetsWallet ? 'Your wallet connection is forgotten, the' : 'The'}{' '}
-              links you sent stop working, and you leave every group. A group only you could open is deleted.
-            </Text>
-            <Text style={s.body}>
-              In groups you share, your name and balance stay, because the others’ records still need them. Anything
-              owed to you there can then be marked settled by whoever owes it.
-            </Text>
-            <ConfirmButton
-              label="Delete my account"
-              confirmLabel="Yes, delete my account"
-              onConfirm={async () => {
-                // What's queued, this screen and these taps, goes under the account while it's live,
-                // so deleting it deletes them too. Never throws.
-                await analytics.flush();
-                await client.deleteAccount();
-                onDeleted();
-              }}
-            />
-          </Card>
+      <Group label="Preferences">
+        {row('currencies', currencyNames(prefs.uses))}
+        <View style={s.appearance}>
+          <Text style={s.label}>Appearance</Text>
+          <AppearancePicker />
         </View>
+      </Group>
+
+      {user && !isMock() && (
+        <Group label="Sign-in">
+          {row('signInKey')}
+          {nostr && row('nostr', user.npub ? 'Linked' : undefined)}
+        </Group>
+      )}
+
+      <Group label="About">
+        <Row label="FAQ" onPress={() => onOpenFaq(ways)} />
+        {row('trust')}
+        <Row label="Privacy policy" external onPress={() => Linking.openURL(`${APP_URL}/privacy`)} />
+      </Group>
+
+      {user && (
+        <Card style={{ padding: 0 }}>
+          <Row label={PAGE_TITLES.delete} danger onPress={() => onOpen('delete')} />
+        </Card>
       )}
     </Screen>
   );
 }
 
-/**
- * The key to this account, for another device or for after this one is
- * wiped. It is the account, so it's shown only after a tap, and the card
- * says what it can do in the wrong hands, and how to end a key that got out.
- */
-function SignInKeyCard({ onReplaced }: { onReplaced?: (token: string) => void }) {
-  const s = useStyles();
-  const client = useClient();
-  // A retry after a lost answer replays it, so this device isn't left holding a dead key.
-  const keys = useActionKeys();
-  const [key, setKey] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+const currencyNames = (uses: readonly string[]) =>
+  uses.map((c) => (c === 'BTC' ? 'Bitcoin' : 'Rupees')).join(' · ');
 
-  const appData = useAppData();
-
-  const replace = async () => {
-    // From the moment the server swaps the keys until the new one is saved here, a request made
-    // with the old one is turned away: that's not this device being signed out.
-    const release = appData.holdSignOut();
-    let token: string;
-    try {
-      token = await keys.run('replace-key', {}, (k) => client.replaceSignInKey(k));
-      // Saved before anything else: the old key no longer signs in, so a reload needs this one.
-      await writeToken(token);
-    } finally {
-      release();
-    }
-    onReplaced?.(token);
-    setKey(signInKey(token));
-    setNote(
-      'Done. The old key and every device signed in with it are signed out. This is your new key: save it where the old one was.'
-    );
-  };
-
-  const copy = async () => {
-    const token = await readToken();
-    if (!token) {
-      setNote('This device has no key to copy.');
-      return;
-    }
-    const k = signInKey(token);
-    setKey(k);
-    setNote(await copyText(k));
-  };
-
+/** A labelled card of rows, with a line between each. */
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (items.length === 0) return null;
   return (
     <View>
-      <SectionLabel>Use this account elsewhere</SectionLabel>
-      <Card style={{ gap: space.md }}>
-        <Text style={s.body}>
-          Your sign-in key gets you into this account on another phone or browser, or back into it here after clearing
-          this device’s data. On the welcome screen, tap Other ways to sign in, then I have a sign-in key, and paste it.
-        </Text>
-        <Text style={s.body}>
-          Keep it like a password, in a password manager say. Anyone with it can act as you in all your groups.
-        </Text>
-        <Button label="Copy sign-in key" onPress={copy} />
-        {note && <Text style={s.caption}>{note}</Text>}
-        {key && (
-          <Text style={s.key} selectable>
-            {key}
-          </Text>
-        )}
-        <Text style={s.body}>
-          If your key may have got out, or you’ve lost a phone that was signed in, replace it. Every other device
-          signed in with the old key is signed out, and this one gets the new key.
-        </Text>
-        <ConfirmButton label="Replace sign-in key" confirmLabel="Yes, sign out my other devices" onConfirm={replace} />
+      <SectionLabel>{label}</SectionLabel>
+      <Card style={{ padding: 0 }}>
+        {items.map((child, i) => (
+          <View key={i}>
+            {i > 0 && <Divider />}
+            {child}
+          </View>
+        ))}
       </Card>
     </View>
   );
 }
 
-/**
- * A Nostr key linked to the account. Signing in with it opens the account on
- * a device with nothing on it, which a sign-in key also does, but people
- * already keep a Nostr key somewhere safe and on more than one device. For
- * a group nobody else has joined, it's the only way back in.
- */
-function NostrCard({ user }: { user: User }) {
-  const appData = useAppData();
-  // The account as the server now has it, in what the app keeps, so coming back here shows the same.
-  const known = (next: User) => {
-    appData.known((v) => ({ ...v, user: next }));
-    void appData.sync();
-    return next.npub;
-  };
+/** One setting: its name, where it stands, and a chevron to its page (an arrow out, for a link). */
+function Row({
+  label,
+  value,
+  onPress,
+  danger,
+  external,
+}: {
+  label: string;
+  value?: string;
+  onPress: () => void;
+  danger?: boolean;
+  external?: boolean;
+}) {
+  const color = useColors();
   const s = useStyles();
-  const client = useClient();
-  const [npub, setNpub] = useState(user.npub);
-
   return (
-    <View>
-      <SectionLabel>Sign in with Nostr</SectionLabel>
-      <Card style={{ gap: space.md }}>
-        {npub ? (
-          <>
-            <Text style={s.body}>Linked to</Text>
-            <Text style={s.key} selectable numberOfLines={1}>
-              {npub}
-            </Text>
-            <Text style={s.body}>
-              On a new phone or browser, tap Other ways to sign in on the welcome screen, then Sign in with Nostr, to
-              get back into this account, with all your groups.
-            </Text>
-            <ConfirmButton
-              label="Unlink this key"
-              confirmLabel="Yes, unlink it"
-              onConfirm={async () => setNpub(known(await client.unlinkNostr()))}
-            />
-          </>
-        ) : (
-          <>
-            <Text style={s.body}>
-              Link your Nostr key, and signing in with it opens this account on any device, even if you lose this one
-              and your sign-in key. That includes groups nobody else has joined, where there’s nobody to let you back
-              in.
-            </Text>
-            <Text style={s.body}>Sattle never sees your private key: your signer signs a one-time check.</Text>
-            <NostrKeyForm
-              path={NOSTR_AUTH_PATHS.link}
-              action="link it"
-              onProof={async (event) => setNpub(known(await client.linkNostr(event)))}
-            />
-          </>
-        )}
-      </Card>
-    </View>
+    <Pressable
+      onPress={() => {
+        analytics.tap(label, { control: 'row' });
+        onPress();
+      }}
+      accessibilityRole={external ? 'link' : 'button'}
+      accessibilityLabel={value ? `${label}, ${value}` : label}
+      style={({ pressed }) => [s.row, pressed && { backgroundColor: color.surfaceSunken }]}
+    >
+      <Text style={[s.rowLabel, danger && { color: color.danger }]}>{label}</Text>
+      {/* Takes the space between, so the chevron sits at the end with or without a value. */}
+      <Text style={s.rowValue} numberOfLines={1}>
+        {value ?? ''}
+      </Text>
+      {!danger && <Glyph name={external ? 'share' : 'chevronRight'} ink={color.inkFaint} size={16} weight={2.2} />}
+    </Pressable>
   );
 }
 
 const useStyles = makeStyles((color) => ({
-  label: { ...type.label, color: color.inkMuted },
-  name: { ...type.title, color: color.ink },
-  body: { ...type.body, color: color.inkMuted },
-  caption: { ...type.caption, color: color.inkMuted },
-  key: { ...type.amountSm, color: color.ink },
-  note: { ...type.caption, color: color.inkFaint, lineHeight: 18, marginTop: space.sm },
+  me: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm },
+  name: { ...type.title, fontSize: 22, color: color.ink },
+  meta: { ...type.caption, color: color.inkFaint, marginTop: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 50, paddingHorizontal: space.lg },
+  rowLabel: { ...type.body, color: color.ink, flexShrink: 0 },
+  rowValue: { ...type.body, color: color.inkFaint, flex: 1, textAlign: 'right' },
+  label: { ...type.body, color: color.ink },
+  appearance: { gap: space.sm, padding: space.lg },
 }));

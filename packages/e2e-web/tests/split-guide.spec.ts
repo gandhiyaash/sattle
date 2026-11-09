@@ -378,7 +378,9 @@ test.describe('where it’s drawn', () => {
 });
 
 test.describe('where it’s drawn on a small phone', () => {
-  test.use({ viewport: { width: 360, height: 640 } });
+  // Short enough that the whole split card can't be lit with room for the tip. The expense form has
+  // the whole screen, with no tab bar under it, so it's shorter than the phones that used to do it.
+  test.use({ viewport: { width: 360, height: 580 } });
 
   test('with no room beside the whole split card, the tip lights Split differently alone', async ({ person }) => {
     const { page } = await newcomer(person);

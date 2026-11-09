@@ -299,6 +299,38 @@ export interface ExpenseChange {
   at: string;
 }
 
+/**
+ * A change to a group itself, rather than to what's owed in it: a setting
+ * turned on or off, a rename, someone added, removed, joining or leaving, or
+ * the group's link made, replaced or turned off. Names are as they were when
+ * it happened, so the log still reads right after someone is renamed or gone.
+ */
+export type GroupChange =
+  | { kind: 'simplify_debts'; on: boolean }
+  | { kind: 'approve_joins'; on: boolean }
+  | { kind: 'renamed'; from: string; to: string }
+  | { kind: 'member_added'; name: string }
+  | { kind: 'member_removed'; name: string }
+  /** `byMemberId` is who joined, from the link, at once. */
+  | { kind: 'joined'; name: string }
+  /** `byMemberId` let them in; `name` is who was let in. */
+  | { kind: 'let_in'; name: string }
+  /** `byMemberId` is who left. */
+  | { kind: 'left'; name: string }
+  | { kind: 'link_made' }
+  | { kind: 'link_replaced' }
+  | { kind: 'link_off' };
+
+/** One line of a group's log (GET /groups/:id/log): what changed, when, and who changed it. */
+export interface GroupLogEntry {
+  id: string;
+  groupId: string;
+  at: string;
+  /** The member who did it. Absent only if that wasn't known. */
+  byMemberId?: string;
+  change: GroupChange;
+}
+
 interface HistoryEntryBase {
   id: string;
   /** When it happened. For a settlement, when it was paid or marked as paid. */
@@ -320,6 +352,8 @@ export type HistoryEntry = HistoryEntryBase &
     | { kind: 'expense_removed'; before?: Expense }
     /** A debt paid. Only settlements the ledger counts: one that failed or ran out isn't here. */
     | { kind: 'settled'; settlement: Settlement }
+    /** The group itself changed (GroupLogEntry). */
+    | { kind: 'group_changed'; change: GroupChange }
   );
 
 // -- groups ----------------------------------------------------------------
@@ -660,6 +694,8 @@ export interface GroupSnapshot {
   upiClaims: UpiClaim[];
   /** Who is waiting to be let in, oldest first. */
   pendingJoins: PendingJoin[];
+  /** What's changed about the group, and who changed it, oldest first (GET /groups/:id/log). */
+  log: GroupLogEntry[];
 }
 
 /**
