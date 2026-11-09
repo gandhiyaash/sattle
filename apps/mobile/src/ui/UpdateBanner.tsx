@@ -1,7 +1,8 @@
 /**
  * One quiet line above the tab bar while an update is on offer, downloading,
  * or downloaded and waiting for a restart. Renders nothing the rest of the
- * time, and always nothing on iOS and the web.
+ * time, and always nothing on the web. On an iPhone it only ever offers the
+ * update: the App Store downloads and installs it.
  */
 
 import React from 'react';
