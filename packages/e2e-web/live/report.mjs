@@ -1,7 +1,7 @@
 // The WhatsApp message for a live check (.github/workflows/live-check.yml), and whether to send it.
 //
 // After a publish (or a deploy run on its own) Om always hears: pass or fail, and how the publish
-// itself went. The daily run only speaks up when something failed. A run started by hand always
+// itself went. The 12-hourly run only speaks up when something failed. A run started by hand always
 // reports, so the wiring can be tried.
 //
 // Reads live-results.json (Playwright's JSON report; missing when the check couldn't run at all)
@@ -56,7 +56,7 @@ if (allOk) {
 if (afterPublish) {
   lines.push(`After ${upstream} (${env.UPSTREAM_CONCLUSION || 'unknown'}) of ${env.UPSTREAM_SHA?.slice(0, 7) || 'main'}`);
 } else if (trigger === 'schedule') {
-  lines.push('Daily check');
+  lines.push('Scheduled check (every 12 hours)');
 } else {
   lines.push('Started by hand');
 }

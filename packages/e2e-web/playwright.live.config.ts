@@ -4,7 +4,7 @@ import { LIVE_WEB_URL } from './live/env';
 
 /**
  * The live check: a few tests against the hosted app and API (live/), run by
- * .github/workflows/live-check.yml after every publish and once a day. Nothing
+ * .github/workflows/live-check.yml after every publish and every 12 hours. Nothing
  * is started here; LIVE_WEB_URL and LIVE_API_URL say where to look.
  *
  * Production has real people on it, so these only read, except one account

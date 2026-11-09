@@ -1,8 +1,8 @@
 name: live-check
 
 # The hosted app and API, tested from outside (packages/e2e-web/live): after every publish, after
-# a deploy run on its own, and once a day. It messages Om on WhatsApp through wa-relay: always
-# after a publish or deploy, pass or fail; from the daily run only when something failed. A failed
+# a deploy run on its own, and every 12 hours. It messages Om on WhatsApp through wa-relay: always
+# after a publish or deploy, pass or fail; from the 12-hourly run only when something failed. A failed
 # check also fails this workflow, so GitHub flags it too.
 #
 # Secrets (repo settings, never in the repo or the log):
@@ -15,8 +15,8 @@ on:
     workflows: [publish, deploy]
     types: [completed]
   schedule:
-    # 09:00 IST.
-    - cron: '30 3 * * *'
+    # Every 12 hours: 09:00 and 21:00 IST.
+    - cron: '30 3,15 * * *'
   workflow_dispatch:
 
 permissions:
