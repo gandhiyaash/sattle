@@ -12,10 +12,10 @@ import { requireOptionalNativeModule } from 'expo';
 import { parseUpiResponse } from '@sattle/core';
 
 import type { UpiLauncher } from './launchUpi';
-import type { UpiApp } from './upiApps';
+import { refusesLinks, type UpiApp } from './upiApps';
 
 interface UpiAppsModule {
-  list(uri: string): Promise<UpiApp[]>;
+  list(uri: string): Promise<Omit<UpiApp, 'takesLink'>[]>;
   pay(uri: string, packageName: string | null): Promise<{ resultCode: number; extra?: Record<string, unknown> }>;
   open(packageName: string): void;
 }
@@ -28,7 +28,8 @@ const PROBE = 'upi://pay?pa=sattle@upi';
 const native = requireOptionalNativeModule<UpiAppsModule>('SattleUpiApps');
 
 export const upiLauncher: UpiLauncher | null = native && {
-  apps: () => native.list(PROBE),
+  hearsBack: true,
+  apps: async () => (await native.list(PROBE)).map((app) => ({ ...app, takesLink: !refusesLinks(app) })),
   pay: async (uri, app) => parseUpiResponse((await native.pay(uri, app?.packageName ?? null)).extra),
-  open: (app) => native.open(app.packageName),
+  open: async (app) => native.open(app.packageName),
 };
