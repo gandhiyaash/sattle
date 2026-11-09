@@ -85,7 +85,8 @@ export interface ActivityItem {
  */
 export function activityOf(view: SyncView, limit = 200): ActivityItem[] {
   const items: ActivityItem[] = [];
-  for (const { group, members, expenses, settlements, log } of view.groups) {
+  // A server from before group logs (027) sends none, and that answer can be kept: read it as empty.
+  for (const { group, members, expenses, settlements, log = [] } of view.groups) {
     const me = members.find((m) => isHeldBy(m, view.user.id))?.id;
     /** "You" for the user, at the start of a line; "you" further in. */
     const name = (id: string | undefined, start = true) =>

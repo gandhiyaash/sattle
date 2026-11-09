@@ -156,6 +156,14 @@ describe('activityOf', () => {
     ]);
   });
 
+  it('reads a group with no log, from a server that keeps none, as one with nothing changed', () => {
+    const { log: _none, ...old } = snapshot('g-flat', 'Flat', flatMembers, [
+      expense('Rent', 'g-flat', 2000, 'm-yash', ['m-riya2', 'm-yash'], '2026-11-03T10:00:00.000Z'),
+    ]);
+    const items = activityOf(view([old as GroupSnapshot]));
+    expect(items.map((i) => i.title)).toEqual(['Rent']);
+  });
+
   it('leaves out payments that didn’t go through, and keeps to the limit', () => {
     const items = activityOf(
       view([
