@@ -6,6 +6,7 @@
  */
 
 import {
+  buildHistory,
   computeBalances,
   groupDebts,
   isHeldBy,
@@ -42,6 +43,72 @@ export function groupRowsOf(view: SyncView): GroupRow[] {
       expenseCount: expenses.length,
     };
   });
+}
+
+/** One line of the Activity tab: an expense added, or a debt settled, in one of the user's groups. */
+export interface ActivityItem {
+  /** Unique across groups. */
+  id: string;
+  groupId: string;
+  groupName: string;
+  currency: string;
+  at: string;
+  kind: 'expense' | 'payment';
+  /** The expense's description, or who paid whom, with "You" for the user. */
+  title: string;
+  /** For an expense, who paid it; for a payment, how. */
+  detail: string;
+  amount: number;
+  /**
+   * What it did for the user, signed as a balance is: more than 0 they're owed
+   * it, or it came to them; less than 0 they owe it, or they paid it. Null
+   * when they weren't in it.
+   */
+  mine: number | null;
+}
+
+/**
+ * Every group's expenses and settled debts, newest first, as one list. Read
+ * from what the app already has (the groups' expenses and settlements), so it
+ * needs nothing of its own from the server. Edits and removals are each
+ * group's History; this is what was spent and what was paid.
+ */
+export function activityOf(view: SyncView, limit = 200): ActivityItem[] {
+  const items: ActivityItem[] = [];
+  for (const { group, members, expenses, settlements } of view.groups) {
+    const me = members.find((m) => isHeldBy(m, view.user.id))?.id;
+    const name = (id: string) => (id === me ? 'You' : (members.find((m) => m.id === id)?.displayName ?? 'Someone'));
+    for (const entry of buildHistory(expenses, [], settlements)) {
+      const base = { id: `${group.id}:${entry.id}`, groupId: group.id, groupName: group.name, currency: group.currency, at: entry.at };
+      if (entry.kind === 'expense_added') {
+        const e = entry.expense;
+        const part = e.parts.find((p) => p.memberId === me)?.amount ?? 0;
+        const paid = e.paidByMemberId === me;
+        items.push({
+          ...base,
+          kind: 'expense',
+          title: e.description,
+          detail: `${name(e.paidByMemberId)} paid`,
+          amount: e.amount,
+          mine: paid ? e.amount - part : part > 0 ? -part : null,
+        });
+      } else if (entry.kind === 'settled') {
+        const st = entry.settlement;
+        const from = name(st.fromMemberId);
+        const to = name(st.toMemberId);
+        items.push({
+          ...base,
+          kind: 'payment',
+          // Marked as settled covers cash and a debt let go, so it doesn't say that anything was paid.
+          title: `${from} ${st.rail === 'manual' ? 'settled with' : 'paid'} ${to === 'You' ? 'you' : to}`,
+          detail: st.rail === 'manual' ? 'Marked as settled' : st.rail === 'upi' ? 'UPI' : 'Lightning',
+          amount: st.amount,
+          mine: st.fromMemberId === me ? -st.amount : st.toMemberId === me ? st.amount : null,
+        });
+      }
+    }
+  }
+  return items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, limit);
 }
 
 /** Everything the group's screen shows. */
