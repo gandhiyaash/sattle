@@ -55,6 +55,7 @@ function snapshot(id: string, name: string, members: Member[], expenses: Expense
     settlements,
     upiClaims: [],
     pendingJoins: [],
+    log: [],
   };
 }
 

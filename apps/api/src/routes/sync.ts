@@ -10,7 +10,7 @@
  *
  * Every part is built by the same function as the route that answers it on
  * its own (GET /groups/:id, /members, /expenses, /settlements, /upi-claims,
- * /join-requests, /me, /me/upi, /me/join-requests), so the app shows the same
+ * /join-requests, /log, /me, /me/upi, /me/join-requests), so the app shows the same
  * thing either way. sync.test.ts holds them to it, byte for byte.
  *
  * `?group=<id>`, as many as needed, answers for those groups only: the rest of
@@ -72,6 +72,7 @@ export function syncRoutes(ctx: Ctx) {
           // The debts are worked out once, from what was just read, rather than read again for the claims.
           upiClaims: me ? upiClaimsFor(repo, group, me.id, groupDebts(group, expenses, settlements)) : [],
           pendingJoins: pendingJoinsOf(repo, group.id, user.id),
+          log: repo.groupLog(group.id),
         };
       }),
       joinRequests: joinRequestsOfUser(repo, user.id),

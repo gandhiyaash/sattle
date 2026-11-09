@@ -16,7 +16,9 @@ import {
   type ExpenseChange,
   type Debt,
   type Group,
+  type GroupChange,
   type GroupLink,
+  type GroupLogEntry,
   type JoinRequest,
   type Member,
   type PayLink,
@@ -90,6 +92,14 @@ const toExpenseChange = (r: Row): ExpenseChange => ({
   after: r.expense ? JSON.parse(r.expense as string) : undefined,
   byMemberId: opt(r.by_member_id),
   at: r.created_at as string,
+});
+
+const toLogEntry = (r: Row): GroupLogEntry => ({
+  id: String(r.id),
+  groupId: r.group_id as string,
+  at: r.created_at as string,
+  byMemberId: opt(r.by_member_id),
+  change: JSON.parse(r.change as string) as GroupChange,
 });
 
 const toSettlement = (r: Row): Settlement => ({
@@ -257,6 +267,8 @@ export function createRepo(db: Db) {
        VALUES (?, ?, ?, ?, ?, ?)`
     ),
     expenseChangesOfGroup: db.prepare('SELECT * FROM expense_changes WHERE group_id = ? ORDER BY id'),
+    insertLogEntry: db.prepare('INSERT INTO group_log (group_id, by_member_id, change, created_at) VALUES (?, ?, ?, ?)'),
+    logOfGroup: db.prepare('SELECT * FROM group_log WHERE group_id = ? ORDER BY id'),
     settlementsOfGroup: db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY created_at'),
     settlementById: db.prepare('SELECT * FROM settlements WHERE id = ?'),
     settlementByPaymentHash: db.prepare('SELECT * FROM settlements WHERE payment_hash = ?'),
@@ -345,6 +357,7 @@ export function createRepo(db: Db) {
     'DELETE FROM join_requests WHERE group_id = ?',
     'DELETE FROM expenses WHERE group_id = ?',
     'DELETE FROM expense_changes WHERE group_id = ?',
+    'DELETE FROM group_log WHERE group_id = ?',
     'DELETE FROM ledger_entries WHERE group_id = ?',
     'DELETE FROM member_accounts WHERE group_id = ?',
     'DELETE FROM members WHERE group_id = ?',
@@ -582,6 +595,13 @@ export function createRepo(db: Db) {
     },
     /** Every edit and removal in the group, in the order they were made. */
     expenseChanges: (groupId: string) => (q.expenseChangesOfGroup.all(groupId) as Row[]).map(toExpenseChange),
+
+    /** Notes a change to the group itself, and who made it, in its log. */
+    noteGroupChange(groupId: string, byMemberId: string | undefined, change: GroupChange) {
+      q.insertLogEntry.run(groupId, byMemberId ?? null, JSON.stringify(change), nowIso());
+    },
+    /** The group's log, oldest first (GET /groups/:id/log). */
+    groupLog: (groupId: string) => (q.logOfGroup.all(groupId) as Row[]).map(toLogEntry),
 
     settlements: (groupId: string) => (q.settlementsOfGroup.all(groupId) as Row[]).map(toSettlement),
     settlement: (id: string) => {
