@@ -376,10 +376,8 @@ test.describe('Joining through the link on a brand-new device', () => {
         'You’re in as soon as you tap Join, and can see everything in the group and add to it. No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else.'
       )
     ).toBeVisible();
-    // Nothing picked: the button has no name and does nothing.
-    const join = button(guest.page, 'Join');
-    await expect(join).toBeVisible();
-    await expect(ancestor(join, 1)).toHaveCSS('opacity', '0.4');
+    // Nothing picked: there's nobody to join as yet, so there's no button.
+    await expect(button(guest.page, 'Join')).toHaveCount(0);
 
     await who(guest.page, 'Yash').click();
     await expect(
@@ -398,9 +396,26 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(
       guest.page.getByText('You’ll be added to the group as a new member, with nothing owed either way.')
     ).toBeVisible();
-    await expect(button(guest.page, 'Join')).toBeVisible();
+    // No name typed yet: the button has none and does nothing.
+    const join = button(guest.page, 'Join');
+    await expect(join).toBeVisible();
+    await expect(ancestor(join, 1)).toHaveCSS('opacity', '0.4');
     await guest.page.getByPlaceholder('Your name').fill('Kabir');
     await expect(button(guest.page, 'Join as Kabir')).toBeVisible();
+  });
+
+  test('with a long list, Join stays on screen once a name is picked', async ({ api, device }) => {
+    const yash = api.as((await api.account('Yash')).token);
+    const people = ['Om', 'Saurabh', 'Digant', 'Shambhavi', 'Varun', 'Abhijay', 'Rishit', 'Dinesh', 'Priya', 'Kabir'];
+    const { group } = await yash.seedGroup({ name: 'Jaipur', people });
+    const token = await groupLinkToken(yash, group.id);
+    const guest = await device();
+    await guest.page.goto(`/join/${token}`);
+    // The list runs past the bottom of a phone's screen.
+    await expect(who(guest.page, 'Kabir')).not.toBeInViewport();
+
+    await who(guest.page, 'Om').click();
+    await expect(button(guest.page, 'Join as Om')).toBeInViewport();
   });
 
   test('picking a name joins as that member, and the group sees them arrive', async ({ person, device }) => {
