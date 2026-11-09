@@ -29,7 +29,7 @@ const canOpen = (url: string) => Linking.canOpenURL(url);
 /** How long the sheet waits for the icons. The payee is fetched alongside, so this rarely adds anything. */
 const ICONS_WAIT_MS = 3000;
 
-// Asked of Apple once a launch, and again after a failure.
+// Asked of Apple once a launch, and again after a failure or an answer with no icons in it.
 let icons: Promise<Map<number, string>> | null = null;
 
 function appIcons(): Promise<Map<number, string>> {
@@ -39,6 +39,7 @@ function appIcons(): Promise<Map<number, string>> {
     icons = fetch(iconLookupUrl(), { signal: abort.signal })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Apple's lookup answered ${res.status}`))))
       .then(parseIcons)
+      .then((map) => (map.size ? map : Promise.reject(new Error('No icons in Apple’s answer'))))
       .catch(() => {
         icons = null;
         return new Map<number, string>();

@@ -63,8 +63,10 @@ export interface IphoneUpiApp {
 
 /**
  * The schemes are from payment providers' iOS guides; none is Apple's or the apps' own word.
- * Google Pay is `tez` in most and `gpay` in some, YONO `sbiyono` or `yono`, and Navi `navipay`
- * or `navi`, so both are tried. Every scheme here has to be in app.json too, or iOS answers no for it whether the app
+ * Google Pay is `tez` in most and `gpay` in some, so both are tried. Short, generic schemes
+ * (`yono`, `navi`) are left out until seen on a phone with that app: any app can claim one, and
+ * iOS doesn't say which did, so another app could be listed and opened under YONO's or Navi's
+ * name. Every scheme here has to be in app.json too, or iOS answers no for it whether the app
  * is there or not.
  *
  * Which take the link was tried on Om's iPhone in November 2026: only CRED did. Google Pay,
@@ -77,8 +79,8 @@ export const IPHONE_UPI_APPS: readonly IphoneUpiApp[] = [
   { packageName: 'net.one97.paytm', name: 'Paytm', appStoreId: 473941634, schemes: ['paytmmp'], payPath: null },
   { packageName: 'com.dreamplug.androidapp', name: 'CRED', appStoreId: 1428580080, schemes: ['credpay'], payPath: 'upi/pay' },
   { packageName: 'in.org.npci.upiapp', name: 'BHIM', appStoreId: 1200315258, schemes: ['bhim'], payPath: null },
-  { packageName: 'com.sbi.lotusintouch', name: 'YONO SBI', appStoreId: 1231393474, schemes: ['sbiyono', 'yono'], payPath: null },
-  { packageName: 'com.naviapp', name: 'Navi', appStoreId: 1541152485, schemes: ['navipay', 'navi'], payPath: null },
+  { packageName: 'com.sbi.lotusintouch', name: 'YONO SBI', appStoreId: 1231393474, schemes: ['sbiyono'], payPath: null },
+  { packageName: 'com.naviapp', name: 'Navi', appStoreId: 1541152485, schemes: ['navipay'], payPath: null },
 ];
 
 /** An iPhone app found on the phone, with the scheme that opened. */

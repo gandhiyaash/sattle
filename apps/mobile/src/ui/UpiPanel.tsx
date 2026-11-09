@@ -110,8 +110,9 @@ export function UpiPanel({
                 accessibilityLabel={`Pay with ${app.name}`}
                 style={({ pressed }) => [
                   s.app,
-                  // Equal columns across the whole width, so no row ends in a gap: up to four, and
-                  // fewer apps share the row between them.
+                  // Equal columns across the whole width: up to four, so a single row of fewer apps
+                  // fills it. With more than four, the last row keeps the same columns and can end
+                  // short of the right edge.
                   { width: `${100 / Math.min(apps.length, COLUMNS)}%` },
                   pressed && { opacity: 0.7 },
                   busy && { opacity: 0.4 },
