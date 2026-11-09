@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import StoreKit
+import UIKit
 
 /**
  * The App Store half of updates on an iPhone. iOS has no way for an app to download its own
@@ -30,42 +31,80 @@ public final class AppStoreUpdatesModule: Module {
       ]
     }
 
-    // Resolves once the page has loaded. Rejects if it doesn't load, and the JS side then
-    // opens the App Store app on it instead.
-    AsyncFunction("show") { (appId: Int, promise: Promise) in
-      guard let presenter = self.appContext?.utilities?.currentViewController() else {
+    // Resolves once the page has loaded, or once the person closes the sheet, whichever is
+    // first. Rejects if the page doesn't load, and the JS side then opens the App Store app on
+    // it instead.
+    AsyncFunction("show") { [weak self] (appId: Int, promise: Promise) in
+      guard let self, let presenter = self.appContext?.utilities?.currentViewController() else {
         promise.reject("ERR_STORE_PAGE", "There is no screen to show the App Store page on")
         return
       }
-      let store = SKStoreProductViewController()
-      let sheet = StoreSheet { [weak self] in self?.sheet = nil }
-      store.delegate = sheet
+      let sheet = StoreSheet(promise: promise) { [weak self] in self?.sheet = nil }
       self.sheet = sheet
-      // Up straight away, with the App Store's own spinner while the page loads.
-      presenter.present(store, animated: true)
-      store.loadProduct(withParameters: [SKStoreProductParameterITunesItemIdentifier: NSNumber(value: appId)]) { loaded, error in
-        DispatchQueue.main.async {
-          if loaded {
-            promise.resolve(nil)
-            return
-          }
-          store.dismiss(animated: true)
-          promise.reject("ERR_STORE_PAGE", error?.localizedDescription ?? "The App Store page didn't load")
-        }
-      }
+      sheet.show(appId: appId, on: presenter)
     }.runOnQueue(.main)
   }
 }
 
+/**
+ * One showing of the App Store page. It answers the JS side once, with whichever comes first:
+ * the page loading, the page failing to load, or the person closing the sheet. Closing it while
+ * the page is still loading is an answer too, so Update works again and nothing else opens.
+ * Everything here runs on the main queue.
+ */
 private final class StoreSheet: NSObject, SKStoreProductViewControllerDelegate {
-  private let onClose: () -> Void
+  private let promise: Promise
+  private let onEnd: () -> Void
+  private var settled = false
+  // UIKit ignores a dismiss while the sheet is still coming up, so a load that fails before then
+  // waits here for it.
+  private var presented = false
+  private var earlyFailure: String?
 
-  init(onClose: @escaping () -> Void) {
-    self.onClose = onClose
+  init(promise: Promise, onEnd: @escaping () -> Void) {
+    self.promise = promise
+    self.onEnd = onEnd
+  }
+
+  func show(appId: Int, on presenter: UIViewController) {
+    let store = SKStoreProductViewController()
+    store.delegate = self
+    // Up straight away, with the App Store's own spinner while the page loads.
+    presenter.present(store, animated: true) {
+      self.presented = true
+      if let failure = self.earlyFailure { self.fail(store, failure) }
+    }
+    store.loadProduct(withParameters: [SKStoreProductParameterITunesItemIdentifier: NSNumber(value: appId)]) { loaded, error in
+      DispatchQueue.main.async {
+        if loaded { return self.settle(nil) }
+        // Closed by the person before it failed: they're done with it.
+        guard !self.settled else { return }
+        let failure = error?.localizedDescription ?? "The App Store page didn't load"
+        if self.presented { self.fail(store, failure) } else { self.earlyFailure = failure }
+      }
+    }
   }
 
   func productViewControllerDidFinish(_ viewController: SKStoreProductViewController) {
     viewController.dismiss(animated: true)
-    onClose()
+    // Closed by the person, loaded or not, so nothing else opens.
+    settle(nil)
+    onEnd()
+  }
+
+  private func fail(_ store: SKStoreProductViewController, _ failure: String) {
+    store.dismiss(animated: true)
+    settle(failure)
+    onEnd()
+  }
+
+  private func settle(_ failure: String?) {
+    guard !settled else { return }
+    settled = true
+    if let failure {
+      promise.reject("ERR_STORE_PAGE", failure)
+    } else {
+      promise.resolve(nil)
+    }
   }
 }

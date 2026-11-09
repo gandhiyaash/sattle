@@ -55,12 +55,20 @@ export type Fetch = (
 export const LOOKUP_EVERY_MS = 60 * 60 * 1000;
 const LOOKUP_TIMEOUT_MS = 15_000;
 
-export function lookupUrl(install: Install): string {
+/**
+ * A storefront Sattle is sold in: India, where UPI is. A listing's version and id are the same
+ * in every storefront, so any one the app is sold in will do.
+ */
+export const HOME_STOREFRONT = 'in';
+
+/** The storefront to ask first: the phone's region, or the home one when the region isn't a country. */
+export function storefront(install: Install): string {
   const region = install.region.toLowerCase();
-  // A listing's version and id are the same in every storefront, so the phone's
-  // region only has to be one the app is sold in. Without one Apple answers for the US.
-  const country = /^[a-z]{2}$/.test(region) ? `&country=${region}` : '';
-  return `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(install.bundleId)}${country}`;
+  return /^[a-z]{2}$/.test(region) ? region : HOME_STOREFRONT;
+}
+
+export function lookupUrl(bundleId: string, country: string): string {
+  return `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(bundleId)}&country=${country}`;
 }
 
 /** The listing in a lookup answer, or null if the app isn't on sale there. */
@@ -121,18 +129,28 @@ export function createAppStoreUpdater(
     listeners.forEach((l) => l());
   };
 
-  const lookUp = async (install: Install): Promise<Listing | null> => {
+  const ask = async (bundleId: string, country: string): Promise<Listing | null> => {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), LOOKUP_TIMEOUT_MS);
     try {
       // Apple marks an answer cacheable for hours. no-store makes fetch add `_=<time>`
       // to the address, so the phone's cache can't answer with an old listing.
-      const res = await get(lookupUrl(install), { cache: 'no-store', signal: abort.signal });
+      const res = await get(lookupUrl(bundleId, country), { cache: 'no-store', signal: abort.signal });
       if (!res.ok) throw new Error(`Apple's lookup answered ${res.status}`);
-      return parseListing(await res.json(), install.bundleId);
+      return parseListing(await res.json(), bundleId);
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  const lookUp = async (install: Install): Promise<Listing | null> => {
+    const country = storefront(install);
+    const listing = await ask(install.bundleId, country);
+    // The phone's region needn't be a storefront Sattle is sold in: someone travelling, or with
+    // their region set elsewhere. The version is the same in every storefront, so the home one
+    // answers for them.
+    if (listing === null && country !== HOME_STOREFRONT) return ask(install.bundleId, HOME_STOREFRONT);
+    return listing;
   };
 
   return {

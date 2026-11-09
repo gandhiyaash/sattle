@@ -6,10 +6,15 @@ import {
   isNewer,
   lookupUrl,
   parseListing,
+  storefront,
   type Fetch,
   type Install,
   type NativeAppStore,
 } from './appStore';
+
+const IN = 'https://itunes.apple.com/lookup?bundleId=tech.sattle.app&country=in';
+const GB = 'https://itunes.apple.com/lookup?bundleId=tech.sattle.app&country=gb';
+const NOT_SOLD = { resultCount: 0, results: [] };
 
 const install = (over: Partial<Install> = {}): Install => ({
   bundleId: 'tech.sattle.app',
@@ -34,11 +39,15 @@ const answer = (over: Record<string, unknown> = {}) => ({
   ],
 });
 
-/** The phone and Apple, scripted: `install` is what the phone says, `body` what the lookup answers. */
+/**
+ * The phone and Apple, scripted: `install` is what the phone says, `body` what the lookup
+ * answers, and `storefronts` what it answers instead for the storefronts named there.
+ */
 function fakeStore(initial: Install = install(), body: unknown = answer()) {
   const store = {
     install: initial,
     body,
+    storefronts: {} as Record<string, unknown>,
     status: 200,
     failLookup: false,
     failShow: false,
@@ -58,7 +67,9 @@ function fakeStore(initial: Install = install(), body: unknown = answer()) {
   store.fetch = async (url) => {
     store.asked.push(url);
     if (store.failLookup) throw new Error('offline');
-    return { ok: store.status === 200, status: store.status, json: async () => store.body };
+    const country = new URL(url).searchParams.get('country') ?? '';
+    const answered = country in store.storefronts ? store.storefronts[country] : store.body;
+    return { ok: store.status === 200, status: store.status, json: async () => answered };
   };
   const updater = createAppStoreUpdater(store.native, { fetch: store.fetch, now: () => store.clock });
   return { store, updater };
@@ -84,14 +95,15 @@ describe('isNewer', () => {
   });
 });
 
-describe('lookupUrl', () => {
+describe('storefront and lookupUrl', () => {
   it("asks the storefront of the phone's region for this bundle ID", () => {
-    expect(lookupUrl(install())).toBe('https://itunes.apple.com/lookup?bundleId=tech.sattle.app&country=in');
+    expect(storefront(install({ region: 'GB' }))).toBe('gb');
+    expect(lookupUrl('tech.sattle.app', 'gb')).toBe(GB);
   });
 
-  it('leaves the country out when the region is not two letters', () => {
-    expect(lookupUrl(install({ region: '' }))).toBe('https://itunes.apple.com/lookup?bundleId=tech.sattle.app');
-    expect(lookupUrl(install({ region: '419' }))).toBe('https://itunes.apple.com/lookup?bundleId=tech.sattle.app');
+  it('asks the home storefront when the region is not a country', () => {
+    expect(storefront(install({ region: '' }))).toBe('in');
+    expect(storefront(install({ region: '419' }))).toBe('in');
   });
 });
 
@@ -106,7 +118,7 @@ describe('parseListing', () => {
   });
 
   it('finds nothing when the app is not sold in that storefront', () => {
-    expect(parseListing({ resultCount: 0, results: [] }, 'tech.sattle.app')).toBeNull();
+    expect(parseListing(NOT_SOLD, 'tech.sattle.app')).toBeNull();
   });
 
   it('finds nothing in an answer about another app, or one it cannot read', () => {
@@ -121,8 +133,22 @@ describe('createAppStoreUpdater', () => {
   it('offers a newer version on the App Store', async () => {
     const { store, updater } = fakeStore();
     await updater.check();
-    expect(store.asked).toEqual(['https://itunes.apple.com/lookup?bundleId=tech.sattle.app&country=in']);
+    expect(store.asked).toEqual([IN]);
     expect(updater.getState()).toEqual({ phase: 'available', progress: null });
+  });
+
+  it("asks the home storefront when the phone's region doesn't sell the app", async () => {
+    const { store, updater } = fakeStore(install({ region: 'GB' }));
+    store.storefronts.gb = NOT_SOLD;
+    await updater.check();
+    expect(store.asked).toEqual([GB, IN]);
+    expect(updater.getState().phase).toBe('available');
+  });
+
+  it('asks only once when the region is the home storefront', async () => {
+    const { store, updater } = fakeStore(install(), NOT_SOLD);
+    await updater.check();
+    expect(store.asked).toEqual([IN]);
   });
 
   it('offers nothing while this is the newest version', async () => {
@@ -150,9 +176,10 @@ describe('createAppStoreUpdater', () => {
     expect(updater.getState().phase).toBe('idle');
   });
 
-  it('offers nothing when the app is not sold in that storefront', async () => {
-    const { updater } = fakeStore(install(), { resultCount: 0, results: [] });
+  it('offers nothing when no storefront it asks sells the app', async () => {
+    const { store, updater } = fakeStore(install({ region: 'GB' }), NOT_SOLD);
     await updater.check();
+    expect(store.asked).toEqual([GB, IN]);
     expect(updater.getState().phase).toBe('idle');
   });
 
