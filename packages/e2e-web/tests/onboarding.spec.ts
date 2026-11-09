@@ -178,7 +178,7 @@ test.describe('the first screen', () => {
     await untouched.page.goto('/');
     await signIn(untouched.page);
     expect(await untouched.page.evaluate(() => localStorage.getItem('sattle.currencies'))).toBeNull();
-    await tab(untouched.page, 'Account');
+    await accountPage(untouched.page, 'Currencies');
     await expect(currencyBox(untouched.page, 'INR')).toBeChecked();
     await expect(currencyBox(untouched.page, 'BTC')).toBeChecked();
 
@@ -187,7 +187,7 @@ test.describe('the first screen', () => {
     await picked.page.goto('/');
     await tickCurrencies(picked.page, ['BTC']);
     await signIn(picked.page);
-    await tab(picked.page, 'Account');
+    await accountPage(picked.page, 'Currencies');
     await expect(currencyBox(picked.page, 'INR')).not.toBeChecked();
     await expect(currencyBox(picked.page, 'BTC')).toBeChecked();
   });
