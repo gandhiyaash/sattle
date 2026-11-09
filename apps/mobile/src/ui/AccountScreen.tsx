@@ -6,8 +6,10 @@
  * device or back after this one's data is cleared, and replaced if it may
  * have got out, which signs out every other device. Which currencies they use
  * is the one setting for the whole app, as opposed to one group's
- * (GroupSettingsScreen): everyone starts with both, and this is where one is
- * turned off or added back. Deleting the account is the one thing that can't
+ * (GroupSettingsScreen): the first screen asks, and this is where one is
+ * turned off or added back. A Nostr key is only offered to someone who uses
+ * bitcoin, or who linked one already, so they can unlink it. Deleting the
+ * account is the one thing that can't
  * be taken back, and it reaches into every group, so the screen spells out
  * what goes and what stays before the second tap.
  */
@@ -20,6 +22,7 @@ import { signInKey } from '../account/signInKey';
 import { readToken, writeToken } from '../account/tokenStore';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
+import { showsNostr } from '../prefs/currencyPrefs';
 import { chooseCurrencies, useCurrencyPrefs } from '../prefs/useCurrencyPrefs';
 import { useAppData, useFirstLoad, useViewPart } from '../data/useAppData';
 import { isMock, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
@@ -71,7 +74,8 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
 
       {data && !isMock() && <SignInKeyCard onReplaced={onKeyReplaced} />}
 
-      {data && !isMock() && <NostrCard user={data} />}
+      {/* Nostr goes with bitcoin. A key already linked stays on show, to be unlinked. */}
+      {data && !isMock() && (showsNostr(prefs) || Boolean(data.npub)) && <NostrCard user={data} />}
 
       {/* Kept on this device, so there is nothing to wait for and nothing here that can fail. */}
       <View>
@@ -79,7 +83,7 @@ export function AccountScreen({ onBack, onDeleted, onKeyReplaced }: AccountScree
         <CurrencyPicker prefs={prefs} onChange={chooseCurrencies} />
         <Text style={s.note}>
           Turning one off only hides it. A group keeps its currency, so one kept in bitcoin still shows Lightning.
-          What you’ve set up to get paid stays until you remove it in Wallet.
+          Without bitcoin, Nostr is hidden too. What you’ve set up to get paid stays until you remove it in Wallet.
         </Text>
       </View>
 

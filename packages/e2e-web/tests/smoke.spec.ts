@@ -1,18 +1,19 @@
 /**
- * The two ways a test starts, exercised once: a brand-new device walking in
- * from the tour, and a person the fixtures signed in. If these fail, nothing
- * else in this folder is worth reading.
+ * The two ways a test starts, exercised once: a brand-new device making an
+ * account and then seeing the tour, and a person the fixtures signed in. If
+ * these fail, nothing else in this folder is worth reading.
  */
 
-import { makeAccount, skipTour } from '../src/actions';
+import { WELCOME, makeAccount, skipTour } from '../src/actions';
 import { expect, test } from '../src/fixtures';
 
-test('a brand-new device gets the tour, then makes an account', async ({ device }) => {
+test('a brand-new device makes an account, then gets the tour', async ({ device }) => {
   const { page } = await device({ toured: false });
   await page.goto('/');
+  await expect(page.getByText(WELCOME)).toBeVisible();
+  await makeAccount(page, 'Yash', { toured: false });
   await skipTour(page);
-  await expect(page.getByText('What should your friends call you?')).toBeVisible();
-  await makeAccount(page, 'Yash');
+  await expect(page.getByText('What are you splitting?')).toBeVisible();
 });
 
 test('a person the fixtures signed in is on their groups list, and is who the server says', async ({ person }) => {

@@ -7,7 +7,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 
 import { payWays, type PayWays } from '@sattle/core';
-import { EVERY_CURRENCY, parseCurrencyPrefs, serializeCurrencyPrefs, type CurrencyPrefs } from './currencyPrefs';
+import { EVERY_CURRENCY, parseCurrencyPrefs, serializeCurrencyPrefs, showsNostr, type CurrencyPrefs } from './currencyPrefs';
 import { readCurrencies, writeCurrencies } from './currencyStore';
 
 /** Undefined until the device has answered; null when they have never changed it. */
@@ -49,6 +49,11 @@ export function useCurrenciesRead(): boolean {
 /** What they use. Unless they have changed it, both. */
 export function useCurrencyPrefs(): CurrencyPrefs {
   return useSyncExternalStore(subscribe, () => choice) ?? EVERY_CURRENCY;
+}
+
+/** Whether to show anything of Nostr (showsNostr): only to someone who uses bitcoin. */
+export function useShowsNostr(): boolean {
+  return showsNostr(useCurrencyPrefs());
 }
 
 /** Which ways to pay to show them: in one group, or with no `groupCurrency`, across the app. */

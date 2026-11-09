@@ -37,7 +37,7 @@ The story judges should take away, in order:
 
 **Screen:** title card "Sattle: split bills in sats. Only one of you needs the app." Then the empty Sattle welcome screen.
 
-A clean profile opens on the first-launch tour before the welcome screen. Its three screens make the same points as this scene, so either step through them under the narration or tap **Skip**. It is shown once per profile, so the dry run's profile won't show it again.
+A clean profile opens on the welcome screen. The first-launch tour comes after the account is made, in scene 2; it is shown once per profile, so the dry run's profile won't show it again.
 
 **Say:**
 > Splitwise tells you that you owe Om seventeen hundred rupees, then sends you somewhere else to pay. Bitcoin can fix that, but every Bitcoin bill-splitter asks the whole group to install an app and fund a wallet. Nobody does that to pay back dinner. Sattle is built around the people who won't install it.
@@ -45,7 +45,7 @@ A clean profile opens on the first-launch tour before the welcome screen. Its th
 ## Scene 2: One person, a whole group (0:15–0:45)
 
 **Screen:**
-1. Type the name "Yash" and tap **Get started**. Point out that there's no email, phone or password. A new profile is then asked **How should people pay you?**, once: tap **Skip**, since scene 3 connects the wallet.
+1. Type the name "Yash" and tick **₿ · BTC** beside the rupees already ticked: the demo is a rupee debt paid in sats, and with rupees alone the app hides Lightning. Tap **Continue as Yash**, and point out that there's no email, phone or password. A new profile is then asked **How should friends pay you?** for a UPI ID: tap **Skip**, since scene 3 connects the wallet. The three-screen tour follows; its screens make the same points as this scene, so step through them under the narration or tap **Skip**.
 2. **New group**: "Goa trip", with members Om and Aman. They're only names. Leave **Kept in** on Rupees: the demo is a rupee debt paid in sats.
 3. **Add expense**: "Chai", ₹100, paid by Yash, split equally. Pause on the live preview: Yash ₹33.34, Om ₹33.33, Aman ₹33.33. The extra paisa goes to the first person in the split.
 4. Add "Dinner", ₹900, paid by Yash, split equally. Save.

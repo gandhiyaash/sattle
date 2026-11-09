@@ -31,7 +31,7 @@ import {
   type WalletConnection,
 } from '@sattle/core';
 import { useScreenView } from '../analytics/useScreenView';
-import { usePayWays } from '../prefs/useCurrencyPrefs';
+import { usePayWays, useShowsNostr } from '../prefs/useCurrencyPrefs';
 import { useAppData } from '../data/useAppData';
 import { type AsyncState, useAsync, useClient, useWallet } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
@@ -633,6 +633,8 @@ function UpiIdCard({ current }: { current: Setting<UpiProfile> }) {
 export function TrustModel({ ways }: { ways: PayWays }) {
   const s = useStyles();
   const { lightning, upi } = ways;
+  // Nostr goes with bitcoin: without it, there's no Nostr key to get back in with.
+  const nostr = useShowsNostr();
   const paid = [
     lightning
       ? 'A Lightning payment counts as paid when the payee’s own wallet says the invoice was settled, or with the payment proof: a code the payer’s wallet gets when it pays, which matches the invoice and can’t be made up.'
@@ -678,7 +680,9 @@ export function TrustModel({ ways }: { ways: PayWays }) {
         <Divider />
         <Row
           title="Your account"
-          body={`A name and a random key that only this device has. No email, phone or password: only the sign-in key under Account, or a Nostr key linked there, gets you back in, so keep a copy, or losing this device loses your groups${lightning ? ' and wallet connection' : ''}.`}
+          body={`A name and a random key that only this device has. No email, phone or password: only the sign-in key under Account${
+            nostr ? ', or a Nostr key linked there,' : ''
+          } gets you back in, so keep a copy, or losing this device loses your groups${lightning ? ' and wallet connection' : ''}.`}
         />
         <Divider />
         <Row

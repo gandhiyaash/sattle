@@ -147,8 +147,8 @@ test.describe('the tip on Add expense', () => {
   test('on a phone’s very first run, comes after the first-launch tour', async ({ device }) => {
     const { page } = await device({ toured: false, tips: false });
     await page.goto('/');
+    await makeAccount(page, 'Yash', { toured: false });
     await skipTour(page);
-    await makeAccount(page, 'Yash');
     await createGroup(page, { name: 'Goa', people: ['Riya'], simplifyDebts: false });
     await openForm(page);
     await expect(intro(page).getByText('Someone not in this one?', { exact: true })).toBeVisible();

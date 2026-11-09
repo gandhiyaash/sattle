@@ -20,9 +20,12 @@ ios *args:
     cd {{mobile}} && npx expo run:ios {{args}}
 
 # Standalone install on a connected iPhone: a release build with the JS bundled in, so it
-# runs without Metro, against the URLs in apps/mobile/.env. Asks which device unless one is
-# named. Signed for the team in app.json (ios.appleTeamId), whose account Xcode must be signed in to.
+# runs without Metro, against the URLs in apps/mobile/.env. Metro's cache in the temp folder
+# (metro-cache, metro-file-map-*) is cleared first, so a stale one can't ship old JS or old .env
+# values. Asks which device unless one is named.
+# Signed for the team in app.json (ios.appleTeamId), whose account Xcode must be signed in to.
 ios-install *args:
+    rm -rf "${TMPDIR:-/tmp}"/metro-*
     cd {{mobile}} && npx expo run:ios --configuration Release --no-bundler --device {{args}}
 
 # Signed release APK + AAB into dist-android/. KEYSTORE_BASE64="$(pbpaste)" just android-release

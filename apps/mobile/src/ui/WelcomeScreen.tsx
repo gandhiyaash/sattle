@@ -1,17 +1,31 @@
 /**
- * A name, and that's the account. On a first launch it follows the tour
- * (OnboardingScreen); it comes back on its own after an account is deleted.
+ * The first screen: a name and the currencies they use, and that's the
+ * account. It can't be skipped. It comes back on its own after an account is
+ * deleted.
  *
  * No email, phone or password, the same thing we ask of everyone else in a
  * group. The server hands back a token and this device keeps it, which is
  * also the catch, so the screen says so before anyone commits.
+ *
+ * Rupees start ticked and bitcoin is a tap away; any number can be on, never
+ * none. What isn't ticked the app keeps out of their way once they're in
+ * (currencyPrefs): without bitcoin, Lightning and everything of Nostr.
+ * Someone who ticks rupees is asked their UPI ID next (UpiStepScreen), then
+ * shown the tour (OnboardingScreen).
  *
  * Someone who already has an account, from another device or a browser whose
  * data was cleared, pastes the sign-in key they saved from Account instead,
  * or signs in with the Nostr key they linked there.
  * And a group can be read back from its backup key with no account at all.
  * Those three wait under Other ways to sign in, so a first launch sees one
- * way in: a name.
+ * way in: a name. They show whatever is ticked: someone reaching for them is
+ * trying to get back in, not choosing currencies, and hiding the way back
+ * would strand whoever has no other. A rupee group's backup is on the relays
+ * as much as a bitcoin one's.
+ *
+ * Signing in keeps what's ticked only if they changed it. Otherwise the
+ * device hasn't said, and shows both, so an account that's mostly bitcoin
+ * isn't brought back with Lightning hidden by a default nobody chose.
  */
 
 import React, { useState } from 'react';
@@ -22,13 +36,21 @@ import { useScreenView } from '../analytics/useScreenView';
 import { createAccount, signInWithNostr } from '../client/ApiClient';
 import { parseSignInKey } from '../account/signInKey';
 import { writeToken } from '../account/tokenStore';
+import { RUPEES_ONLY, type CurrencyPrefs } from '../prefs/currencyPrefs';
+import { chooseCurrencies } from '../prefs/useCurrencyPrefs';
 import { API_URL, buildClient } from '../react/SattleProvider';
+import { CurrencyChips } from './CurrencyPicker';
+import { FirstRunScreen, Headline, Hero, Rise, useFirstRunStyles } from './FirstRunScreen';
 import { NostrKeyForm } from './NostrKeyForm';
 import { Button, Card, ErrorState, Screen } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
 
 export interface WelcomeScreenProps {
-  onReady: (token: string) => void;
+  /**
+   * They're in, with what they use already saved. `askUpi`: the account is
+   * new, and they use rupees, so their UPI ID is asked next.
+   */
+  onReady: (token: string, next: { askUpi: boolean }) => void;
   /** Read a group back from its backup key, with no account. */
   onRestore: () => void;
 }
@@ -38,21 +60,45 @@ export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
   const [signingIn, setSigningIn] = useState<'key' | 'nostr' | null>(null);
   // Kept here, so Back from signing in with a key or Nostr finds the other ways still showing.
   const [others, setOthers] = useState(false);
-  if (signingIn === 'key') return <SignInWithKey onReady={onReady} onBack={() => setSigningIn(null)} />;
-  if (signingIn === 'nostr') return <SignInWithNostr onReady={onReady} onBack={() => setSigningIn(null)} />;
+  // Kept here too, so what they ticked counts whichever way they get in.
+  const [prefs, setPrefs] = useState<CurrencyPrefs>(RUPEES_ONLY);
+  // Whether they touched the chips. A sign-in keeps them only then.
+  const [picked, setPicked] = useState(false);
+  const ready = (token: string, made: boolean) => {
+    if (made || picked) chooseCurrencies(prefs);
+    onReady(token, { askUpi: made && prefs.uses.includes('INR') });
+  };
+  const signedIn = (token: string) => ready(token, false);
+  if (signingIn === 'key') return <SignInWithKey onReady={signedIn} onBack={() => setSigningIn(null)} />;
+  if (signingIn === 'nostr') return <SignInWithNostr onReady={signedIn} onBack={() => setSigningIn(null)} />;
   return (
-    <NewAccount onReady={onReady} onSignIn={setSigningIn} onRestore={onRestore} others={others} setOthers={setOthers} />
+    <NewAccount
+      onMade={(token) => ready(token, true)}
+      prefs={prefs}
+      setPrefs={(next) => {
+        setPicked(true);
+        setPrefs(next);
+      }}
+      onSignIn={setSigningIn}
+      onRestore={onRestore}
+      others={others}
+      setOthers={setOthers}
+    />
   );
 }
 
 function NewAccount({
-  onReady,
+  onMade,
+  prefs,
+  setPrefs,
   onSignIn,
   onRestore,
   others,
   setOthers,
 }: {
-  onReady: (token: string) => void;
+  onMade: (token: string) => void;
+  prefs: CurrencyPrefs;
+  setPrefs: (prefs: CurrencyPrefs) => void;
   onSignIn: (how: 'key' | 'nostr') => void;
   onRestore: () => void;
   /** Whether the ways in for someone who already has an account, or a group, are showing. */
@@ -61,18 +107,20 @@ function NewAccount({
 }) {
   const color = useColors();
   const s = useStyles();
+  const f = useFirstRunStyles();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trimmed = name.trim();
 
   const submit = async () => {
-    if (!name.trim() || busy) return;
+    if (!trimmed || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const { token } = await createAccount(API_URL, name.trim());
+      const { token } = await createAccount(API_URL, trimmed);
       await writeToken(token);
-      onReady(token);
+      onMade(token);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t set you up. Try again.');
       setBusy(false);
@@ -80,31 +128,55 @@ function NewAccount({
   };
 
   return (
-    <Screen title="Sattle" brand subtitle="Split bills in sats. Only one of you needs the app.">
-      <Card style={{ gap: space.sm }}>
-        <Text style={s.label}>What should your friends call you?</Text>
+    <FirstRunScreen
+      footer={
+        <View style={{ gap: space.md }}>
+          {error && <ErrorState message={error} />}
+          <Button
+            label={trimmed ? `Continue as ${trimmed}` : 'Continue'}
+            // The label holds their name, which doesn't belong in the usage record.
+            track="Continue"
+            variant="primary"
+            busy={busy}
+            disabled={!trimmed}
+            onPress={submit}
+          />
+        </View>
+      }
+    >
+      <Hero />
+      <Rise order={1} style={s.ask}>
+        <Text style={f.kicker}>Hi there.</Text>
+        <Headline before={'What should we\n'} em="call you" after="?" />
+      </Rise>
+
+      <Rise order={2} style={s.field}>
         <TextInput
-          style={s.input}
+          style={f.input}
           value={name}
           onChangeText={setName}
-          onSubmitEditing={submit}
+          // Enter only puts the keyboard away: the currencies under it are part of the answer.
           returnKeyType="done"
           placeholder="Your name"
           placeholderTextColor={color.inkFaint}
           maxLength={40}
-          autoFocus
+          editable={!busy}
+          // The iPhone's keyboard offers the name on their own contact card. Reading it ourselves
+          // would take the Contacts permission.
+          textContentType="name"
+          autoComplete="name"
+          autoCapitalize="words"
         />
-        <Text style={s.note}>
-          No email, phone or password. Your account lives on this device. To use it anywhere else, or to get it back
-          after clearing this device’s data, save your sign-in key from Account.
+      </Rise>
+
+      <Rise order={3} style={s.currencies}>
+        <Text style={f.subhead}>
+          And the <Text style={f.subheadEm}>currencies</Text> you use
         </Text>
-      </Card>
+        <CurrencyChips prefs={prefs} onChange={setPrefs} disabled={busy} />
+      </Rise>
 
-      {error && <ErrorState message={error} />}
-
-      <Button label="Get started" variant="primary" busy={busy} disabled={!name.trim()} onPress={submit} />
-
-      <View style={s.others}>
+      <Rise order={4} style={s.others}>
         <Button label="Other ways to sign in" variant="quiet" expanded={others} onPress={() => setOthers(!others)} />
         {others && (
           <>
@@ -113,8 +185,8 @@ function NewAccount({
             <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />
           </>
         )}
-      </View>
-    </Screen>
+      </Rise>
+    </FirstRunScreen>
   );
 }
 
@@ -216,6 +288,9 @@ function SignInWithNostr({ onReady, onBack }: { onReady: (token: string) => void
 
 const useStyles = makeStyles((color) => ({
   label: { ...type.label, color: color.inkMuted },
+  ask: { alignItems: 'center', gap: space.sm },
+  field: { alignSelf: 'stretch' },
+  currencies: { alignSelf: 'stretch', gap: space.md, marginTop: space.md },
   input: {
     height: 46,
     borderWidth: StyleSheet.hairlineWidth,
@@ -227,5 +302,5 @@ const useStyles = makeStyles((color) => ({
     backgroundColor: color.paper,
   },
   note: { ...type.caption, color: color.inkFaint, lineHeight: 18 },
-  others: { gap: space.xs },
+  others: { alignSelf: 'stretch', alignItems: 'center', gap: space.xs, marginTop: space.sm },
 }));

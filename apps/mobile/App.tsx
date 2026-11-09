@@ -22,6 +22,7 @@ import { Loading, Screen } from './src/ui/primitives';
 import { RestoreScreen } from './src/ui/RestoreScreen';
 import { layout, useColorMode, useColors } from './src/ui/theme';
 import { readToured, writeToured } from './src/ui/tourStore';
+import { UpiStepScreen } from './src/ui/UpiStepScreen';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /** A pay link, as the group's page hands one out: /s/<token>. */
@@ -146,13 +147,17 @@ function Root() {
     return <RestoreScreen onBack={() => window.location.assign('/')} />;
   }
   if (toured === undefined || !currenciesRead) return <Starting />;
-  // First launch: how it works, in three screens. A /join/ link that brought them
-  // here is kept, and is where they go once it's over.
-  if (!toured) return <OnboardingScreen onDone={endTour} />;
   const sharedDone = () => setShared(null);
-  if (isMock()) return <DemoApp joining={joining} onJoinDone={joinDone} shared={shared} onSharedDone={sharedDone} />;
+  if (isMock()) {
+    // The demo has no account to make, so its first launch opens on the tour. A /join/ link
+    // that brought them here is kept, and is where they go once it's over.
+    if (!toured) return <OnboardingScreen onDone={endTour} />;
+    return <DemoApp joining={joining} onJoinDone={joinDone} shared={shared} onSharedDone={sharedDone} />;
+  }
   return (
     <AccountGate
+      toured={toured}
+      onToured={endTour}
       joining={joining}
       onJoinDone={joinDone}
       shared={shared}
@@ -191,14 +196,25 @@ type Account =
  * app opens at once on what it kept (AppData), and the first sync behind it
  * is what checks the token. Only a device with nothing kept waits for that
  * first answer, which is everything the screens need.
+ *
+ * A first launch goes: the first screen (WelcomeScreen), a name and the
+ * currencies they use; their UPI ID, if they ticked rupees (UpiStepScreen);
+ * then how Sattle works, in three screens (OnboardingScreen), shown once per
+ * device. Someone new who joins from a link, or signs in to an account they
+ * already have, goes straight to the tour.
  */
 function AccountGate({
+  toured,
+  onToured,
   joining,
   onJoinDone,
   shared,
   onSharedDone,
   onJoinShared,
 }: {
+  /** Whether this device has been shown the tour. */
+  toured: boolean;
+  onToured: () => void;
   joining: string | null;
   onJoinDone: () => void;
   /** The group's shared link, opened in the app. */
@@ -207,6 +223,8 @@ function AccountGate({
   onJoinShared: (token: string) => void;
 }) {
   const [account, setAccount] = useState<Account>({ kind: 'loading' });
+  // The account was just made by someone who uses rupees: their UPI ID is asked before anything else.
+  const [askingUpi, setAskingUpi] = useState(false);
 
   // `token` no longer signs in. Whatever was kept of the account goes with it, unless the device
   // has moved on to another token since (a replaced key): then it was a request still on its way.
@@ -278,13 +296,25 @@ function AccountGate({
       }
       return (
         <WelcomeScreen
-          onReady={(token) => setAccount(open(token))}
+          onReady={(token, { askUpi }) => {
+            setAskingUpi(askUpi);
+            setAccount(open(token));
+          }}
           onRestore={() => setAccount({ kind: 'restoring' })}
         />
       );
     case 'restoring':
       return <RestoreScreen onBack={() => setAccount({ kind: 'none' })} />;
     case 'ready':
+      if (askingUpi) {
+        return (
+          <SattleProvider client={account.client} data={account.data}>
+            <UpiStepScreen onDone={() => setAskingUpi(false)} />
+          </SattleProvider>
+        );
+      }
+      // How it works, once, now that they're in. A /join/ link they came with waits for it, kept.
+      if (!toured) return <OnboardingScreen onDone={onToured} />;
       return (
         <DemoApp
           client={account.client}

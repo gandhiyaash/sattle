@@ -539,7 +539,7 @@ function Ring({
 }
 
 /** Whether the device asks for less motion. Until it has said, it doesn't. */
-function useReducedMotion(): boolean {
+export function useReducedMotion(): boolean {
   const [reduce, setReduce] = useState(false);
   useEffect(() => {
     let live = true;

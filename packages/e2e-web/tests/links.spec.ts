@@ -27,6 +27,7 @@ import {
   tab,
   tokenOf,
   clipboard,
+  currencyBox,
 } from '../src/actions';
 import { WEB_URL } from '../src/env';
 import { expect, test } from '../src/fixtures';
@@ -349,7 +350,10 @@ test.describe('Paying from the group page over Lightning', () => {
 });
 
 test.describe('Joining through the link on a brand-new device', () => {
-  test('Join goes through the tour to the join page, which lists the group', async ({ api, device }) => {
+  test('Join goes straight to the join page, which lists the group, with the tour left for after', async ({
+    api,
+    device,
+  }) => {
     const yash = api.as((await api.account('Yash')).token);
     const { group } = await yash.seedGroup({ name: 'Goa trip', people: ['Priya', 'Om'] });
     const token = await groupLinkToken(yash, group.id);
@@ -358,9 +362,9 @@ test.describe('Joining through the link on a brand-new device', () => {
     await openGroupPage(guest.page, token);
     await guest.page.locator(`a[href="/join/${token}"]`).click();
     await expect(guest.page).toHaveURL(`/join/${token}`);
-    await skipTour(guest.page);
 
-    await expect(guest.page.getByText('Split bills in sats. Only one of you needs the app.')).toBeVisible();
+    await expect(guest.page.getByText('Split bills with friends. Only one of you needs the app.')).toBeVisible();
+    await expect(guest.page.getByText('Split bills without the maths')).toHaveCount(0);
     await expect(guest.page.getByText('You’re joining', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Goa trip', { exact: true })).toBeVisible();
     await expect(guest.page.getByText('Who are you?')).toBeVisible();
@@ -465,6 +469,27 @@ test.describe('Joining through the link on a brand-new device', () => {
     expect(members[2]).toMatchObject({ status: 'joined' });
   });
 
+  test('someone new starts on the group’s currency alone, and gets the tour once they’re in', async ({ api, device }) => {
+    const yash = api.as((await api.account('Yash')).token);
+    const { group } = await yash.seedGroup({ name: 'Goa trip', people: ['Priya'] });
+    const token = await groupLinkToken(yash, group.id);
+    const guest = await device({ toured: false });
+    await guest.page.goto(`/join/${token}`);
+    // Nothing about currencies on the way in: the group's is theirs.
+    await expect(guest.page.getByRole('checkbox')).toHaveCount(0);
+    await guest.page.getByText('I’m not on this list').click();
+    await guest.page.getByPlaceholder('Your name').fill('Kabir');
+    await button(guest.page, 'Join as Kabir').click();
+
+    await skipTour(guest.page);
+    await expect(guest.page.getByText('Goa trip', { exact: true })).toBeVisible();
+    // A rupee group: rupees alone, so nothing of bitcoin or Nostr, and Account can change that.
+    await tab(guest.page, 'Account');
+    await expect(currencyBox(guest.page, 'INR')).toBeChecked();
+    await expect(currencyBox(guest.page, 'BTC')).not.toBeChecked();
+    await expect(guest.page.getByText('Sign in with Nostr', { exact: true })).toHaveCount(0);
+  });
+
   test('a typed name that is already on the list, or already joined, is refused with the right words', async ({
     api,
     device,
@@ -524,7 +549,7 @@ test.describe('Joining through the link on a brand-new device', () => {
     await expect(guest.page.getByText('This link is no longer valid.')).toBeVisible();
     await expect(button(guest.page, 'Try again')).toBeHidden();
     await button(guest.page, 'Start without it').click();
-    await expect(guest.page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(guest.page.getByText('What should we call you?')).toBeVisible();
     await expect(guest.page).toHaveURL('/');
     expect(await guest.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
   });

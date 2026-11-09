@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   EVERY_CURRENCY,
+  RUPEES_ONLY,
+  onlyIn,
   parseCurrencyPrefs,
   serializeCurrencyPrefs,
+  showsNostr,
   startNewGroupsIn,
   toggleCurrency,
   type CurrencyPrefs,
@@ -15,6 +18,32 @@ const bitcoin: CurrencyPrefs = { uses: ['BTC'], newGroups: 'BTC' };
 describe('EVERY_CURRENCY', () => {
   it('is where everyone starts: both, with new groups in rupees', () => {
     expect(EVERY_CURRENCY).toEqual({ uses: ['INR', 'BTC'], newGroups: 'INR' });
+  });
+});
+
+describe('RUPEES_ONLY', () => {
+  it('is what the first screen starts with: rupees, and bitcoin a tap away', () => {
+    expect(RUPEES_ONLY).toEqual(rupees);
+    expect(toggleCurrency(RUPEES_ONLY, 'BTC')).toEqual(EVERY_CURRENCY);
+  });
+});
+
+describe('onlyIn', () => {
+  it('is the one currency a group from a link is kept in', () => {
+    expect(onlyIn('INR')).toEqual(rupees);
+    expect(onlyIn('BTC')).toEqual(bitcoin);
+  });
+
+  it('is nothing for a currency the app doesn’t offer', () => {
+    expect(onlyIn('USD')).toBeNull();
+  });
+});
+
+describe('showsNostr', () => {
+  it('goes with bitcoin', () => {
+    expect(showsNostr(EVERY_CURRENCY)).toBe(true);
+    expect(showsNostr(bitcoin)).toBe(true);
+    expect(showsNostr(rupees)).toBe(false);
   });
 });
 
