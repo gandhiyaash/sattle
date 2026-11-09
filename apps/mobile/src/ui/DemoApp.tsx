@@ -15,7 +15,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Debt, Expense, HistoryEntry, Member, PayWays } from '@sattle/core';
-import { analytics } from '../analytics/analytics';
 import type { SattleClient } from '../client/SattleClient';
 import type { AppData } from '../data/AppData';
 import { useAppData, useNotices, useView } from '../data/useAppData';
@@ -40,6 +39,7 @@ import { RestoreScreen } from './RestoreScreen';
 import { SettleUpSheet } from './SettleUpSheet';
 import { OfflineBanner } from './OfflineBanner';
 import { UpdateBanner } from './UpdateBanner';
+import { TabBar, useTabBarSpace, type TabItem } from './TabBar';
 import { makeStyles, radius, space, type } from './theme';
 
 type Route =
@@ -167,6 +167,8 @@ function Navigator({
   const appData = useAppData();
   // Once, over the groups list at launch, for someone with nowhere yet to be paid. See GetPaidSheet.
   const getPaid = useAskToGetPaid(route.name === 'groups');
+  const barSpace = useTabBarSpace();
+  const insets = useSafeAreaInsets();
   // On a phone the link can arrive after the first screen is up, or while the app is in use.
   useEffect(() => {
     if (joining) setRoute({ name: 'join', token: joining });
@@ -389,10 +391,13 @@ function Navigator({
     }
   })();
 
+  // The bar is on the tabs themselves, not on what's opened from them. It floats over the screen,
+  // so the screen is told how much of its bottom the bar covers, and keeps its last row clear.
+  const tab = tabOf(route);
   return (
     <View style={{ flex: 1 }}>
       <View style={{ flex: 1 }} pointerEvents={guarded ? 'none' : 'auto'}>
-        <AboveBottomBar>{body}</AboveBottomBar>
+        <AboveBottomBar bottom={tab ? barSpace : undefined}>{body}</AboveBottomBar>
       </View>
 
       <Sheet visible={settling !== null} onClose={() => setSettling(null)}>
@@ -425,20 +430,58 @@ function Navigator({
         {getPaid.asking && <GetPaidSheet upiOnLinks={getPaid.upiOnLinks} onDone={getPaid.done} />}
       </Sheet>
 
-      <OfflineBanner />
-      <UpdateBanner />
+      {/* Over the bar where there is one, so it never hides them; at the bottom, clear of the home indicator, where there isn't. */}
+      {tab ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: barSpace }}>
+          <OfflineBanner />
+          <UpdateBanner />
+        </View>
+      ) : (
+        <>
+          <OfflineBanner inset={insets.bottom} />
+          <UpdateBanner inset={insets.bottom} />
+        </>
+      )}
       <Notices />
-      <DemoBar
-        route={route}
-        onNavigate={(next) => {
-          // A tab is a way off the join screen too. Left set, the link would do nothing when tapped again.
-          if (route.name === 'join') onJoinDone?.();
-          if (route.name === 'shared') onSharedDone?.();
-          setRoute(next);
-        }}
-      />
+      {tab && <TabBar tabs={TABS} current={tab} onSelect={(key) => setRoute(TAB_ROUTES[key])} />}
     </View>
   );
+}
+
+type TabKey = 'groups' | 'activity' | 'account' | 'guest';
+
+/**
+ * Groups, Activity and Account. In demo mode, also a Guest link tab, so a judge can jump
+ * straight to the guest page without a second device. It opens the seeded
+ * `demo` link and Flat 4B fixtures, which only the mock has.
+ */
+const TABS: ReadonlyArray<TabItem<TabKey>> = [
+  { key: 'groups', label: 'Groups', icon: 'groups' },
+  { key: 'activity', label: 'Activity', icon: 'activity' },
+  { key: 'account', label: 'Account', icon: 'account' },
+  ...(isMock() ? [{ key: 'guest', label: 'Guest link', icon: 'link' } as const] : []),
+];
+
+const TAB_ROUTES: Record<TabKey, Route> = {
+  groups: { name: 'groups' },
+  activity: { name: 'activity' },
+  account: { name: 'account' },
+  guest: { name: 'guest', token: 'demo' },
+};
+
+/** The tab this route is, if it's one of them: a tab's own screen, not anything opened from it. */
+function tabOf(route: Route): TabKey | null {
+  switch (route.name) {
+    case 'groups':
+    case 'activity':
+      return route.name;
+    case 'account':
+      return route.page ? null : 'account';
+    case 'guest':
+      return isMock() ? 'guest' : null;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -510,53 +553,6 @@ function SharedGroup({
     );
   }
   return <GroupGuestScreen token={token} onBack={onBack} onJoin={onJoin} />;
-}
-
-/**
- * Groups, Activity and Account. In demo mode, also a Guest link tab, so a judge can jump
- * straight to the guest page without a second device. It opens the seeded
- * `demo` link and Flat 4B fixtures, which only the mock has.
- */
-function DemoBar({
-  route,
-  onNavigate,
-}: {
-  route: Route;
-  onNavigate: (r: Route) => void;
-}) {
-  const sheet = useSheet();
-  const insets = useSafeAreaInsets();
-  const tabs: Array<{ label: string; route: Route }> = [
-    { label: 'Groups', route: { name: 'groups' } },
-    { label: 'Activity', route: { name: 'activity' } },
-    { label: 'Account', route: { name: 'account' } },
-    ...(isMock() ? [{ label: 'Guest link', route: { name: 'guest', token: 'demo' } } as const] : []),
-  ];
-
-  return (
-    // The labels stay above the home indicator; the bar's colour runs under it to the edge.
-    <View style={[sheet.bar, { paddingBottom: Math.max(insets.bottom, space.lg) }]} accessibilityRole="tablist">
-      {tabs.map((tab) => {
-        const selected = route.name === tab.route.name;
-        return (
-          <Pressable
-            key={tab.label}
-            onPress={() => {
-              analytics.tap(tab.label, { control: 'tab' });
-              onNavigate(tab.route);
-            }}
-            style={({ pressed }) => [sheet.tab, pressed && { opacity: 0.6 }]}
-            accessibilityRole="tab"
-            accessibilityState={{ selected }}
-            // A browser is told separately: react-native-web doesn't read accessibilityState.
-            aria-selected={selected}
-          >
-            <Text style={[sheet.tabText, selected && sheet.tabTextActive]}>{tab.label}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
 }
 
 /**
@@ -650,15 +646,6 @@ function GuestScenarios({ onOpen }: { onOpen: (token: string) => void }) {
 }
 
 const useSheet = makeStyles((color) => ({
-  bar: {
-    flexDirection: 'row',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.line,
-    backgroundColor: color.surface,
-  },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: space.md },
-  tabText: { ...type.label, color: color.inkFaint },
-  tabTextActive: { color: color.accent },
   scenarios: {
     flexDirection: 'row',
     flexWrap: 'wrap',

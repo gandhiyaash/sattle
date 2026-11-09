@@ -24,7 +24,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and which currencies you use, makes a device account, asks your UPI ID if you ticked rupees, and you start with no groups. Then comes a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It is shown once per device; **Skip** leaves it. Demo mode has no account to make, so it opens on the tour. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
+`npm run web` is demo mode: it opens on seeded groups, and the tab bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and which currencies you use, makes a device account, asks your UPI ID if you ticked rupees, and you start with no groups. Then comes a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It is shown once per device; **Skip** leaves it. Demo mode has no account to make, so it opens on the tour. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
 
 Try these flows:
 
@@ -185,6 +185,7 @@ apps/mobile/                 @sattle/mobile: Expo
       UpiPanel.tsx           What to pay over UPI: the ID, a QR code on the web, and the button that opens a UPI app.
       AccountPages.tsx       The pages under Account: UPI ID, Lightning wallet and address, currencies, sign-in key, Nostr, the trust disclosure, deleting.
       ActivityScreen.tsx     Every group's expenses and payments, newest first, with what each did for you.
+      TabBar.tsx             Groups, Activity, Account: a floating capsule, Liquid Glass on iPhone, solid on Android and the web.
       FaqScreen.tsx          Behind that FAQ: how getting paid, confirming, UPI, the links and the account work, for the ways to pay the reader uses.
       GuestPayScreen.tsx     The /s/<token> page. No app, no signup. Lightning, UPI, or a choice of the two.
       JoinScreen.tsx         The /join/<token> page: which group it is, who you are, and asking to join.
@@ -271,6 +272,8 @@ new MockClient({ alwaysFailSettlement: true })    // payment failure screen
 new MockClient({ settleDelayMs: 12000 })          // the long wait
 new MockClient({ latencyMs: 0 })                  // tests
 ```
+
+The app has three tabs, **Groups**, **Activity** and **Account**, on a bar that floats a little above the bottom edge (`TabBar.tsx`). It is only on those three screens; a group, the expense form or a page under Account hides it, and back takes you out. On an iPhone with iOS 26 or later the bar is Apple's Liquid Glass (`expo-glass-effect`, a native module, so `pod install` after pulling it in); older iPhones get a translucent bar, and Android and the web a solid one. On a phone the highlight springs to the tab tapped, unless the phone asks for less motion. A screen under the bar is told its height as the bottom safe-area inset (`AboveBottomBar`), so its last row stays clear.
 
 ## The ghost path
 
