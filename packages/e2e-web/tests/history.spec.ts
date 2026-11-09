@@ -65,7 +65,7 @@ test.describe('The list', () => {
     await openHistory(yash.page);
     await expect(yash.page.getByText('Trip', { exact: true })).toBeVisible();
     await expect(
-      yash.page.getByText('Nothing yet. What gets added, changed and paid in this group shows up here.')
+      yash.page.getByText('Nothing yet. What gets added, changed and paid in this group, and changes to the group, show up here.')
     ).toBeVisible();
   });
 
@@ -98,7 +98,7 @@ test.describe('The list', () => {
     await goToGroup(yash.page, 'Trip');
     await expect(yash.page.getByRole('link', { name: 'See all activity' })).toBeVisible();
     await button(yash.page, 'See all').click();
-    await expect(yash.page.getByText('Nothing yet. What gets added, changed and paid in this group shows up here.')).toBeVisible();
+    await expect(yash.page.getByText('Nothing yet. What gets added, changed and paid in this group, and changes to the group, show up here.')).toBeVisible();
     await button(yash.page, '‹').click();
     await expect(groupHeader(yash.page)).toBeVisible();
     await expect(button(yash.page, 'See all')).toBeVisible();
