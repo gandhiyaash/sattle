@@ -81,8 +81,16 @@ export interface AppDataOptions {
   now?: () => number;
 }
 
-/** Bump when what's kept changes shape. An older copy is dropped, and the app reads afresh. */
-const SAVED_VERSION = 1;
+/**
+ * Bump when the kept copy of the server's answer changes shape. An older copy
+ * is dropped, and the app reads afresh. 2: each group has its `log`.
+ */
+const COPY_VERSION = 2;
+/**
+ * Bump when the kept changes change shape. Apart from the copy's, so a new
+ * field in what the server answers never costs anyone a change not yet sent.
+ */
+const CHANGES_VERSION = 1;
 /** How many times an add that goes unanswered is sent before it's left for the person to try again. */
 const GIVE_UP_AFTER = 5;
 /** Slowest a screen that keeps itself current is checked when syncs keep failing. */
@@ -670,18 +678,18 @@ export class AppData {
   private hydrate(): void {
     const { saved, owner } = this.opts;
     if (!saved || !owner) return;
-    const ours = <T extends { v: number; owner: string }>(part: SavedPart): T | null => {
+    const ours = <T extends { v: number; owner: string }>(part: SavedPart, version: number): T | null => {
       try {
         const text = saved.read(part);
         const blob = text ? (JSON.parse(text) as T) : null;
-        return blob && blob.v === SAVED_VERSION && blob.owner === owner ? blob : null;
+        return blob && blob.v === version && blob.owner === owner ? blob : null;
       } catch {
         // Unreadable, or storage is blocked: nothing saved, as on a first launch.
         return null;
       }
     };
-    const blob = ours<SavedBlob>('copy');
-    const kept = ours<SavedChanges>('changes');
+    const blob = ours<SavedBlob>('copy', COPY_VERSION);
+    const kept = ours<SavedChanges>('changes', CHANGES_VERSION);
     if (blob?.server) {
       this.server = blob.server;
       if (blob.version !== undefined) this.versions.set(keyOf(null), blob.version);
@@ -724,7 +732,7 @@ export class AppData {
     if (!saved || !owner || this.disposed) return;
     // The changes first, and even before there's a copy to lay them over: they're the part that
     // can't be got back.
-    const changes: SavedChanges = { v: SAVED_VERSION, owner, changes: this.changes };
+    const changes: SavedChanges = { v: CHANGES_VERSION, owner, changes: this.changes };
     const changesText = JSON.stringify(changes);
     if (changesText !== this.changesWritten) {
       try {
@@ -738,7 +746,7 @@ export class AppData {
     const reads: SavedBlob['reads'] = {};
     for (const [key, r] of this.reads) if (r.save) reads[key] = { value: r.value, at: r.at };
     const blob: SavedBlob = {
-      v: SAVED_VERSION,
+      v: COPY_VERSION,
       owner,
       version: this.versions.get(keyOf(null)),
       syncedAt: this.status.syncedAt,

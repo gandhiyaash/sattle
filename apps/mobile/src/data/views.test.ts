@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Expense, GroupSnapshot, Member, Settlement, SyncView } from '@sattle/core';
+import type { Expense, GroupLogEntry, GroupSnapshot, Member, Settlement, SyncView } from '@sattle/core';
 
 import { activityOf } from './views';
 
@@ -39,7 +39,14 @@ const settlement = (id: string, groupId: string, from: string, to: string, amoun
   ...extra,
 });
 
-function snapshot(id: string, name: string, members: Member[], expenses: Expense[], settlements: Settlement[] = []): GroupSnapshot {
+function snapshot(
+  id: string,
+  name: string,
+  members: Member[],
+  expenses: Expense[],
+  settlements: Settlement[] = [],
+  log: GroupLogEntry[] = []
+): GroupSnapshot {
   return {
     group: {
       id,
@@ -55,7 +62,7 @@ function snapshot(id: string, name: string, members: Member[], expenses: Expense
     settlements,
     upiClaims: [],
     pendingJoins: [],
-    log: [],
+    log,
   };
 }
 
@@ -114,6 +121,39 @@ describe('activityOf', () => {
     expect(by('You paid Om')).toMatchObject({ kind: 'payment', detail: 'UPI', mine: -100 });
     expect(by('Kabir settled with you')).toMatchObject({ detail: 'Marked as settled', mine: 100 });
     expect(by('Kabir paid Om').mine).toBeNull();
+  });
+
+  it('says who did each thing: added an expense, settled a debt, changed the group', () => {
+    const items = activityOf(
+      view([
+        snapshot(
+          'g-goa',
+          'Goa',
+          goaMembers,
+          [
+            { ...expense('Dinner', 'g-goa', 300, 'm-riya', ['m-riya', 'm-om'], '2026-11-02T10:00:00.000Z'), addedByMemberId: 'm-om' },
+            { ...expense('Cab', 'g-goa', 200, 'm-riya', ['m-riya', 'm-om'], '2026-11-02T11:00:00.000Z'), addedByMemberId: 'm-riya' },
+          ],
+          [
+            settlement('s1', 'g-goa', 'm-kabir', 'm-riya', 100, '2026-11-03T10:00:00.000Z', { rail: 'manual', recordedByMemberId: 'm-riya' }),
+            settlement('s2', 'g-goa', 'm-om', 'm-kabir', 100, '2026-11-03T11:00:00.000Z', { recordedByMemberId: 'm-kabir' }),
+          ],
+          [
+            { id: '1', groupId: 'g-goa', at: '2026-11-04T10:00:00.000Z', byMemberId: 'm-om', change: { kind: 'simplify_debts', on: true } },
+            { id: '2', groupId: 'g-goa', at: '2026-11-04T11:00:00.000Z', byMemberId: 'm-riya', change: { kind: 'renamed', from: 'Goa', to: 'Goa 2026' } },
+          ]
+        ),
+      ])
+    );
+    const by = (title: string) => items.find((i) => i.title === title)!;
+    expect(by('Dinner').detail).toBe('Added by Om · You paid');
+    expect(by('Cab').detail).toBe('Added by you');
+    expect(by('Kabir settled with you').detail).toBe('Marked as settled by you');
+    expect(by('Om paid Kabir').detail).toBe('UPI, confirmed by Kabir');
+    expect(items.slice(0, 2)).toMatchObject([
+      { kind: 'change', title: 'You renamed the group to “Goa 2026”', detail: '', amount: 0, mine: null, groupName: 'Goa' },
+      { kind: 'change', title: 'Om turned on Simplify debts', mine: null },
+    ]);
   });
 
   it('leaves out payments that didn’t go through, and keeps to the limit', () => {

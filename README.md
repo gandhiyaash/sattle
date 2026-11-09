@@ -77,7 +77,7 @@ packages/core/src/           @sattle/core: pure, no I/O, imported by both app an
   currency.ts                The currencies a group can be kept in, and how an amount in each is typed and shown.
   formats.ts                 Number and date formats, made once each and kept: making one costs fifty times using one.
   ledger.ts                  Pure maths: splits, balances, and who pays whom, simplified or not.
-  history.ts                 A group's history, read off its expenses, the changes to them and its settlements.
+  history.ts                 A group's history, read off its expenses, the changes to them, its settlements and its log.
   settlementOptions.ts       Resolves what's possible BEFORE the user taps, from the ways to pay the payer uses.
   quote.ts                   What a debt comes to in sats: a pinned rate for rupees, none for a group kept in bitcoin. 90s TTL.
   payLinks.ts                Guest-safe settlement view, NWC method lists.
@@ -496,6 +496,8 @@ On a group's **Settle up** tab, the button at the bottom is **History** rather t
 Nothing is stored as a history. `buildHistory` in `@sattle/core` reads it off three things the server already keeps, and the mock builds it the same way: the expenses, the changes to them, and the settlements. Migration 019 added what those didn't say: who added an expense, who changed or removed one and how it read before, and who marked a debt as settled or confirmed a UPI payment. Each "who" is the member that person was in the group. Things from before 019 show without a name, and an expense edited before it shows as added the way it read after that first edit, since the earlier reading wasn't kept.
 
 Two things are left out on purpose. A payment that failed or ran out isn't in the history, because it moved nothing. And saving an expense exactly as it stood isn't a change: the server notes nothing for it, in the history or on Nostr.
+
+Changes to the group itself are in its history too, each as one line that says who made it: "Om turned on Simplify debts", "Riya renamed the group to “Goa 2026”". The server notes them in the group's log (`group_log`, migration 027) as they happen: **Simplify debts** or **Approve who joins** turned on or off, the group renamed, someone added by name, removed, joining from the link, let in or leaving, and the group's link made, replaced or turned off. Names are kept as they were then. Saying what something already is notes nothing. The log is `GET /groups/:id/log`, and each group's `log` in sync, where the **Activity** tab reads it: there every line says who did it, "You turned off Simplify debts" beside "Added by Om · Riya paid". It isn't published to Nostr: it doesn't change what anyone owes. Nothing was kept before 027, so a group's log starts there.
 
 ### Usage statistics
 

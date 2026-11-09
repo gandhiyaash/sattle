@@ -1,8 +1,10 @@
 /**
- * Activity: what's been spent and paid across all the user's groups, newest
- * first, a day at a time (activityOf). Each line says which group and what it
- * did for them: lent, borrowed, paid or got. A line that didn't involve them
- * shows its amount, quietly. Tapping one opens its group.
+ * Activity: what's been spent, paid and changed across all the user's
+ * groups, newest first, a day at a time (activityOf). Each line says which
+ * group, who did it, and for money what it did for them: lent, borrowed,
+ * paid or got. A line that didn't involve them shows its amount, quietly. A
+ * change to a group ("Om turned on Simplify debts") has no amount. Tapping
+ * one opens its group.
  *
  * It's drawn from what the app already has, so it opens at once and follows
  * the groups as they change. Edits and removals stay in each group's History.
@@ -29,7 +31,7 @@ export function ActivityScreen({ onOpenGroup }: { onOpenGroup: (groupId: string)
     <Screen title="Activity">
       {!days && first.waiting && <Loading lines={4} />}
       {!days && first.error && <ErrorState message={first.error.message} error={first.error} onRetry={first.retry} />}
-      {days?.length === 0 && <EmptyState title="Nothing yet" body="Expenses and payments from your groups show up here." />}
+      {days?.length === 0 && <EmptyState title="Nothing yet" body="Expenses, payments and changes in your groups show up here." />}
       {days?.map((day) => (
         <View key={day.label}>
           <SectionLabel>{day.label}</SectionLabel>
@@ -62,14 +64,14 @@ function Row({ item, onPress }: { item: ActivityItem; onPress: () => void }) {
     >
       <Avatar name={item.groupName} />
       <View style={{ flex: 1 }}>
-        <Text style={s.title} numberOfLines={1}>
+        <Text style={[s.title, item.kind === 'change' && s.change]} numberOfLines={item.kind === 'change' ? 2 : 1}>
           {item.title}
         </Text>
         <Text style={s.meta} numberOfLines={1}>
-          {item.groupName} · {item.detail}
+          {item.detail ? `${item.groupName} · ${item.detail}` : item.groupName}
         </Text>
       </View>
-      {mine === null ? (
+      {item.kind === 'change' ? null : mine === null ? (
         <Text style={s.quiet}>{formatAmount(item.amount, item.currency)}</Text>
       ) : (
         <View style={s.mine}>
@@ -83,7 +85,7 @@ function Row({ item, onPress }: { item: ActivityItem; onPress: () => void }) {
   );
 }
 
-const effect = (kind: ActivityItem['kind'], mine: number) =>
+const effect = (kind: 'expense' | 'payment', mine: number) =>
   kind === 'expense' ? (mine > 0 ? 'you lent' : 'you borrowed') : mine > 0 ? 'you got' : 'you paid';
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -117,6 +119,8 @@ function byDay(items: ActivityItem[]): Array<{ label: string; items: ActivityIte
 const useStyles = makeStyles((color) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.lg },
   title: { ...type.body, fontWeight: '500', color: color.ink },
+  // A change to a group isn't money, so it's set lighter than what was spent or paid.
+  change: { fontWeight: '400', color: color.inkMuted },
   meta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   mine: { alignItems: 'flex-end' },
   amount: { ...type.amountMd },
