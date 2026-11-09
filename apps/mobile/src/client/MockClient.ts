@@ -780,6 +780,7 @@ export class MockClient implements SattleClient {
       }
       if (g.approveJoins) throw new SattleError('conflict', `Someone in ${g.name} has to let you in. Ask to join instead.`);
       let member: Member;
+      let arriving = true;
       if ('displayName' in as) {
         const displayName = as.displayName.trim();
         const same = (m: Member) => m.displayName.trim().toLowerCase() === displayName.toLowerCase();
@@ -800,11 +801,13 @@ export class MockClient implements SattleClient {
       } else {
         const picked = members.find((m) => this.memberRef(token, m.id) === as.ref);
         if (!picked) throw new SattleError('not_found', 'That person is no longer in this group.');
+        arriving = !picked.claimedByUserId;
         member = this.admit(picked, me.id);
       }
       // Their own request for this group is done with.
       this.joinRequests = this.joinRequests.filter((x) => !(x.groupId === g.id && x.userId === me.id));
-      this.noteGroupChange(g.id, { kind: 'joined', name: member.displayName }, member.id);
+      // As the server: someone already in, on another device, isn't someone joining.
+      if (arriving) this.noteGroupChange(g.id, { kind: 'joined', name: member.displayName }, member.id);
       return member;
     }, idempotencyKey);
   }
@@ -1302,7 +1305,6 @@ export class MockClient implements SattleClient {
         throw new SattleError('conflict', 'You’re the only one here with an account. Delete the group instead.');
       }
       this.checkNothingIncoming(g.id);
-      this.noteGroupChange(g.id, { kind: 'left', name: me.displayName }, me.id);
       // As the server: the member stays with their other devices, the oldest first, or is a ghost again.
       const rest = accountsOf(me).filter((a) => a !== fixtures.currentUser.id);
       if (rest.length > 0) {
@@ -1315,6 +1317,8 @@ export class MockClient implements SattleClient {
       }
       delete me.claimedByUserId;
       me.status = 'ghost';
+      // Only now are they gone: one device of several leaving isn't the person leaving.
+      this.noteGroupChange(g.id, { kind: 'left', name: me.displayName }, me.id);
       // What they chose about this group's link was theirs, so it goes with them.
       delete this.upiOnLinkChoices[me.id];
     }, idempotencyKey);

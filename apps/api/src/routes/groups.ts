@@ -174,7 +174,8 @@ export function groupRoutes({ db, repo, wallets, payments }: Ctx) {
     transaction(db, () => {
       const me = repo.memberForUser(g.id, user.id)!;
       leaveGroup(repo, g, user.id);
-      repo.noteGroupChange(g.id, me.id, { kind: 'left', name: me.displayName });
+      // One device of several going isn't the person leaving: they're still in on the others.
+      if (!repo.member(me.id)?.claimedByUserId) repo.noteGroupChange(g.id, me.id, { kind: 'left', name: me.displayName });
     });
     return c.json({ ok: true });
   });

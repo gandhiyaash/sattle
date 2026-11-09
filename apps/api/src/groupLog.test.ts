@@ -110,6 +110,24 @@ describe('GET /groups/:id/log', () => {
     ]);
   });
 
+  it('notes a person joining or leaving, not one more device of someone already in', async () => {
+    const { call, base, riya, signUp, mKabir, lines, join } = await setup();
+    await call('POST', `${base}/link`, undefined, riya.token);
+    const phone = await signUp('Kabir');
+    const laptop = await signUp('Kabir');
+    await join(phone.token, 'Kabir');
+    // The same Kabir, on another device: he's already in, so nothing is noted.
+    await join(laptop.token, 'Kabir');
+    // One device leaving isn't him leaving: he's still in on the other.
+    await call('POST', `${base}/leave`, undefined, laptop.token);
+    await call('POST', `${base}/leave`, undefined, phone.token);
+
+    expect((await lines()).slice(1)).toEqual([
+      [mKabir, { kind: 'joined', name: 'Kabir' }],
+      [mKabir, { kind: 'left', name: 'Kabir' }],
+    ]);
+  });
+
   it('is in sync, is for members only, and goes with the group', async () => {
     const { call, base, riya, group, log, signUp } = await setup();
     await call('PUT', base, { simplifyDebts: false }, riya.token);

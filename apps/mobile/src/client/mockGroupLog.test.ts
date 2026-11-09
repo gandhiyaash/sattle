@@ -46,4 +46,24 @@ describe('MockClient’s group log, kept as the server keeps it', () => {
     const history = await c.getHistory('g-goa');
     expect(history[0]).toMatchObject({ kind: 'group_changed', change: { kind: 'renamed', to: 'Goa 2026' } });
   });
+
+  it('notes a person joining or leaving, not a device of someone already in', async () => {
+    const c = client();
+    await c.setApproveJoins('g-goa', false);
+    const link = await c.createGroupLink('g-goa');
+    await c.leaveGroup('g-goa');
+    const view = await c.getJoinView(link.token);
+    // Yash's phone becomes Om's too, then leaves again: Om was in all along, on his own phone.
+    await c.join(link.token, { ref: view.members.find((m) => m.name === 'Om')!.ref });
+    await c.leaveGroup('g-goa');
+    await c.join(link.token, { ref: view.members.find((m) => m.name === 'Yash')!.ref });
+
+    const changes = (await c.getHistory('g-goa')).flatMap((e) => (e.kind === 'group_changed' ? [e.change] : [])).reverse();
+    expect(changes).toEqual([
+      { kind: 'approve_joins', on: false },
+      { kind: 'link_made' },
+      { kind: 'left', name: 'Yash' },
+      { kind: 'joined', name: 'Yash' },
+    ]);
+  });
 });
