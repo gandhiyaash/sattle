@@ -63,8 +63,8 @@ export interface IphoneUpiApp {
 
 /**
  * The schemes are from payment providers' iOS guides; none is Apple's or the apps' own word.
- * Google Pay is `tez` in most and `gpay` in some, and YONO `sbiyono` or `yono`, so both are
- * tried. Every scheme here has to be in app.json too, or iOS answers no for it whether the app
+ * Google Pay is `tez` in most and `gpay` in some, YONO `sbiyono` or `yono`, and Navi `navipay`
+ * or `navi`, so both are tried. Every scheme here has to be in app.json too, or iOS answers no for it whether the app
  * is there or not.
  *
  * Which take the link was tried on Om's iPhone in November 2026: only CRED did. Google Pay,
@@ -78,7 +78,7 @@ export const IPHONE_UPI_APPS: readonly IphoneUpiApp[] = [
   { packageName: 'com.dreamplug.androidapp', name: 'CRED', appStoreId: 1428580080, schemes: ['credpay'], payPath: 'upi/pay' },
   { packageName: 'in.org.npci.upiapp', name: 'BHIM', appStoreId: 1200315258, schemes: ['bhim'], payPath: null },
   { packageName: 'com.sbi.lotusintouch', name: 'YONO SBI', appStoreId: 1231393474, schemes: ['sbiyono', 'yono'], payPath: null },
-  { packageName: 'com.naviapp', name: 'Navi', appStoreId: 1541152485, schemes: ['navipay'], payPath: null },
+  { packageName: 'com.naviapp', name: 'Navi', appStoreId: 1541152485, schemes: ['navipay', 'navi'], payPath: null },
 ];
 
 /** An iPhone app found on the phone, with the scheme that opened. */

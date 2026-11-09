@@ -48,12 +48,13 @@ describe('an iPhone’s UPI apps', () => {
     expect(found.map((f) => f.app.name)).toEqual(['CRED']);
   });
 
-  it('finds YONO SBI and Navi by their schemes', async () => {
+  it('finds YONO SBI and Navi by either of their schemes', async () => {
     const found = await findIphoneApps(phoneWith('yono', 'navipay'));
     expect(found.map(({ app, scheme }) => [app.name, scheme])).toEqual([
       ['YONO SBI', 'yono'],
       ['Navi', 'navipay'],
     ]);
+    expect((await findIphoneApps(phoneWith('sbiyono', 'navi'))).map((f) => f.scheme)).toEqual(['sbiyono', 'navi']);
   });
 
   it('opens an app on its own scheme, with the same payee, amount and note', () => {
