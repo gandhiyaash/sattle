@@ -1,11 +1,15 @@
 /**
- * First launch: what Sattle is, in three screens.
+ * First launch: what Sattle is, in three screens. It comes once they're in:
+ * after the first screen and the UPI ID (WelcomeScreen, UpiStepScreen), after
+ * joining from a link, or after signing in. The demo, with no account to
+ * make, opens on it.
  *
  * Each screen makes one point and shows it the way the app itself will, built
  * from the same cards and rows, so the group screen is already familiar when
  * someone reaches it: splitting, that only one of them needs the app, and the
- * ways to settle up. It asks nothing and changes nothing. Every way to pay is
- * offered afterwards exactly as before, by what the person owed has set up.
+ * ways to settle up. It asks nothing and changes nothing. The ways to settle
+ * up are only those that go with the currencies they use (payWays): someone
+ * who only uses rupees never reads about Lightning here either.
  *
  * It is shown once. Reaching the end or skipping is what the device
  * remembers (tourStore); someone who closes the app halfway gets it again.
@@ -15,6 +19,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useScreenView } from '../analytics/useScreenView';
+import { usePayWays } from '../prefs/useCurrencyPrefs';
 import { Amount, Avatar, Badge, Button, Card, Divider, Screen } from './primitives';
 import { makeStyles, radius, space, type } from './theme';
 
@@ -127,27 +132,38 @@ function NoApp() {
 
 function Settle() {
   const s = useStyles();
+  const { lightning, upi } = usePayWays();
+  // What they could add under Wallet to be paid, in the ways they use.
+  const getPaid = [upi && 'a UPI ID', lightning && 'a Lightning wallet or a Lightning address'].filter(Boolean).join(', ');
   return (
     <Step
       title="Settle up your way"
       body="Pay what you owe from an app you already have. The money goes straight from you to them: Sattle never holds it."
     >
       <Card style={{ gap: space.md }}>
-        <Way
-          title="Bitcoin, over Lightning"
-          body="From any Lightning wallet. A rupee debt is turned into sats at the live rate, and it’s settled when the payment goes through."
-        />
-        <Divider />
-        <Way
-          title="UPI"
-          body="From GPay, PhonePe or any UPI app. It’s settled once the person you paid confirms it arrived."
-        />
-        <Divider />
+        {lightning && (
+          <>
+            <Way
+              title="Bitcoin, over Lightning"
+              body="From any Lightning wallet. A rupee debt is turned into sats at the live rate, and it’s settled when the payment goes through."
+            />
+            <Divider />
+          </>
+        )}
+        {upi && (
+          <>
+            <Way
+              title="UPI"
+              body="From GPay, PhonePe or any UPI app. It’s settled once the person you paid confirms it arrived."
+            />
+            <Divider />
+          </>
+        )}
         <Way title="Cash, or anything else" body="The person who was paid marks it settled." />
       </Card>
       <Text style={s.note}>
         You’re offered whichever of these the person you owe has set up, and a balance only moves once the payment is
-        confirmed. To get paid yourself, add a UPI ID, a Lightning wallet or a Lightning address under Wallet.
+        confirmed. To get paid yourself, add {getPaid} under Wallet.
       </Text>
     </Step>
   );

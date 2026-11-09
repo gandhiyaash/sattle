@@ -730,6 +730,7 @@ export class MockClient implements SattleClient {
       const g = this.findGroup(link.groupId);
       return {
         groupName: g.name,
+        currency: g.currency,
         approveJoins: g.approveJoins,
         members: this.members
           .filter((m) => m.groupId === link.groupId)

@@ -55,7 +55,7 @@ test.describe('Account', () => {
 
     // The other device is signed out the next time it asks; this one keeps going.
     await other.page.reload();
-    await expect(other.page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(other.page.getByText('What should we call you?')).toBeVisible();
     expect(await other.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
     await page.reload();
     await expect(page.getByText('What are you splitting?')).toBeVisible();
@@ -68,6 +68,7 @@ test.describe('Account', () => {
     const bitcoin = page.getByRole('checkbox', { name: BITCOIN });
     await expect(rupees).toBeChecked();
     await expect(bitcoin).toBeChecked();
+    await expect(page.getByText('Sign in with Nostr', { exact: true })).toBeVisible();
     await expect(page.getByText('New groups start in')).toBeVisible();
     await expect(page.getByText(/^You pick the currency for each new group\./)).toBeVisible();
 
@@ -78,6 +79,8 @@ test.describe('Account', () => {
     await expect(page.getByText(/^This ends your account for good\. The links you sent stop working/)).toBeVisible();
     await expect(page.getByText('New groups start in')).toHaveCount(0);
     await expect(page.getByText('Your groups are in rupees and settled by UPI. Sattle keeps everything to do with Bitcoin out of your way.')).toBeVisible();
+    // Nostr goes with bitcoin.
+    await expect(page.getByText('Sign in with Nostr', { exact: true })).toHaveCount(0);
 
     // The last one can't go: the row is disabled, and a tap on it does nothing.
     await expect(rupees).toHaveAttribute('aria-disabled', 'true');
@@ -157,7 +160,7 @@ test.describe('Account', () => {
     await tab(bob.page, 'Account');
     await expect(bob.page.getByText(/^This ends your account for good\./)).toBeVisible();
     await confirm(bob.page, 'Delete my account', 'Yes, delete my account');
-    await expect(bob.page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(bob.page.getByText('What should we call you?')).toBeVisible();
     expect(await bob.page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
     await expect(bob.api.me()).rejects.toMatchObject({ status: 401 });
 

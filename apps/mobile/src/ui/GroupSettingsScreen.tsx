@@ -1,7 +1,9 @@
 /**
  * Managing a group: its name, whether it simplifies its debts, its link, who
  * gets in by it, its backup, leaving it, deleting it.
- * Who is in it is on the group screen, under Add people.
+ * Who is in it is on the group screen, under Add people. The backup is on
+ * Nostr, so it's only shown to someone who uses bitcoin (showsNostr); it is
+ * made all the same.
  *
  * Everything here follows one rule, the server's (groupRules.ts): nobody can
  * undo what someone else is owed. So a group is deleted only once it's
@@ -28,6 +30,7 @@ import { useScreenView } from '../analytics/useScreenView';
 import type { AppData } from '../data/AppData';
 import { KEEP_CURRENT_MS, useAppData, useFirstLoad, useKeepCurrent, useView } from '../data/useAppData';
 import { snapshotOf, withGroup } from '../data/views';
+import { useShowsNostr } from '../prefs/useCurrencyPrefs';
 import { useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { APP_URL } from '../react/useSettleFlow';
 import {
@@ -82,6 +85,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
   const appData = useAppData();
   const view = useView();
   const first = useFirstLoad();
+  const nostr = useShowsNostr();
   const snap = snapshotOf(view, groupId);
   // Kept current as the group's screen is: a payment finishing decides whether it can be deleted.
   useKeepCurrent(KEEP_CURRENT_MS, groupId);
@@ -155,7 +159,7 @@ export function GroupSettingsScreen({ groupId, onBack, onGone, onReadBack }: Gro
 
       <Joining groupId={groupId} approveJoins={data.approveJoins} />
 
-      <LedgerBackupSection groupId={groupId} onReadBack={onReadBack} />
+      {nostr && <LedgerBackupSection groupId={groupId} onReadBack={onReadBack} />}
 
       <View>
         <SectionLabel>Leave</SectionLabel>

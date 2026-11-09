@@ -119,6 +119,7 @@ describe('GET /join/:token', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       groupName: 'Manali',
+      currency: 'INR',
       approveJoins: false,
       members: [
         { ref: expect.any(String), name: 'Riya', joined: true },
@@ -126,6 +127,13 @@ describe('GET /join/:token', () => {
         { ref: expect.any(String), name: 'Aman' },
       ],
     });
+  });
+
+  it('says what the group is kept in, so someone new starts out in that currency', async () => {
+    const { call, riya, page } = await setup();
+    const sats = (await call<Group>('POST', '/groups', { name: 'Lisbon', currency: 'BTC', memberNames: ['Ben'] }, riya.token)).body;
+    const { token } = (await call<GroupLink>('POST', `/groups/${sats.id}/link`, undefined, riya.token)).body;
+    expect((await page(token)).body.currency).toBe('BTC');
   });
 
   it('offers everyone, joined or not, by a ref that isn’t their id', async () => {

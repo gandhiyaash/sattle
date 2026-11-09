@@ -5,6 +5,11 @@
  * is skipped. Whatever they do with it, the device doesn't ask again, and an
  * account that has somewhere already isn't looked up again either.
  *
+ * An account made on the first screen with rupees ticked has already been
+ * asked, by the UPI step (onboarding.spec.ts), so this sheet is for everyone
+ * else: an account made with bitcoin alone, one joined from a link, one
+ * signed in.
+ *
  * Every other test's device is already done with it (DeviceOptions.getPaidDone).
  */
 
@@ -59,10 +64,10 @@ async function riyasGroup(api: Api) {
 }
 
 test.describe('asked where to be paid', () => {
-  test('a new account is asked over the groups list, and Skip is an answer for good', async ({ device }) => {
-    const { page } = await device({ getPaidDone: false });
-    await page.goto('/');
-    await makeAccount(page, 'Yash');
+  test('an account with nowhere to be paid is asked over the groups list, and Skip is an answer for good', async ({
+    person,
+  }) => {
+    const { page } = await person('Yash', { getPaidDone: false });
 
     const ask = sheet(page);
     await expect(ask.getByText(TITLE)).toBeVisible();
@@ -91,6 +96,24 @@ test.describe('asked where to be paid', () => {
     await expect(page.getByText('What are you splitting?')).toBeVisible();
     await expect(page.getByText(TITLE)).toHaveCount(0);
     expect(looked).toEqual([]);
+  });
+
+  test('a new account that ticked bitcoin alone is asked for a Lightning address, and nothing of UPI', async ({
+    device,
+  }) => {
+    const { page } = await device({ getPaidDone: false });
+    await page.goto('/');
+    await makeAccount(page, 'Yash', { currencies: ['BTC'] });
+
+    const ask = sheet(page);
+    await expect(ask.getByText(TITLE)).toBeVisible();
+    await expect(
+      ask.getByText('Add your Lightning address, and people who owe you pay you there, straight from their own wallet.')
+    ).toBeVisible();
+    await expect(ask.getByPlaceholder(ADDRESS)).toBeVisible();
+    await expect(ask.getByPlaceholder(UPI)).toHaveCount(0);
+    await button(ask, 'Skip').click();
+    await expect(page.getByText(TITLE)).toHaveCount(0);
   });
 
   test('a Lightning address and a UPI ID are saved together, and Wallet has both', async ({ person }) => {

@@ -14,7 +14,9 @@
  * `ways` is what Wallet shows: the ways to pay they use, and anything they
  * have set up. Someone who never chose bitcoin isn't given the Lightning
  * questions, nor someone who never chose rupees the UPI ones, and the
- * questions that remain are worded for what they do use.
+ * questions that remain are worded for what they do use. Nostr goes with
+ * bitcoin (showsNostr): without it, the account answers leave out signing in
+ * with a Nostr key and the group's backup on relays.
  *
  * Questions are closed until tapped, so the screen reads as a list of
  * questions rather than a wall of text.
@@ -26,6 +28,7 @@ import { Platform, Pressable, Text, View } from 'react-native';
 import type { PayWays } from '@sattle/core';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
+import { useShowsNostr } from '../prefs/useCurrencyPrefs';
 import { Card, Divider, Screen, SectionLabel } from './primitives';
 import { makeStyles, space, type } from './theme';
 
@@ -158,7 +161,7 @@ const UPI_FAQS: Faq[] = [
   },
 ];
 
-function groupFaqs({ lightning, upi }: PayWays): Faq[] {
+function groupFaqs({ lightning, upi }: PayWays, nostr: boolean): Faq[] {
   const pay = lightning && upi ? 'over Lightning or by UPI' : upi ? 'by UPI' : 'over Lightning';
   return [
     {
@@ -189,9 +192,15 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
     {
       question: 'What if I lose this phone?',
       answer: [
-        'Your account is a name and a sign-in key that this device holds. There is no email, phone number or password to recover it with, so keep a copy of the key: on the Account screen, Copy sign-in key gives it to you, to keep in a password manager. On a new phone or browser, Other ways to sign in on the welcome screen, then I have a sign-in key, gets you back in, with all your groups. You can link a Nostr key there too, and sign in with that instead.',
+        `Your account is a name and a sign-in key that this device holds. There is no email, phone number or password to recover it with, so keep a copy of the key: on the Account screen, Copy sign-in key gives it to you, to keep in a password manager. On a new phone or browser, Other ways to sign in on the welcome screen, then I have a sign-in key, gets you back in, with all your groups.${
+          nostr ? ' You can link a Nostr key there too, and sign in with that instead.' : ''
+        }`,
         'If you lose a phone that was signed in, replace the key from another device that is: the lost phone is signed out.',
-        'A group’s expenses and payments are also sent to Nostr relays, encrypted with the group’s backup key, which is under Manage. With that key, Restore a group reads them back and rebuilds the balances without Sattle’s server.',
+        ...(nostr
+          ? [
+              'A group’s expenses and payments are also sent to Nostr relays, encrypted with the group’s backup key, which is under Manage. With that key, Restore a group reads them back and rebuilds the balances without Sattle’s server.',
+            ]
+          : []),
       ],
     },
   ];
@@ -200,11 +209,12 @@ function groupFaqs({ lightning, upi }: PayWays): Faq[] {
 export function FaqScreen({ onBack, ways }: FaqScreenProps) {
   useScreenView('FAQ');
   const s = useStyles();
+  const nostr = useShowsNostr();
   return (
     <Screen title="FAQ" onBack={onBack}>
       {ways.lightning && <Section title="Lightning" faqs={LIGHTNING_FAQS} />}
       {ways.upi && <Section title="UPI" faqs={UPI_FAQS} />}
-      <Section title="Groups and your account" faqs={groupFaqs(ways)} />
+      <Section title="Groups and your account" faqs={groupFaqs(ways, nostr)} />
       <Text style={s.footer}>Every answer says what Sattle does today. If that changes, this changes with it.</Text>
     </Screen>
   );

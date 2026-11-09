@@ -21,6 +21,10 @@
  *
  * Someone already in the group is one of these people on this device already.
  * For them the link just opens the group.
+ *
+ * Someone new isn't asked which currencies they use, as the first screen
+ * asks: they start on the one the group is kept in, alone, and can change
+ * that under Account (currencyPrefs onlyIn).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -31,6 +35,8 @@ import { clearToken, writeToken } from '../account/tokenStore';
 import { analytics } from '../analytics/analytics';
 import { useScreenView } from '../analytics/useScreenView';
 import { createAccount } from '../client/ApiClient';
+import { onlyIn } from '../prefs/currencyPrefs';
+import { chooseCurrencies } from '../prefs/useCurrencyPrefs';
 import { API_URL, buildClient, useActionKeys, useAsync, useClient } from '../react/SattleProvider';
 import { Avatar, Button, Card, Divider, ErrorState, Loading, Screen, SectionLabel } from './primitives';
 import { makeStyles, radius, space, type, useColors } from './theme';
@@ -139,10 +145,10 @@ export function JoinAsNewScreen({
     <WhoAreYou
       // Another link starts its answers over. This screen stays, and with it the account in `made`.
       key={token}
-      frame={{ title: 'Sattle', subtitle: 'Split bills in sats. Only one of you needs the app.' }}
+      frame={{ title: 'Sattle', subtitle: 'Split bills with friends. Only one of you needs the app.' }}
       token={token}
       aboutAccount="No email, phone or password: your account lives on this device. Save your sign-in key from Account to use it anywhere else."
-      join={async (as, name, atOnce) => {
+      join={async (as, name, atOnce, currency) => {
         if (made.current && made.current.name !== name) await forget();
         if (!made.current) {
           const account = await createAccount(API_URL, name);
@@ -162,6 +168,9 @@ export function JoinAsNewScreen({
             if (!(e instanceof SattleError && e.code === 'network')) await forget();
             throw e;
           });
+        // What the group is kept in is what they use, until they say otherwise under Account.
+        const prefs = onlyIn(currency);
+        if (prefs) chooseCurrencies(prefs);
         onJoined(accountToken);
       }}
       otherwise={{
@@ -242,9 +251,10 @@ function WhoAreYou({
   /**
    * `name` is what they will be called in the group: the member's, or the one
    * they typed. `atOnce`: the tap makes them a member, with nobody to say yes;
-   * otherwise it asks. Off for a group that approves joins.
+   * otherwise it asks. Off for a group that approves joins. `currency` is
+   * what the group is kept in.
    */
-  join: (as: JoinAs, name: string, atOnce: boolean) => Promise<void>;
+  join: (as: JoinAs, name: string, atOnce: boolean, currency: string) => Promise<void>;
   /** The way on when this link can't be used. */
   otherwise: { label: string; onPress: () => void };
 }) {
@@ -293,7 +303,7 @@ function WhoAreYou({
       // The page was read when it opened, and the group may have stopped approving joins since.
       // Asking then would leave them waiting on a yes nobody has to give, so they join instead.
       const now = atOnce || !(await client.getJoinView(token)).approveJoins;
-      await join(member ? { ref: member.ref } : { displayName: name }, name, now);
+      await join(member ? { ref: member.ref } : { displayName: name }, name, now, data.currency);
     } catch (e) {
       // The choice stays. After a dropped connection the retry is one tap, with the name still
       // in the field, and it sends the same request again, so one that went through is answered

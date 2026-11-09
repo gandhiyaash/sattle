@@ -7,7 +7,7 @@
 
 import { devices } from '@playwright/test';
 
-import { button, groupHeader, makeAccount, openGroup, openSplit, sheet, skipTour } from '../src/actions';
+import { UPI_STEP, button, groupHeader, makeAccount, openGroup, openSplit, sheet } from '../src/actions';
 import { API_PORT } from '../src/env';
 import { expect, test } from '../src/fixtures';
 
@@ -30,18 +30,18 @@ test.describe('links on a brand-new device', () => {
     await expect(page.getByText('Split bills without the maths')).toHaveCount(0);
   });
 
-  test('a join link that isn’t one: the tour, then the news, then the app without it', async ({ device }) => {
+  test('a join link that isn’t one: the news, then the app without it, and no tour before an account', async ({ device }) => {
     const { page } = await device({ toured: false });
     await page.goto('/join/nope');
-    await skipTour(page);
     await expect(page.getByText('This link is no longer valid.')).toBeVisible();
+    await expect(page.getByText('Split bills without the maths')).toHaveCount(0);
     await expect(page.getByText('Try again')).toHaveCount(0);
     await button(page, 'Start without it').click();
-    await expect(page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(page.getByText('What should we call you?')).toBeVisible();
     // The used link is off the address bar, so a reload opens the app and not the link.
     await expect(page).toHaveURL(/\/$/);
     await page.reload();
-    await expect(page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(page.getByText('What should we call you?')).toBeVisible();
   });
 
   test('a token with an encoded slash in it is sent as it was typed, and refused', async ({ device }) => {
@@ -58,7 +58,7 @@ test.describe('links on a brand-new device', () => {
   test('any other path is the app', async ({ device, api }) => {
     const { page } = await device();
     await page.goto('/whatever/this/is?x=1');
-    await expect(page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(page.getByText('What should we call you?')).toBeVisible();
 
     const { token } = await api.account('Deep');
     const signedIn = await device({ token });
@@ -176,14 +176,15 @@ test.describe('the server out of reach', () => {
     await page.goto('/');
     await page.route(API, (route) => route.abort('connectionrefused'));
     await page.getByPlaceholder('Your name').fill('Yash');
-    await button(page, 'Get started').click();
+    await button(page, 'Continue as Yash').click();
     await expect(page.getByText('Couldn’t reach the server. Check your connection and try again.')).toBeVisible();
     await expect(page.getByPlaceholder('Your name')).toHaveValue('Yash');
     expect(await page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
 
     await page.unroute(API);
-    await button(page, 'Get started').click();
-    await expect(page.getByText('What are you splitting?')).toBeVisible();
+    await button(page, 'Continue as Yash').click();
+    // Rupees are ticked from the start, so the UPI ID is asked next.
+    await expect(page.getByText(UPI_STEP)).toBeVisible();
   });
 });
 
@@ -202,7 +203,7 @@ test.describe('a browser that blocks storage', () => {
     expect(await page.evaluate(() => localStorage.getItem('sattle.token'))).toBeNull();
 
     await page.reload();
-    await expect(page.getByText('What should your friends call you?')).toBeVisible();
+    await expect(page.getByText('What should we call you?')).toBeVisible();
   });
 });
 

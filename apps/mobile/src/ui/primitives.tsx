@@ -122,7 +122,7 @@ export function Screen({
 }
 
 /** Whether the on-screen keyboard is up. Always false in a browser, which doesn't say. */
-function useKeyboardUp() {
+export function useKeyboardUp() {
   const [up, setUp] = useState(false);
   useEffect(() => {
     // iOS says before the keyboard moves, so the bar is gone by the time it arrives. Android only says after.

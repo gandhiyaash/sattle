@@ -24,7 +24,7 @@ npm run web        # web app alone, against the in-memory mock
 npm run api        # API alone
 ```
 
-`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and makes a device account, and you start with no groups. Either way, the first launch on a device opens on a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It asks nothing and is shown once; **Skip** leaves it. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
+`npm run web` is demo mode: it opens on seeded groups, and the bottom bar adds a **Guest link** tab showing the pay page someone gets when they pay a debt from a group's link. Against the real API (`npm run dev`, or any build without `EXPO_PUBLIC_USE_MOCK=true`), the app first asks your name and which currencies you use, makes a device account, asks your UPI ID if you ticked rupees, and you start with no groups. Then comes a three-screen tour: splitting, that only one of you needs the app, and the ways to settle up. It is shown once per device; **Skip** leaves it. Demo mode has no account to make, so it opens on the tour. Then, on the groups list, an account with nowhere yet to be paid is asked where, once: the demo's Yash is, in a browser. **Skip** leaves that too.
 
 Try these flows:
 
@@ -168,7 +168,9 @@ apps/mobile/                 @sattle/mobile: Expo
       theme.ts               Design tokens. Cool grey paper, navy ink, one blue accent, and each group's cover colour.
       primitives.tsx         Buttons, cards, Amount, loading/error/empty.
       backNavigation.ts      Android's back button and the browser's: the sheet or screen showing gets the press.
-      WelcomeScreen.tsx      First launch against the real API: your name, and a device account. Or a sign-in key from another device.
+      WelcomeScreen.tsx      First launch against the real API: your name and currencies, and a device account. Or a sign-in key from another device.
+      UpiStepScreen.tsx      Right after it, for rupees: your UPI ID, or Skip.
+      FirstRunScreen.tsx     The frame those two share: one big question, centred, no title bar.
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name on its own cover, and the people in it. Opens on the link to share.
@@ -188,7 +190,7 @@ apps/mobile/                 @sattle/mobile: Expo
       GroupGuestScreen.tsx   The /g/<token> page, where the shared link lands: the whole group, read-only, Lightning, UPI and Mark as paid on each debt, and Join.
       GroupSettingsScreen.tsx  Manage: rename the group, simplify its debts or not, its link, its Nostr backup (copy the key, read it back), leave it, delete it.
       AccountScreen.tsx      Who you're signed in as, copying or replacing your sign-in key, the currencies you use, and deleting the account.
-      OnboardingScreen.tsx   First launch: three screens on how it works, shown once.
+      OnboardingScreen.tsx   Once you're in: three screens on how it works, shown once.
       tourStore.ts           Whether this device has been shown them. SecureStore on native, localStorage on web.
       tips.ts                The one-time tips (the split guide), and which this device has seen.
       tipsStore.ts           Where the device keeps that. SecureStore on native, localStorage on web.
@@ -283,20 +285,25 @@ Two rules the tests pin down: the blocked message names Aman rather than describ
 
 ## First launch and currencies
 
-The first time the app opens on a device it shows a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+The first screen (`WelcomeScreen.tsx`) asks two things, and can't be skipped: a name, and which currencies they use, as chips for **₹ · INR** and **₿ · BTC**. Rupees start ticked; either or both can be on, never neither. **Continue as** the name makes the account and keeps the choice. Someone who ticked rupees is asked their UPI ID next (`UpiStepScreen.tsx`), with **Skip** at the top right; saving or skipping also answers the groups list's question about getting paid, below, so it isn't asked twice. Signing in with a sign-in key or Nostr instead keeps the ticked currencies too, and skips the UPI step: that account's UPI ID, if any, is already on it.
+
+Once they're in comes a three-screen tour (`OnboardingScreen.tsx`): splitting, that only one person needs the app, and the ways to settle up, only those that go with the currencies they use. It asks nothing and is shown once: reaching the end or tapping **Skip** is what the device remembers (`tourStore`). A `/join/` link that opened the app is kept and followed afterwards. The guest pages (`/s/`, `/g/`) are for people without the app and never show it.
+
+Someone new who arrives by a group's `/join/` link isn't asked about currencies: they start on the one the group is kept in, alone, and can change it under **Account**. The join page tells the app which that is (`JoinView.currency`).
 
 Someone signed in with nowhere yet to be paid (no Lightning address, no UPI ID, no wallet connected under Wallet) is asked where, once, in a sheet over the groups list (`GetPaidSheet.tsx`). Each device looks at the first launch that opens on the groups list, which includes right after making an account, on the welcome screen or by joining from a link. An account already signed in whose app opens on a link goes where the link leads, and is looked at next launch. The sheet takes a Lightning address to be paid in bitcoin and a UPI ID to be paid in rupees, only the ones that go with the currencies they use, and saves them as Wallet does: whatever the server refuses stays in its field with the reason, and the rest is saved. Saving, **Skip** and closing the sheet are all answers. An account with somewhere to be paid already isn't asked. Either way the device remembers (`getPaidStore`) and doesn't look again, even if that somewhere is removed later. In a browser the back button closes the sheet only once the page has had a tap: Chrome passes over a history entry added before one (`backNavigation.ts`), so until then back leaves the page, and the sheet comes back at the next launch.
 
 The first time a device adds an expense, a tip over the split card points at **Split differently**: new expenses are split equally between everyone, and leaving someone out is in that sheet. **Show me** opens it on a five-step tour (`Coachmarks.tsx`) of who paid, leaving someone out, the ways to split, Split by item and Done. Each step dims everything but the one thing it's about, which shows through a spotlight with an arrow drawn to it, and taps reach only that thing: on the step about leaving someone out, the tap on the person is real, and the card says what it did. **Not now** leaves the tour for the first time the sheet opens. Skip or Got it ends it for good on that device (`tips.ts`), and the **i** beside Done plays it again.
 
-Everyone starts out using both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
+A device that has never chosen, like one signed in before the first screen asked, uses both rupees and bitcoin, so nothing is hidden. A way to pay is offered when the person owed has set it up: UPI for a UPI ID, Lightning for a wallet or a Lightning address.
 
 A group is kept in one currency, picked when it is made and never changed: rupees, or bitcoin. A group kept in bitcoin is counted in sats everywhere: amounts are typed and shown as whole sats, and settling one needs no exchange rate.
 
-Under **Account**, **Currencies** lets someone turn one of the two off. Nobody is asked to; it is there for someone who only ever uses one. Turning one off does two things.
+Under **Account**, **Currencies** changes what the first screen, or the join link, chose. Turning one off does three things.
 
 - **New groups aren't offered in it.** Someone who uses one currency is never asked which. Someone who uses both picks per group, starting from the one they said new groups start in.
 - **The app stops showing what goes with it.** Rupees bring UPI and bitcoin brings Lightning. With bitcoin off there is no wallet connection, Lightning address, invoice or sats anywhere, and the trust screen leaves out the rows about them. The group link stays either way: a debt on its page can be paid whichever ways the person owed can be paid (see [Paying by UPI](#paying-by-upi)). With rupees off there is no UPI. `payWays()` in `@sattle/core` is the whole rule, and `resolveSettlementOptions` takes its answer, so a payer left with no way to pay is told what to ask for in terms of the way they do use.
+- **Without bitcoin, nothing of Nostr shows either** (`showsNostr` in `prefs/currencyPrefs.ts`): no **Sign in with Nostr** or **Restore a group from its backup key** on the first screen, no Nostr key under **Account** unless one is already linked, no backup card under **Manage**, and the FAQ and trust screen leave Nostr out. The group's backup still goes to the relays; only the app stops showing it.
 
 Two things are never hidden, because hiding them would strand someone:
 

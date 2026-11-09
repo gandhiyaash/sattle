@@ -15,7 +15,7 @@
 
 import { expect, type Locator, type Page } from '@playwright/test';
 
-import type { Person } from './fixtures';
+import type { Currency, Person } from './fixtures';
 
 /** The button, chip or tab with exactly this label. */
 export const button = (where: Page | Locator, label: string) => where.getByText(label, { exact: true });
@@ -130,11 +130,51 @@ export async function skipTour(page: Page) {
   await button(page, 'Skip').click();
 }
 
-/** The welcome screen: a name, and that's the account. Resolves on the groups list. */
-export async function makeAccount(page: Page, name: string) {
+/** What the first screen asks, and comes back to after an account is deleted or signed out. */
+export const WELCOME = 'What should we call you?';
+
+/** The step after it, for someone who ticked rupees. */
+export const UPI_STEP = 'How should friends pay you?';
+
+/** A currency's chip on the first screen, or its checkbox under Account: both are named this way. */
+export const currencyBox = (page: Page, currency: Currency) =>
+  page.getByRole('checkbox', { name: currency === 'INR' ? /^Rupees\./ : /^Bitcoin\./ });
+
+/**
+ * Ticks exactly these currencies on the first screen. Those wanted go on
+ * first, since the last one left can't be turned off.
+ */
+export async function tickCurrencies(page: Page, currencies: Currency[]) {
+  const all: Currency[] = ['INR', 'BTC'];
+  for (const c of all.filter((c) => currencies.includes(c))) {
+    if ((await currencyBox(page, c).getAttribute('aria-checked')) !== 'true') await currencyBox(page, c).click();
+    await expect(currencyBox(page, c)).toBeChecked();
+  }
+  for (const c of all.filter((c) => !currencies.includes(c))) {
+    if ((await currencyBox(page, c).getAttribute('aria-checked')) === 'true') await currencyBox(page, c).click();
+    await expect(currencyBox(page, c)).not.toBeChecked();
+  }
+}
+
+/**
+ * The first screen: a name and the currencies they use, and that's the
+ * account. Both currencies unless told, so nothing is hidden; with rupees
+ * comes the UPI step, which is skipped. Resolves on the groups list, or on
+ * the tour for a device that hasn't seen it (`toured: false`).
+ */
+export async function makeAccount(
+  page: Page,
+  name: string,
+  { currencies = ['INR', 'BTC'], toured = true }: { currencies?: Currency[]; toured?: boolean } = {}
+) {
   await page.getByPlaceholder('Your name').fill(name);
-  await button(page, 'Get started').click();
-  await expect(page.getByText('What are you splitting?')).toBeVisible();
+  await tickCurrencies(page, currencies);
+  await button(page, `Continue as ${name.trim()}`).click();
+  if (currencies.includes('INR')) {
+    await expect(page.getByText(UPI_STEP)).toBeVisible();
+    await button(page, 'Skip').click();
+  }
+  await expect(page.getByText(toured ? 'What are you splitting?' : 'Split bills without the maths')).toBeVisible();
 }
 
 /**

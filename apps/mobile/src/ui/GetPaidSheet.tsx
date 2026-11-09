@@ -11,7 +11,9 @@
  *
  * Each device looks once, at the first launch that opens on the groups list,
  * right after making an account included, whether on the welcome screen or by
- * joining from a link. An account with somewhere to be paid already isn't
+ * joining from a link. Someone who ticked rupees on the welcome screen was
+ * already asked, by the UPI step (UpiStepScreen), which answers this too, so
+ * they aren't asked twice. An account with somewhere to be paid already isn't
  * asked, and isn't looked up again. Saving answers the question, and so do
  * Skip and closing the sheet any other way; after that the device
  * (getPaidStore) doesn't ask again. Someone who leaves the app with it up is

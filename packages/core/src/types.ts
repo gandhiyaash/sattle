@@ -411,6 +411,11 @@ export type JoinAs = { ref: string } | { displayName: string };
 /** Only what the join page may show before someone joins. Names, no ids. */
 export interface JoinView {
   groupName: string;
+  /**
+   * What the group is kept in. Someone new who joins from the link starts out
+   * using that currency alone (currencyPrefs onlyIn in the app).
+   */
+  currency: string;
   /** Group.approveJoins: whether picking a name joins (`join`) or asks (`askToJoin`). */
   approveJoins: boolean;
   /** Everyone in the group, joined or not: who the person opening this could be. */

@@ -1,11 +1,14 @@
 /**
- * Which currencies someone uses. Nobody is asked: everyone starts with both,
- * and someone who only ever uses one can turn the other off under Account.
+ * Which currencies someone uses. The first screen asks, with rupees ticked
+ * (RUPEES_ONLY), and Account changes it later. Someone new who joins from a
+ * group's link isn't asked: they start on that group's currency (onlyIn). A
+ * device that has never said, like one signed in before the question
+ * existed, uses both.
  *
- * It decides two things. A new group starts in `newGroups`. And the app only
+ * It decides three things. A new group starts in `newGroups`. The app only
  * shows the ways to pay that go with what they use: UPI with rupees,
- * Lightning with bitcoin (payWays in @sattle/core). With both, which is
- * where everyone starts, nothing is hidden.
+ * Lightning with bitcoin (payWays in @sattle/core). And Nostr goes with
+ * bitcoin (showsNostr): without it, nothing of Nostr is shown either.
  *
  * It is kept on this device and the server never sees it. It changes what
  * the app shows, not what anyone is allowed to do.
@@ -13,7 +16,7 @@
  * Nothing here imports React Native, so it runs under vitest.
  */
 
-import { SUPPORTED_CURRENCIES, isSupportedCurrency, type SupportedCurrency } from '@sattle/core';
+import { BITCOIN, SUPPORTED_CURRENCIES, isSupportedCurrency, type SupportedCurrency } from '@sattle/core';
 
 export interface CurrencyPrefs {
   /** In the order the app lists them. Never empty. */
@@ -22,8 +25,28 @@ export interface CurrencyPrefs {
   newGroups: SupportedCurrency;
 }
 
-/** Where everyone starts, and stays unless they change it: nothing is hidden, and a new group opens in rupees. */
+/** A device that has never said: nothing is hidden, and a new group opens in rupees. */
 export const EVERY_CURRENCY: CurrencyPrefs = { uses: [...SUPPORTED_CURRENCIES], newGroups: SUPPORTED_CURRENCIES[0] };
+
+/** What the first screen starts with ticked. Bitcoin is a tap away. */
+export const RUPEES_ONLY: CurrencyPrefs = { uses: ['INR'], newGroups: 'INR' };
+
+/**
+ * One currency alone: what someone new starts on after joining a group kept
+ * in it. Null for a currency the app doesn't offer, which leaves them as
+ * they are.
+ */
+export function onlyIn(currency: string): CurrencyPrefs | null {
+  return isSupportedCurrency(currency) ? { uses: [currency], newGroups: currency } : null;
+}
+
+/**
+ * Whether to show anything of Nostr: signing in with a Nostr key, linking
+ * one, a group's backup on relays and reading it back. It goes with bitcoin,
+ * so someone who only uses rupees never meets it. The backup itself goes on
+ * either way, on the server.
+ */
+export const showsNostr = (prefs: CurrencyPrefs): boolean => prefs.uses.includes(BITCOIN);
 
 /**
  * Turns one currency on or off. What new groups start in follows along: it

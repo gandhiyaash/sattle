@@ -163,6 +163,7 @@ export function joinRoutes({ db, repo, wallets }: Ctx) {
     const group = repo.group(link.groupId)!;
     const view: JoinView = {
       groupName: group.name,
+      currency: group.currency,
       approveJoins: group.approveJoins,
       members: repo.members(link.groupId).map((m) => ({
         ref: memberRef(link.token, m.id),
