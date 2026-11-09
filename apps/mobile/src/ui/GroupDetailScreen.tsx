@@ -115,7 +115,7 @@ export interface GroupDetailScreenProps {
   onManage: () => void;
   /** Opens the group's history: every expense added, changed or removed, and every debt settled. */
   onHistory: () => void;
-  /** Opens Wallet, where the user sets up how they get paid. */
+  /** Opens Account, where the user sets up how they get paid. */
   onOpenWallet: () => void;
   onSettle: (debt: Debt, members: Member[], groupName: string, currency: string) => void;
 }
@@ -241,7 +241,7 @@ export function GroupDetailScreen({
   // there's nothing to remind anyone about until it's set up.
   const canBePaid = iCanReceive || Boolean(rupees && data.upi.upiId);
   // A group kept in bitcoin, joined by someone who said they don't use it. Getting paid here takes
-  // Lightning, and Wallet only shows that to someone who uses bitcoin, so setting it up turns it on.
+  // Lightning, and Account only shows that to someone who uses bitcoin, so setting it up turns it on.
   const turnsOnBitcoin = isBitcoin(data.currency) && !prefs.uses.includes('BTC');
   const setUpGettingPaid = () => {
     if (turnsOnBitcoin) chooseCurrencies(toggleCurrency(prefs, 'BTC'));
@@ -949,7 +949,7 @@ function WhyPayments({
  * People owe the user, and there is nowhere for them to pay it: no wallet or
  * Lightning address, and in a rupee group no UPI ID either. Without this, the
  * people owing are told they can't pay here yet and the user never finds out why.
- * It names only the ways the user is shown, which are the ones Wallet will offer.
+ * It names only the ways the user is shown, which are the ones Account will offer.
  */
 function GetPaidCard({
   names,

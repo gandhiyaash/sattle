@@ -133,7 +133,7 @@ function NoApp() {
 function Settle() {
   const s = useStyles();
   const { lightning, upi } = usePayWays();
-  // What they could add under Wallet to be paid, in the ways they use.
+  // What they could add under Account to be paid, in the ways they use.
   const getPaid = [upi && 'a UPI ID', lightning && 'a Lightning wallet or a Lightning address'].filter(Boolean).join(', ');
   return (
     <Step
@@ -163,7 +163,7 @@ function Settle() {
       </Card>
       <Text style={s.note}>
         You’re offered whichever of these the person you owe has set up, and a balance only moves once the payment is
-        confirmed. To get paid yourself, add {getPaid} under Wallet.
+        confirmed. To get paid yourself, add {getPaid} under Account.
       </Text>
     </Step>
   );

@@ -394,7 +394,7 @@ test.describe('a payer who uses only rupees', () => {
     await button(card, 'Options').click();
     await expect(
       a.page.getByText(
-        "Priya hasn't added a UPI ID yet, so there's nowhere to pay them here. Ask them to add one from Wallet in Sattle. If you paid another way, ask them to mark it settled."
+        "Priya hasn't added a UPI ID yet, so there's nowhere to pay them here. Ask them to add one from Account in Sattle. If you paid another way, ask them to mark it settled."
       )
     ).toBeVisible();
     await expect(button(a.page, 'Add their Lightning address')).toBeHidden();
@@ -403,7 +403,7 @@ test.describe('a payer who uses only rupees', () => {
     await expect(a.page.getByText('Copied. Paste it in a chat.')).toBeVisible();
     await expect(button(a.page, 'Remind Priya again')).toBeVisible();
     expect(await clipboard(a.page)).toBe(
-      'Priya, I want to pay you ₹300 for Goa trip on Sattle. Add your UPI ID in Sattle, under Wallet, so I can pay you.'
+      'Priya, I want to pay you ₹300 for Goa trip on Sattle. Add your UPI ID in Sattle, under Account, so I can pay you.'
     );
   });
 

@@ -50,9 +50,41 @@ export const debtCard = (page: Page, line: string) => ancestor(page.getByText(li
 /** A member's row under In this group, in Add people, from their name as shown ("Priya", "Yash (you)"). Row > words > name. */
 export const memberRow = (page: Page, nameAsShown: string) => ancestor(page.getByText(nameAsShown, { exact: true }), 2);
 
-/** One of Groups, Wallet and Account at the bottom of the app. The bar is drawn last, so the last match is its label. */
-export async function tab(page: Page, name: 'Groups' | 'Wallet' | 'Account') {
-  await page.getByText(name, { exact: true }).last().click();
+/**
+ * One of Groups, Activity and Account, from the bar at the bottom. The bar is
+ * only on those three, so from anything opened from them (a group, a page
+ * under Account) this backs out until it shows.
+ */
+export async function tab(page: Page, name: 'Groups' | 'Activity' | 'Account') {
+  const bar = page.getByRole('tablist');
+  for (let tries = 0; tries < 5; tries++) {
+    const shown = await bar.waitFor({ state: 'visible', timeout: tries === 0 ? 3_000 : 1_500 }).then(
+      () => true,
+      () => false
+    );
+    if (shown) break;
+    await back(page);
+  }
+  await bar.getByRole('tab', { name, exact: true }).click();
+}
+
+/** A row under Account, and the page it opens. */
+export type AccountRow =
+  | 'UPI ID'
+  | 'Lightning wallet'
+  | 'Lightning address'
+  | 'Currencies'
+  | 'Sign-in key'
+  | 'Nostr'
+  | 'What you’re trusting'
+  | 'Delete account'
+  | 'FAQ';
+
+/** Account, then one of its rows. Resolves on the row's page, which has a way back and Account itself doesn't. */
+export async function accountPage(page: Page, row: AccountRow) {
+  await tab(page, 'Account');
+  await page.getByText(row, { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
 }
 
 /**
@@ -335,13 +367,12 @@ export async function openManage(page: Page) {
   await expect(page.getByText('Manage group', { exact: true })).toBeVisible();
 }
 
-/** Wallet: the UPI ID saved, from wherever the app is. Resolves with Wallet still open. */
+/** The UPI ID saved under Account, from wherever the app is. Resolves with its page still open. */
 export async function saveUpiId(page: Page, upiId: string) {
-  await tab(page, 'Wallet');
-  const upi = section(page, 'UPI');
-  await upi.getByPlaceholder('name@okhdfcbank').fill(upiId);
-  await button(upi, 'Save').or(button(upi, 'Save anyway')).click();
-  await expect(upi.getByText('You can be paid at')).toBeVisible();
+  await accountPage(page, 'UPI ID');
+  await page.getByPlaceholder('name@okhdfcbank').fill(upiId);
+  await button(page, 'Save').or(button(page, 'Save anyway')).click();
+  await expect(page.getByText('You’re paid at')).toBeVisible();
 }
 
 /** The sheet drawn over the screen: settling up, a history entry, a dialog. The last one when one is over another. */

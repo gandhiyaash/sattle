@@ -283,7 +283,7 @@ function SettlingUp({
  * wrong place is taken back.
  *
  * In a rupee group, someone with a UPI ID also chooses here whether this
- * group's link may show it. Wallet holds that choice for all their groups,
+ * group's link may show it. Account holds that choice for all their groups,
  * on from the start; this is the same choice for this group alone, and it
  * wins.
  */
@@ -380,7 +380,7 @@ function GroupLinkSection({
             <Text style={s.label}>Your UPI ID on this group’s link</Text>
             <Text style={s.body}>
               {upi.choice === null
-                ? `${upi.on ? 'On' : 'Off'}, as in Wallet for all your groups.`
+                ? `${upi.on ? 'On' : 'Off'}, as under Account for all your groups.`
                 : `${upi.on ? 'On' : 'Off'}, chosen for this group.`}
             </Text>
             <LearnMore>
@@ -394,7 +394,7 @@ function GroupLinkSection({
               onPress={() => chooseUpi(!upi.on)}
             />
             {upi.choice !== null && (
-              <Button label="Use my Wallet setting here" variant="quiet" disabled={busy} onPress={() => chooseUpi(null)} />
+              <Button label="Use my Account setting here" variant="quiet" disabled={busy} onPress={() => chooseUpi(null)} />
             )}
           </>
         )}
