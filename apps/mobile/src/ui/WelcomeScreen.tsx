@@ -8,18 +8,24 @@
  * also the catch, so the screen says so before anyone commits.
  *
  * Rupees start ticked and bitcoin is a tap away; any number can be on, never
- * none. What isn't ticked the app keeps out of their way (currencyPrefs):
- * without bitcoin, Lightning and everything of Nostr. Someone who ticks
- * rupees is asked their UPI ID next (UpiStepScreen), then shown the tour
- * (OnboardingScreen).
+ * none. What isn't ticked the app keeps out of their way once they're in
+ * (currencyPrefs): without bitcoin, Lightning and everything of Nostr.
+ * Someone who ticks rupees is asked their UPI ID next (UpiStepScreen), then
+ * shown the tour (OnboardingScreen).
  *
  * Someone who already has an account, from another device or a browser whose
  * data was cleared, pastes the sign-in key they saved from Account instead,
  * or signs in with the Nostr key they linked there.
  * And a group can be read back from its backup key with no account at all.
  * Those three wait under Other ways to sign in, so a first launch sees one
- * way in: a name. The two that are Nostr only show while bitcoin is ticked.
- * The currencies ticked count whichever way they get in.
+ * way in: a name. They show whatever is ticked: someone reaching for them is
+ * trying to get back in, not choosing currencies, and hiding the way back
+ * would strand whoever has no other. A rupee group's backup is on the relays
+ * as much as a bitcoin one's.
+ *
+ * Signing in keeps what's ticked only if they changed it. Otherwise the
+ * device hasn't said, and shows both, so an account that's mostly bitcoin
+ * isn't brought back with Lightning hidden by a default nobody chose.
  */
 
 import React, { useState } from 'react';
@@ -30,7 +36,7 @@ import { useScreenView } from '../analytics/useScreenView';
 import { createAccount, signInWithNostr } from '../client/ApiClient';
 import { parseSignInKey } from '../account/signInKey';
 import { writeToken } from '../account/tokenStore';
-import { RUPEES_ONLY, showsNostr, type CurrencyPrefs } from '../prefs/currencyPrefs';
+import { RUPEES_ONLY, type CurrencyPrefs } from '../prefs/currencyPrefs';
 import { chooseCurrencies } from '../prefs/useCurrencyPrefs';
 import { API_URL, buildClient } from '../react/SattleProvider';
 import { CurrencyChips } from './CurrencyPicker';
@@ -56,8 +62,10 @@ export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
   const [others, setOthers] = useState(false);
   // Kept here too, so what they ticked counts whichever way they get in.
   const [prefs, setPrefs] = useState<CurrencyPrefs>(RUPEES_ONLY);
+  // Whether they touched the chips. A sign-in keeps them only then.
+  const [picked, setPicked] = useState(false);
   const ready = (token: string, made: boolean) => {
-    chooseCurrencies(prefs);
+    if (made || picked) chooseCurrencies(prefs);
     onReady(token, { askUpi: made && prefs.uses.includes('INR') });
   };
   const signedIn = (token: string) => ready(token, false);
@@ -67,7 +75,10 @@ export function WelcomeScreen({ onReady, onRestore }: WelcomeScreenProps) {
     <NewAccount
       onMade={(token) => ready(token, true)}
       prefs={prefs}
-      setPrefs={setPrefs}
+      setPrefs={(next) => {
+        setPicked(true);
+        setPrefs(next);
+      }}
       onSignIn={setSigningIn}
       onRestore={onRestore}
       others={others}
@@ -101,7 +112,6 @@ function NewAccount({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trimmed = name.trim();
-  const nostr = showsNostr(prefs);
 
   const submit = async () => {
     if (!trimmed || busy) return;
@@ -171,8 +181,8 @@ function NewAccount({
         {others && (
           <>
             <Button label="I have a sign-in key" variant="quiet" onPress={() => onSignIn('key')} />
-            {nostr && <Button label="Sign in with Nostr" variant="quiet" onPress={() => onSignIn('nostr')} />}
-            {nostr && <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />}
+            <Button label="Sign in with Nostr" variant="quiet" onPress={() => onSignIn('nostr')} />
+            <Button label="Restore a group from its backup key" variant="quiet" onPress={onRestore} />
           </>
         )}
       </Rise>

@@ -1065,6 +1065,7 @@ test.describe('Joining', () => {
     const view = await api.joinView(link.token);
     expect(view).toEqual({
       groupName: 'Goa trip',
+      currency: 'INR',
       approveJoins: false,
       members: [
         { ref: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/), name: 'Yash', joined: true },

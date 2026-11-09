@@ -2,8 +2,9 @@
  * Which currencies someone uses. The first screen asks, with rupees ticked
  * (RUPEES_ONLY), and Account changes it later. Someone new who joins from a
  * group's link isn't asked: they start on that group's currency (onlyIn). A
- * device that has never said, like one signed in before the question
- * existed, uses both.
+ * device that has never said uses both: one signed in before the question
+ * existed, or signed in to an account from the first screen without the
+ * chips touched.
  *
  * It decides three things. A new group starts in `newGroups`. The app only
  * shows the ways to pay that go with what they use: UPI with rupees,
@@ -41,10 +42,12 @@ export function onlyIn(currency: string): CurrencyPrefs | null {
 }
 
 /**
- * Whether to show anything of Nostr: signing in with a Nostr key, linking
- * one, a group's backup on relays and reading it back. It goes with bitcoin,
- * so someone who only uses rupees never meets it. The backup itself goes on
- * either way, on the server.
+ * Whether to show anything of Nostr once they're in: linking a Nostr key, a
+ * group's backup on relays and reading it back. It goes with bitcoin, so
+ * someone who only uses rupees doesn't meet it. The backup itself goes on
+ * either way, on the server. The first screen's ways back in, Nostr and a
+ * backup key among them, show whatever is ticked: hiding a way back would
+ * strand whoever has no other.
  */
 export const showsNostr = (prefs: CurrencyPrefs): boolean => prefs.uses.includes(BITCOIN);
 

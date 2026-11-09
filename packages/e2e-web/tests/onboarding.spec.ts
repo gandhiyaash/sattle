@@ -5,8 +5,10 @@
  * what rupees alone keeps out of the way; the two ways back into an account
  * that already exists (a sign-in key, a Nostr key), and restoring a group
  * from its backup key with no account at all. Those three wait under Other
- * ways to sign in, the two that are Nostr only while bitcoin is ticked.
+ * ways to sign in, whatever is ticked.
  */
+
+import type { Page } from '@playwright/test';
 
 import {
   UPI_STEP,
@@ -133,7 +135,6 @@ test.describe('the first screen', () => {
   test('the ways in to an account or a group from elsewhere wait under Other ways to sign in', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
-    await tickCurrencies(page, ['INR', 'BTC']);
     const others = pressable(page, 'Other ways to sign in');
     const ways = ['I have a sign-in key', 'Sign in with Nostr', 'Restore a group from its backup key'];
     await expect(others).toHaveAttribute('aria-expanded', 'false');
@@ -143,27 +144,52 @@ test.describe('the first screen', () => {
     await expect(others).toHaveAttribute('aria-expanded', 'true');
     for (const way of ways) await expect(button(page, way)).toBeVisible();
 
-    // Back from one of them finds them still showing, and bitcoin still ticked.
+    // Back from one of them finds them still showing.
     await button(page, 'Sign in with Nostr').click();
     await back(page);
     await expect(button(page, 'I have a sign-in key')).toBeVisible();
-    await expect(currencyBox(page, 'BTC')).toBeChecked();
 
     await button(page, 'Other ways to sign in').click();
     for (const way of ways) await expect(button(page, way)).toHaveCount(0);
   });
 
-  test('the two that are Nostr only show while bitcoin is ticked', async ({ device }) => {
+  test('the ways back in show whatever is ticked: someone reaching for them is getting back in', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
+    await expect(currencyBox(page, 'BTC')).not.toBeChecked();
     await button(page, 'Other ways to sign in').click();
-    await expect(button(page, 'I have a sign-in key')).toBeVisible();
-    await expect(button(page, 'Sign in with Nostr')).toHaveCount(0);
-    await expect(button(page, 'Restore a group from its backup key')).toHaveCount(0);
+    for (const way of ['I have a sign-in key', 'Sign in with Nostr', 'Restore a group from its backup key']) {
+      await expect(button(page, way)).toBeVisible();
+    }
+  });
 
-    await currencyBox(page, 'BTC').click();
-    await expect(button(page, 'Sign in with Nostr')).toBeVisible();
-    await expect(button(page, 'Restore a group from its backup key')).toBeVisible();
+  test('signing in keeps the chips only if they were touched; untouched, the device shows both', async ({ api, device }) => {
+    const { token } = await api.account('Back');
+    const signIn = async (page: Page) => {
+      await button(page, 'Other ways to sign in').click();
+      await button(page, 'I have a sign-in key').click();
+      await page.getByPlaceholder('sattle-signin:…').fill(token);
+      await button(page, 'Sign in').click();
+      await expect(page.getByText('What are you splitting?')).toBeVisible();
+    };
+
+    // Straight to the key: the default rupees aren't a choice anyone made.
+    const untouched = await device();
+    await untouched.page.goto('/');
+    await signIn(untouched.page);
+    expect(await untouched.page.evaluate(() => localStorage.getItem('sattle.currencies'))).toBeNull();
+    await tab(untouched.page, 'Account');
+    await expect(currencyBox(untouched.page, 'INR')).toBeChecked();
+    await expect(currencyBox(untouched.page, 'BTC')).toBeChecked();
+
+    // Bitcoin alone, ticked first: that's kept.
+    const picked = await device();
+    await picked.page.goto('/');
+    await tickCurrencies(picked.page, ['BTC']);
+    await signIn(picked.page);
+    await tab(picked.page, 'Account');
+    await expect(currencyBox(picked.page, 'INR')).not.toBeChecked();
+    await expect(currencyBox(picked.page, 'BTC')).toBeChecked();
   });
 });
 
@@ -402,8 +428,6 @@ test.describe('Sign in with Nostr', () => {
   test('offers a bunker link, and nothing from an extension this browser hasn’t got', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
-    // Nostr goes with bitcoin.
-    await currencyBox(page, 'BTC').click();
     await button(page, 'Other ways to sign in').click();
     await button(page, 'Sign in with Nostr').click();
     await expect(page.getByText('If you linked a Nostr key under Account, signing in with it opens your account here, with all your groups.')).toBeVisible();
@@ -421,8 +445,6 @@ test.describe('Restore a group from its backup key', () => {
   test('from welcome: reads the key before asking any relay, and Back returns', async ({ device }) => {
     const { page } = await device();
     await page.goto('/');
-    // The backup is on Nostr, which goes with bitcoin.
-    await currencyBox(page, 'BTC').click();
     await button(page, 'Other ways to sign in').click();
     await button(page, 'Restore a group from its backup key').click();
     await expect(page.getByText('Restore a group', { exact: true })).toBeVisible();
