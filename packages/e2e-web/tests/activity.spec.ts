@@ -30,6 +30,23 @@ test.describe('Activity', () => {
     await expect(rent.getByText('you borrowed', { exact: true })).toBeVisible();
   });
 
+  test('an expense only you were in says what it cost, not that you borrowed nothing', async ({ person }) => {
+    const { page, api } = await person('Yash');
+    await api.seedGroup({
+      name: 'Personal',
+      people: ['Om'],
+      spends: [{ description: 'Coffee', amount: 25_000, paidBy: 'Yash', between: ['Yash'] }],
+    });
+    await page.reload();
+    await tab(page, 'Activity');
+
+    const coffee = ancestor(page.getByText('Coffee', { exact: true }), 2);
+    await expect(coffee.getByText('₹250', { exact: true })).toBeVisible();
+    await expect(coffee.getByText('just you', { exact: true })).toBeVisible();
+    await expect(coffee.getByText(/borrowed|lent/)).toHaveCount(0);
+    await expect(coffee.getByText('₹0', { exact: true })).toHaveCount(0);
+  });
+
   test('a line opens its group, without the bar, and back comes to Activity', async ({ person }) => {
     const { page, api } = await person('Yash');
     await api.seedGroup({ name: 'Goa trip', people: ['Om'], spends: [{ description: 'Dinner', amount: 60_000, paidBy: 'Yash' }] });
