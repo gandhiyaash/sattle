@@ -16,6 +16,8 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+import { BUSY_TIMEOUT_MS } from './db';
+
 export type BackupKind = 'deploy' | 'daily' | 'manual';
 
 export interface BackupOptions {
@@ -40,7 +42,9 @@ export function backupDb({ dbPath, dir, kind, note, keep, now = new Date() }: Ba
   const file = join(dir, `sattle-${stamp}-${kind}${safeNote ? `-${safeNote}` : ''}.db`);
   if (existsSync(file)) rmSync(file);
 
-  const db = new DatabaseSync(dbPath);
+  // The same wait as the server's (openDb): a deploy stops when its copy fails, and Litestream
+  // can hold a lock for a moment.
+  const db = new DatabaseSync(dbPath, { timeout: BUSY_TIMEOUT_MS });
   try {
     db.prepare('VACUUM INTO ?').run(file);
   } finally {

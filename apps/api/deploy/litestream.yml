@@ -1,0 +1,39 @@
+# Litestream sends every change to the database to a bucket off the VM, within about ten seconds,
+# so losing the VM loses at most the last few seconds. Run by sattle-litestream.service; see the
+# README, "Backups". The bucket and its keys aren't in here: they come from /etc/sattle/litestream.env
+# on the VM (litestream.env.example beside this file), as ${VARS}. A change to this file takes
+# effect on `sudo systemctl restart sattle-litestream`.
+
+# Pinged every 5 minutes while every change so far has reached the bucket, so the check there
+# says when backups stop. Left empty in the env file: no pings.
+heartbeat-url: ${BACKUP_HEARTBEAT_URL}
+
+# A full copy daily, kept a week. The smaller files in between are kept as far back as the oldest
+# copy, so a restore can go to any time in the last week, not just the latest.
+snapshot:
+  interval: 24h
+  retention: 168h
+
+# How often the per-change files already folded into bigger ones are cleared from the bucket.
+# Each look lists the bucket; the default, every 15 s, is 170,000 lists a month.
+l0-retention-check-interval: 1m
+
+dbs:
+  # Where sattle.service keeps it: its WorkingDirectory and the default DATABASE_PATH. If .env
+  # moves DATABASE_PATH, this follows it, and so does ReadWritePaths in sattle-litestream.service.
+  - path: /home/ubuntu/sattle/apps/api/data/sattle.db
+    # Changes are gathered into one file every 10 s, not every second (the default). Each file is an
+    # upload, and at 1 s, with the app open somewhere all day, uploads would pass the free tier's
+    # million a month.
+    monitor-interval: 10s
+    replica:
+      type: s3
+      endpoint: ${BACKUP_S3_ENDPOINT}
+      region: ${BACKUP_S3_REGION}
+      bucket: ${BACKUP_S3_BUCKET}
+      path: sattle.db
+      # The keys are LITESTREAM_ACCESS_KEY_ID and LITESTREAM_SECRET_ACCESS_KEY, which Litestream
+      # reads from the environment itself.
+      # When its own files stop adding up, start again from a full copy instead of stopping:
+      # nobody watches this box, and the heartbeat says if it stops anyway.
+      auto-recover: true

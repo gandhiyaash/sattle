@@ -1,0 +1,52 @@
+[Unit]
+Description=Sattle database replication off the VM (Litestream)
+# Sends every change to sattle.db to the bucket in /etc/sattle/litestream.env, as litestream.yml
+# beside this file says. See README "Backups".
+Wants=network-online.target
+After=network-online.target
+# A bad config or key fails on start: give up after 5 tries, as sattle.service does.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=ubuntu
+WorkingDirectory=/home/ubuntu/sattle/apps/api
+# The bucket and its keys. Root's alone (0600): systemd reads it before dropping to ubuntu, so the
+# keys aren't in the API's .env or anywhere in the checkout.
+EnvironmentFile=/etc/sattle/litestream.env
+ExecStart=/usr/local/bin/litestream replicate -config /home/ubuntu/sattle/apps/api/deploy/litestream.yml
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# The same sandbox as sattle.service. Litestream keeps its own files beside the database
+# (data/.sattle.db-litestream) and two small tables in it, so data/ is writable here too.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/sattle/apps/api/data
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Go, unlike Node, never needs memory that is writable and executable.
+MemoryDenyWriteExecute=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

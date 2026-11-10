@@ -16,9 +16,18 @@ import { fixtures, upiIdHasPhoneNumber } from '@sattle/core';
 
 export type Db = DatabaseSync;
 
+/** How long a write waits for a lock held by another process (see openDb). */
+export const BUSY_TIMEOUT_MS = 5000;
+
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
+  // When another process holds the write lock, wait up to 5 s for it instead of failing at once
+  // with "database is locked". In production, Litestream (README "Backups") takes that lock for a
+  // few milliseconds at a time, and without the wait a write landing then would fail. The wait
+  // blocks the event loop, since node:sqlite is synchronous, but only for as long as the lock is held.
+  // SQLite's own checkpoints stay on, although Litestream suggests turning them off under heavy
+  // writes: without Litestream running, as in development and tests, the WAL would then grow forever.
+  const db = new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS });
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   migrate(db);
   return db;
