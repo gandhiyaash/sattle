@@ -1,23 +1,19 @@
 /**
- * The bar at the bottom of Groups, Activity and Account: a capsule floating a
- * little above the bottom edge, an icon and a label for each tab, and a
- * highlight that slides to the one that's open. Deeper screens (a group, the
- * expense form, a page under Account) don't have it; back takes them out.
+ * The bar at the bottom of Groups, Activity and Account: an icon and a label for
+ * each tab. Deeper screens (a group, the expense form, a page under Account)
+ * don't have it; back takes them out.
  *
- *   iPhone    Apple's Liquid Glass (expo-glass-effect), where the phone has it
- *             (iOS 26 on), so what scrolls under the bar shows through it, as
- *             it does under the system's own tab bars. An older iPhone gets a
- *             translucent bar.
- *   Android   the same capsule, solid, with a soft shadow. Glass there would
- *   and web   be an imitation, so it isn't tried.
+ *   iPhone    A capsule floating a little above the bottom edge. Apple's
+ *             Liquid Glass (expo-glass-effect), where the phone has it (iOS 26
+ *             on), so what scrolls under the bar shows through it, as it does
+ *             under the system's own tab bars. An older iPhone gets a
+ *             translucent bar. A highlight slides to the open tab and the
+ *             icon bounces.
+ *   Android   A standard bottom navigation bar docked to the edge, solid,
+ *   and web   with a hairline top border. No highlight pill, no bounce.
  *
- * On a phone the highlight springs to the tab that's tapped and its icon
- * bounces; in a browser, or when the phone asks for less motion, it moves at
- * once.
- *
- * It floats over the screen rather than taking room from it, so a screen with
- * the bar is told the bar's height as its bottom inset (useTabBarSpace) and
- * keeps its last row clear of it.
+ * A screen with the bar is told the bar's space as its bottom inset
+ * (useTabBarSpace) and keeps its last row clear of it.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -65,10 +61,22 @@ const lift = (insetBottom: number) => Math.max(insetBottom - 8, space.md);
 
 /** What a screen under the bar leaves clear at its bottom, so nothing hides behind it. */
 export function useTabBarSpace(): number {
-  return lift(useSafeAreaInsets().bottom) + BAR_HEIGHT + space.sm;
+  const insets = useSafeAreaInsets();
+  if (IOS) {
+    return lift(insets.bottom) + BAR_HEIGHT + space.sm;
+  }
+  return BAR_HEIGHT + insets.bottom;
 }
 
-export function TabBar<K extends string>({
+export function TabBar<K extends string>(props: {
+  tabs: ReadonlyArray<TabItem<K>>;
+  current: K;
+  onSelect: (key: K) => void;
+}) {
+  return IOS ? <IosTabBar {...props} /> : <DockedTabBar {...props} />;
+}
+
+function IosTabBar<K extends string>({
   tabs,
   current,
   onSelect,
@@ -104,13 +112,13 @@ export function TabBar<K extends string>({
       pointerEvents="none"
       style={[
         s.highlight,
-        IOS ? { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(11,20,38,0.07)' } : s.highlightSolid,
+        { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(11,20,38,0.07)' },
         { width: slot, transform: [{ translateX: x }] },
       ]}
     />
   );
   const buttons = tabs.map((t, i) => (
-    <TabButton
+    <IosTabButton
       key={t.key}
       item={t}
       selected={i === at}
@@ -138,7 +146,7 @@ export function TabBar<K extends string>({
         </GlassView>
       ) : (
         <View
-          style={[s.bar, IOS ? (mode === 'dark' ? s.frostedDark : s.frostedLight) : s.solid]}
+          style={[s.bar, mode === 'dark' ? s.frostedDark : s.frostedLight]}
           onLayout={measure}
           accessibilityRole="tablist"
         >
@@ -150,7 +158,7 @@ export function TabBar<K extends string>({
   );
 }
 
-function TabButton<K extends string>({
+function IosTabButton<K extends string>({
   item,
   selected,
   reduce,
@@ -175,7 +183,7 @@ function TabButton<K extends string>({
   }, [selected, reduce, scale]);
   const press = (to: number) => MOVES && !reduce && Animated.spring(scale, { toValue: to, speed: 40, bounciness: 0, useNativeDriver: true }).start();
 
-  const ink = selected ? color.accent : IOS ? color.ink : color.inkMuted;
+  const ink = selected ? color.accent : color.ink;
   return (
     <Pressable
       onPress={onPress}
@@ -194,6 +202,84 @@ function TabButton<K extends string>({
         </Svg>
       </Animated.View>
       <Text style={[s.label, { color: ink }, selected && s.labelOn]} numberOfLines={1}>
+        {item.label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function DockedTabBar<K extends string>({
+  tabs,
+  current,
+  onSelect,
+}: {
+  tabs: ReadonlyArray<TabItem<K>>;
+  current: K;
+  onSelect: (key: K) => void;
+}) {
+  const s = useStyles();
+  const insets = useSafeAreaInsets();
+  const at = Math.max(0, tabs.findIndex((t) => t.key === current));
+
+  return (
+    <View
+      style={[
+        s.dockedBar,
+        {
+          height: BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+      accessibilityRole="tablist"
+    >
+      {tabs.map((t, i) => (
+        <DockedTabButton
+          key={t.key}
+          item={t}
+          selected={i === at}
+          onPress={() => {
+            analytics.tap(t.label, { control: 'tab' });
+            onSelect(t.key);
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function DockedTabButton<K extends string>({
+  item,
+  selected,
+  onPress,
+}: {
+  item: TabItem<K>;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const color = useColors();
+  const s = useStyles();
+  const ink = selected ? color.accent : color.inkMuted;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={s.dockedTab}
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      // A browser is told separately: react-native-web doesn't read accessibilityState.
+      aria-selected={selected}
+      accessibilityLabel={item.label}
+    >
+      <Svg width={25} height={25} viewBox="0 0 24 24" fill="none">
+        <Path
+          d={ICONS[item.icon]}
+          stroke={ink}
+          strokeWidth={selected ? 2.2 : 1.8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+      <Text style={[s.dockedLabel, { color: ink }, selected && s.dockedLabelOn]} numberOfLines={1}>
         {item.label}
       </Text>
     </Pressable>
@@ -230,18 +316,22 @@ const useStyles = makeStyles((color) => ({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
   },
-  solid: {
-    backgroundColor: color.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.line,
-    ...Platform.select({
-      android: { elevation: 10 },
-      default: { boxShadow: '0 8px 28px rgba(11,20,38,0.16)' },
-    }),
-  },
   highlight: { position: 'absolute', top: INSET, bottom: INSET, left: INSET, borderRadius: radius.pill },
-  highlightSolid: { backgroundColor: color.accentWash },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
   label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.1 },
   labelOn: { fontWeight: '700' },
+  // Docked bottom bar on Android and web: edge-to-edge, no capsule, no shadow.
+  dockedBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    backgroundColor: color.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.line,
+  },
+  dockedTab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  dockedLabel: { fontSize: 12, fontWeight: '600' },
+  dockedLabelOn: { fontWeight: '700' },
 }));
