@@ -9,8 +9,9 @@
  * 2. Where the user stands: owed, owing or square, and what the group has
  *    spent together next to their share of it.
  * 3. Who pays whom: every debt in the group, from groupDebts, so it is
- *    simplified into as few payments as there can be unless the group turned
- *    that off under Manage, the one place it's switched. The user's own rows act:
+ *    simplified into as few payments as there can be once the group turns
+ *    that on (it starts off), which is switched under Manage alone. Its line
+ *    says what simplifying would save. The user's own rows act:
  *    Pay on what they owe; Remind, a payment to confirm (by UPI, or marked as
  *    paid on the group's link), and Mark as settled on what they're owed.
  * 4. Activity: the expenses by day, each with what it meant for the user.
@@ -1734,13 +1735,10 @@ const useStyles = makeStyles((color) => ({
     borderColor: color.line,
     ...shadow,
   },
+  // The title alone, at the height it had beside the switch that used to be here.
   cardHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.md,
-    paddingLeft: space.lg,
-    paddingRight: space.md,
+    justifyContent: 'center',
+    paddingHorizontal: space.lg,
     minHeight: 52,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.line,
