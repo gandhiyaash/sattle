@@ -2,7 +2,9 @@
  * Activity: what's been spent, paid and changed across all the user's
  * groups, newest first, a day at a time (activityOf). Each line says which
  * group, who did it, and for money what it did for them: lent, borrowed,
- * paid or got. A line that didn't involve them shows its amount, quietly. A
+ * paid or got. One that was only theirs (they paid it, and all of it was their
+ * part) shows what it cost and says "just you", as the group does. A line that
+ * didn't involve them shows its amount, quietly. A
  * change to a group ("Om turned on Simplify debts") has no amount. Tapping
  * one opens its group.
  *
@@ -73,6 +75,12 @@ function Row({ item, onPress }: { item: ActivityItem; onPress: () => void }) {
       </View>
       {item.kind === 'change' ? null : mine === null ? (
         <Text style={s.quiet}>{formatAmount(item.amount, item.currency)}</Text>
+      ) : mine === 0 ? (
+        // Theirs alone: nothing lent or borrowed, so it says what it cost, in plain ink.
+        <View style={s.mine}>
+          <Text style={[s.amount, { color: color.ink }]}>{formatAmount(item.amount, item.currency)}</Text>
+          <Text style={s.effect}>just you</Text>
+        </View>
       ) : (
         <View style={s.mine}>
           <Text style={[s.amount, { color: mine > 0 ? color.owed : color.owe }]}>

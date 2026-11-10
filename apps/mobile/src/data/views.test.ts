@@ -105,6 +105,7 @@ describe('activityOf', () => {
             expense('Dinner', 'g-goa', 300, 'm-riya', ['m-riya', 'm-om', 'm-kabir'], '2026-11-02T10:00:00.000Z'),
             expense('Cab', 'g-goa', 200, 'm-om', ['m-riya', 'm-om'], '2026-11-02T11:00:00.000Z'),
             expense('Beer', 'g-goa', 100, 'm-om', ['m-om', 'm-kabir'], '2026-11-02T12:00:00.000Z'),
+            expense('Coffee', 'g-goa', 150, 'm-riya', ['m-riya'], '2026-11-02T13:00:00.000Z'),
           ],
           [
             settlement('s1', 'g-goa', 'm-riya', 'm-om', 100, '2026-11-03T10:00:00.000Z'),
@@ -118,6 +119,7 @@ describe('activityOf', () => {
     expect(by('Dinner')).toMatchObject({ kind: 'expense', detail: 'You paid', mine: 200 });
     expect(by('Cab')).toMatchObject({ detail: 'Om paid', mine: -100 });
     expect(by('Beer').mine).toBeNull();
+    expect(by('Coffee')).toMatchObject({ amount: 150, mine: 0 });
     expect(by('You paid Om')).toMatchObject({ kind: 'payment', detail: 'UPI', mine: -100 });
     expect(by('Kabir settled with you')).toMatchObject({ detail: 'Marked as settled', mine: 100 });
     expect(by('Kabir paid Om').mine).toBeNull();
