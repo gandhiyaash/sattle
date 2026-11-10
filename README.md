@@ -174,8 +174,8 @@ apps/mobile/                 @sattle/mobile: Expo
       RestoreScreen.tsx      The /restore page: a group rebuilt from its backup key, straight off the relays.
       GroupsListScreen.tsx   Entry screen. Net position across all groups.
       NewGroupScreen.tsx     A group's name on its own cover, and the people in it. Opens on the link to share.
-      SimplifyDebts.tsx      The Simplify debts switch, on New group and under Manage.
-      GroupDetailScreen.tsx  The group's cover, where you stand, who pays whom (with Simplify debts), the activity by day; Add people and Remind sheets.
+      SimplifyDebts.tsx      The Simplify debts switch, under Manage.
+      GroupDetailScreen.tsx  The group's cover, where you stand, who pays whom, the activity by day; Add people and Remind sheets.
       HistoryScreen.tsx      Everything added, changed, removed and settled, and the sheet one entry opens in.
       AddExpenseScreen.tsx   Amount first, a live split preview, and split equally, by amount, parts, percent or item.
       Coachmarks.tsx         A tip over the screen: the dim with a spotlight cut out, an arrow drawn to it, and Skip, Back and Next.
@@ -479,7 +479,7 @@ An edited or deleted expense can't be changed on Nostr, where entries are perman
 
 ### Simplifying debts
 
-A group can simplify its debts, as Splitwise does (`Group.simplifyDebts`). It starts off: the app sends `false` when it makes a group, so debts first read the way they were spent. Anyone in it can turn it on or off with the **Simplify debts** switch beside who pays whom on the group screen, or under **Manage**. Everyone's balance is the same either way; what changes is who pays whom.
+A group can simplify its debts, as Splitwise does (`Group.simplifyDebts`). It starts off: the app sends `false` when it makes a group, so debts first read the way they were spent. Anyone in it can turn it on or off with the **Simplify debts** switch under **Manage** (⋯ on the group's cover), the one place it's switched; the group screen says how many payments it would save. Everyone's balance is the same either way; what changes is who pays whom.
 
 - **On**: debts are combined into as few payments as there can be (`simplifyDebts`). If Aman owes Priya and Priya owes Om the same, Aman pays Om and Priya is done. Someone can end up paying a person they never split with.
 - **Off**: everyone pays back whoever paid for them (`directDebts`). Only what two people owe each other cancels out.
