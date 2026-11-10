@@ -26,14 +26,19 @@ jobs:
           # The commit the run started on, which in a publish is the one the app was
           # built from, not whatever main has moved on to in the 30 minutes since.
           SHA: ${{ github.sha }}
+          # Where this repo lives now (it moved from gandhiyaash/sattle to sattle-tech/sattle).
+          REPO: ${{ github.repository }}
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ${{ secrets.ORACLE_VM_USER }}
           key: ${{ secrets.ORACLE_VM_SSH_KEY }}
-          envs: SHA
+          envs: SHA,REPO
           script: |
             set -e
             cd ~/sattle
+            # Fetch from the repo this run belongs to, so the server never depends on
+            # GitHub's redirect from an old address, which ends once that name is reused.
+            git remote set-url origin "https://github.com/$REPO"
             git fetch origin main
             # Fast-forward to that commit. If a later deploy already went past
             # it, this is a no-op rather than a step back.

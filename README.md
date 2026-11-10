@@ -2,7 +2,7 @@
 
 Split expenses with friends and settle up over Bitcoin Lightning or UPI. Nobody else needs to install anything.
 
-Try it at [sattle.tech](https://sattle.tech). The Android build is attached to each [GitHub release](https://github.com/gandhiyaash/sattle/releases/latest).
+Try it at [sattle.tech](https://sattle.tech). The Android build is attached to each [GitHub release](https://github.com/sattle-tech/sattle/releases/latest).
 
 Watch the [1:43 demo video](docs/demo/sattle-demo.mp4): one person with the app, a friend paying from a plain browser, and the group rebuilt from Nostr. It was recorded on a local server, so the payment in it is simulated.
 
@@ -13,7 +13,7 @@ A monorepo: an Expo (React Native) app for Android and web (iOS builds from the 
 Requires Node 24+. The API uses the built-in `node:sqlite` and, for Nostr relays, the built-in `WebSocket`. On Node 22 that `WebSocket` reports an error again when a failing connection is closed, which sends `nostr-tools` into a loop that overflows the stack and takes the whole server down whenever a relay refuses a connection. CI runs on 24.
 
 ```bash
-git clone https://github.com/gandhiyaash/sattle.git
+git clone https://github.com/sattle-tech/sattle.git
 cd sattle
 npm install
 cp apps/mobile/.env.example apps/mobile/.env

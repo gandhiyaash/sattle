@@ -68,7 +68,7 @@ The cost is that teenagers can't find it, and they aren't meant to use it.
 >
 > No email or phone number: an account is just a name. Sign in on another phone with your sign-in key, or with a Nostr key.
 >
-> Sattle is open source: github.com/gandhiyaash/sattle
+> Sattle is open source: github.com/sattle-tech/sattle
 
 **Keywords** (100 characters at most, no spaces after commas, no other apps' names):
 
