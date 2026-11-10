@@ -7,6 +7,7 @@
 
 import {
   addExpense,
+  ancestor,
   back,
   button,
   closeSplit,
@@ -63,6 +64,8 @@ test.describe('Split equally', () => {
     await expect(paidLine(page, 'You', '₹99')).toBeVisible();
     await expect(page.getByText('all for Yash', { exact: true })).toBeVisible();
     await expect(page.getByText('just you', { exact: true })).toBeVisible();
+    // Beside it, what it cost: nothing was lent, but the line still says how much.
+    await expect(ancestor(page.getByText('just you', { exact: true }), 1).getByText('₹99', { exact: true })).toBeVisible();
     // Paid for yourself alone: nobody owes anyone.
     await expect(page.getByText('All square', { exact: true })).toBeVisible();
     await expect(page.getByText('Everyone’s square. Nothing to pay.', { exact: true })).toBeVisible();

@@ -131,7 +131,8 @@ const useStyles = makeStyles((color) => ({
   change: { fontWeight: '400', color: color.inkMuted },
   meta: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   mine: { alignItems: 'flex-end' },
-  amount: { ...type.amountMd },
+  // What it came to is what the line is for, so it's set bold, the way the group's list sets it.
+  amount: { ...type.amountMd, fontWeight: '700' },
   effect: { ...type.caption, color: color.inkFaint, marginTop: 1 },
   quiet: { ...type.amountSm, color: color.inkFaint },
 }));

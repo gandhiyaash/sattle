@@ -763,10 +763,11 @@ function Activity({
               const mine = expense.parts.find((p) => p.memberId === myMemberId)?.amount ?? 0;
               const paidByMe = expense.paidByMemberId === myMemberId;
               const lent = paidByMe ? expense.amount - mine : 0;
+              // Each side says what it came to for the user; one that was theirs alone says what it cost.
               const side = paidByMe
                 ? lent > 0
                   ? { label: 'you lent', amount: lent, tone: color.owed }
-                  : { label: 'just you', amount: null, tone: color.inkMuted }
+                  : { label: 'just you', amount: expense.amount, tone: color.ink }
                 : mine > 0
                   ? { label: 'you borrowed', amount: mine, tone: color.owe }
                   : { label: 'not in this', amount: null, tone: color.inkMuted };
