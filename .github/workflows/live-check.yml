@@ -84,8 +84,10 @@ jobs:
           TEXT: ${{ steps.report.outputs.text }}
         run: |
           jq -n --arg text "$TEXT" '{text: $text}' > body.json
+          # Cloudflare in front of the relay answers curl's own user agent from GitHub's runners with a
+          # "Just a moment" challenge (403); a named client passes. Its token is still what lets it in.
           for attempt in 1 2 3; do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$NOTIFY_URL" \
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -A 'sattle-live-check' -X POST "$NOTIFY_URL" \
               -H "Authorization: Bearer $NOTIFY_TOKEN" -H 'Content-Type: application/json' --data @body.json || echo 000)
             [ "$code" = 200 ] && exit 0
             echo "WhatsApp relay answered $code (attempt $attempt)"
