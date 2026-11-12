@@ -70,8 +70,9 @@ export interface ActivityItem {
   amount: number;
   /**
    * What it did for the user, signed as a balance is: more than 0 they're owed
-   * it, or it came to them; less than 0 they owe it, or they paid it. Null
-   * when they weren't in it, and for a change.
+   * it, or it came to them; less than 0 they owe it, or they paid it. 0 for
+   * an expense that was only theirs: they paid it and all of it was their
+   * part. Null when they weren't in it, and for a change.
    */
   mine: number | null;
 }

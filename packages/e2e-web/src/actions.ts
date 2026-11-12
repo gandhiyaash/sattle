@@ -90,11 +90,19 @@ export async function accountPage(page: Page, row: AccountRow) {
 /**
  * Add people, from the cover of the group screen: the sheet with people
  * waiting to join, the group's link, adding someone by name, and everyone
- * in the group with where they stand. Resolves with the sheet up.
+ * in the group with where they stand. Resolves with the sheet up and its
+ * link on it.
+ *
+ * The sheet makes the group's link if there's none, and a link made after
+ * another replaces it. So it waits for the sheet's own link: a test that
+ * goes on to fetch-or-make the link through the API (joinAs) then gets this
+ * one, instead of making its own at the same moment and having one of the
+ * two killed by the other.
  */
 export async function openPeople(page: Page) {
   await page.getByRole('button', { name: /^Add people/ }).click();
   await expect(page.getByText('Share the group link', { exact: true })).toBeVisible();
+  await expect(page.getByText(/\/g\/[A-Za-z0-9_-]+$/)).toBeVisible();
 }
 
 /**
