@@ -9,8 +9,9 @@
  * 2. Where the user stands: owed, owing or square, and what the group has
  *    spent together next to their share of it.
  * 3. Who pays whom: every debt in the group, from groupDebts, so it is
- *    simplified into as few payments as there can be unless the group turned
- *    that off, and the switch for it is right there. The user's own rows act:
+ *    simplified into as few payments as there can be once the group turns
+ *    that on (it starts off), which is switched under Manage alone. Its line
+ *    says what simplifying would save. The user's own rows act:
  *    Pay on what they owe; Remind, a payment to confirm (by UPI, or marked as
  *    paid on the group's link), and Mark as settled on what they're owed.
  * 4. Activity: the expenses by day, each with what it meant for the user.
@@ -32,7 +33,7 @@
  */
 
 import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -147,7 +148,6 @@ export function GroupDetailScreen({
   const color = useColors();
   const s = useStyles();
   const client = useClient();
-  const keys = useActionKeys();
   const mode = usePaymentMode();
   const prefs = useCurrencyPrefs();
   const insets = useSafeAreaInsets();
@@ -155,12 +155,8 @@ export function GroupDetailScreen({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => (sharing ? onShared?.() : undefined), []);
   const [toast, showToast] = useToast();
-  const [simplifying, setSimplifying] = useState(false);
   // Its own header, so it says itself what Android's back button and the browser's do.
   useBack(onBack);
-  // The switch shows what the server answered, held here until the group is read again: going by
-  // the last read alone, it would flick back between the answer and that read, and take a second tap.
-  const [simplifyOn, setSimplifyOn] = useState<boolean | null>(null);
 
   // Drawn from what the app already has (AppData): the group is up the moment it's tapped, and
   // the server is asked behind it. A payment can land while this is open (a guest paying a link,
@@ -193,8 +189,6 @@ export function GroupDetailScreen({
   }, [sending, showToast]);
   const refresh = useCallback(() => void appData.sync([groupId]), [appData, groupId]);
   const ways = usePayWays(data?.currency);
-  // Someone else in the group can change it too: whatever is read next is what it is.
-  useEffect(() => setSimplifyOn(null), [data?.simplifyDebts]);
 
   // History opens on what was read here: asked for a moment after the group is up, and again
   // only once what was read is a minute old. It's the one thing a group's screens show that the
@@ -252,22 +246,6 @@ export function GroupDetailScreen({
   const people = [...data.members].sort((a, b) => Number(b.id === data.myMemberId) - Number(a.id === data.myMemberId));
   const memberLine = people.map((m) => (m.id === data.myMemberId ? 'You' : m.displayName)).join(', ');
 
-  const simplify = async (next: boolean) => {
-    setSimplifying(true);
-    setSimplifyOn(next);
-    try {
-      const group = await keys.run('simplify-debts', { groupId, on: next }, (k) => client.setSimplifyDebts(groupId, next, k));
-      setSimplifyOn(group.simplifyDebts);
-      appData.known((v) => withGroup(v, groupId, (g) => ({ ...g, group: { ...g.group, simplifyDebts: group.simplifyDebts } })), groupId);
-      refresh();
-    } catch (e) {
-      setSimplifyOn(null);
-      showToast(e instanceof Error ? e.message : 'Couldn’t change that. Try again.');
-    } finally {
-      setSimplifying(false);
-    }
-  };
-
   const simple = data.simplifyDebts ? data.debts : data.otherDebts;
   const direct = data.simplifyDebts ? data.otherDebts : data.debts;
   const promise = data.simplifyDebts
@@ -275,7 +253,7 @@ export function GroupDetailScreen({
       ? `Simplified: everyone still pays or gets back exactly the same total, in ${count(simple.length, 'payment')} instead of ${direct.length}.`
       : 'Simplified: everyone pays or gets back exactly the same total, in as few payments as there can be.'
     : simple.length < direct.length
-      ? `Every debt as it was spent: ${count(direct.length, 'payment')}. Turn on Simplify debts to settle in ${simple.length}.`
+      ? `Every debt as it was spent: ${count(direct.length, 'payment')}. Turn on Simplify debts under Manage to settle in ${simple.length}.`
       : `Every debt as it was spent: ${count(direct.length, 'payment')}.`;
 
   return (
@@ -327,21 +305,6 @@ export function GroupDetailScreen({
             <View style={s.card}>
               <View style={s.cardHead}>
                 <Text style={s.cardTitle}>Who pays whom</Text>
-                <View style={s.switchWrap}>
-                  <Text style={s.switchLabel}>Simplify debts</Text>
-                  <Switch
-                    value={simplifyOn ?? data.simplifyDebts}
-                    onValueChange={(next) => {
-                      analytics.tap('Simplify debts', { control: 'switch', on: next });
-                      void simplify(next);
-                    }}
-                    disabled={simplifying}
-                    accessibilityLabel="Simplify debts"
-                    trackColor={{ false: color.lineStrong, true: color.accent }}
-                    thumbColor={color.surface}
-                    ios_backgroundColor={color.lineStrong}
-                  />
-                </View>
               </View>
               {data.debts.length === 0 ? (
                 <View style={s.squareLine}>
@@ -1773,20 +1736,15 @@ const useStyles = makeStyles((color) => ({
     borderColor: color.line,
     ...shadow,
   },
+  // The title alone, at the height it had beside the switch that used to be here.
   cardHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.md,
-    paddingLeft: space.lg,
-    paddingRight: space.md,
+    justifyContent: 'center',
+    paddingHorizontal: space.lg,
     minHeight: 52,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.line,
   },
   cardTitle: { fontSize: 15, fontWeight: '600', color: color.ink },
-  switchWrap: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  switchLabel: { fontSize: 13, color: color.ink },
   squareLine: { paddingHorizontal: space.lg, paddingVertical: space.md },
   squareText: { ...type.body, color: color.inkMuted },
   cardFoot: { paddingHorizontal: space.lg, paddingTop: space.sm + 2, paddingBottom: space.xs, gap: 2 },
