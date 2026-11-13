@@ -534,7 +534,14 @@ The server's config lives in `~/sattle/apps/api/.env` on the VM, not in git. For
 
 ### Backups
 
-The whole database is one SQLite file, `apps/api/data/sattle.db`. `npm run db:backup -w @sattle/api` copies it into `apps/api/data/backups/` with `VACUUM INTO`, which gives a consistent copy while the server keeps running and writing. Copies are named `sattle-<time>-<kind>[-<note>].db`, and each kind keeps its newest few: 14 `daily`, 20 `deploy`, 10 `manual`. A server with no database yet has nothing to copy, and that isn't an error.
+The whole database is one SQLite file, `apps/api/data/sattle.db`, and it is kept two ways, for two kinds of loss:
+
+- **Off the VM, as it changes.** Litestream sends every change to a bucket in Cloudflare R2 within about ten seconds, so losing the VM loses at most those seconds. The bucket can give back the database as it was at any time in the last week. See [Off the VM](#off-the-vm).
+- **On the VM, as copies.** For a bad migration or a mistaken delete, put back in seconds and without the network. See [Copies on the VM](#copies-on-the-vm).
+
+#### Copies on the VM
+
+`npm run db:backup -w @sattle/api` copies the database into `apps/api/data/backups/` with `VACUUM INTO`, which gives a consistent copy while the server keeps running and writing. Copies are named `sattle-<time>-<kind>[-<note>].db`, and each kind keeps its newest few: 14 `daily`, 20 `deploy`, 10 `manual`. A server with no database yet has nothing to copy, and that isn't an error.
 
 Daily copies come from a systemd timer, `apps/api/deploy/sattle-backup.{service,timer}`, installed once on the VM:
 
@@ -546,16 +553,58 @@ systemctl list-timers sattle-backup.timer    # next run
 
 Every deploy takes a `deploy` copy, named for the commit going out, just before it restarts the server, because that's when migrations run and they can't be undone. If the copy fails, the deploy stops there and the running server is left alone. To keep one past the last 20 deploys, take it by hand: `npm run db:backup -w @sattle/api -- manual before-<what>`.
 
-To restore one, stop the server, put the copy in place and drop the old WAL files:
+To restore one, stop the server and Litestream, put the copy in place, drop the old WAL files and clear Litestream's record of how far it had got. Started again, Litestream sees the database is behind the bucket and uploads a full copy of it, which becomes the bucket's newest state. The check at the end confirms that.
 
 ```sh
-sudo systemctl stop sattle
+sudo systemctl stop sattle sattle-litestream
 cd ~/sattle/apps/api
 cp data/backups/<file>.db data/sattle.db && rm -f data/sattle.db-wal data/sattle.db-shm
-sudo systemctl start sattle
+deploy/litestream.sh reset /home/ubuntu/sattle/apps/api/data/sattle.db
+sudo systemctl start sattle sattle-litestream
+deploy/litestream.sh check
 ```
 
-The copies sit on the same disk as the database, so they cover a bad migration or a mistaken delete, not losing the VM. For that, copy `data/backups/` somewhere else too.
+These copies sit on the same disk as the database, so they don't survive losing the VM. The bucket does.
+
+#### Off the VM
+
+Litestream runs beside the server as `sattle-litestream.service`, set up by `apps/api/deploy/litestream.yml`. It reads the database's WAL and uploads what changed, gathered every 10 seconds, plus a full copy daily; both are kept a week. A crash of the VM loses at most the last ten seconds or so, and a clean shutdown loses nothing, since Litestream sends what it has before it stops. It adds two tables of its own to the database, `_litestream_seq` and `_litestream_lock`, and takes the write lock for a few milliseconds at a time, so the server waits up to 5 seconds for that lock rather than failing (`BUSY_TIMEOUT_MS` in `db.ts`).
+
+**Why R2.** Cloudflare already fronts both sites and terminates their TLS, so it already sees what crosses them, sign-in tokens and NWC connection strings included. The database holds those in the clear. A bucket at Cloudflare adds nobody new who could read them; one at Backblaze or AWS would. R2's free tier (10 GB, a million uploads a month) covers this with room to spare, and downloads are free, so a restore costs nothing. Any S3-compatible bucket works by changing the three `BACKUP_S3_*` values. Keep the bucket private: no public access and no custom domain.
+
+**Setting it up**, once. In the Cloudflare dashboard, under R2, create a bucket named `sattle-backups`. Cloudflare may ask for a payment method before the first bucket, even within the free tier. Then, under **Manage API tokens**, create a token with **Object Read & Write** on that bucket alone. Optionally, make a check at [healthchecks.io](https://healthchecks.io) with a 5-minute period and a 30-minute grace time, so an email says when backups stop. Then on the VM:
+
+```sh
+# Litestream itself, pinned and checked against the release's checksums. The VM is arm64.
+V=0.5.18; cd /tmp
+curl -fsSLO https://github.com/benbjohnson/litestream/releases/download/v$V/litestream-$V-linux-arm64.tar.gz
+curl -fsSLO https://github.com/benbjohnson/litestream/releases/download/v$V/checksums.txt
+grep " litestream-$V-linux-arm64.tar.gz\$" checksums.txt | sha256sum -c -
+tar -xzf litestream-$V-linux-arm64.tar.gz litestream && sudo install -m 755 litestream /usr/local/bin/
+litestream version
+
+# The bucket and its keys, root's alone. Fill in the values from the dashboard.
+sudo install -d -m 700 /etc/sattle
+sudo install -m 600 ~/sattle/apps/api/deploy/litestream.env.example /etc/sattle/litestream.env
+sudoedit /etc/sattle/litestream.env
+
+sudo cp ~/sattle/apps/api/deploy/sattle-litestream.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sattle-litestream
+journalctl -u sattle-litestream -n 20
+~/sattle/apps/api/deploy/litestream.sh check
+```
+
+**Checking it.** `apps/api/deploy/litestream.sh check` restores the bucket's newest state into `/tmp`, runs SQLite's integrity check on it, and counts the main tables beside the live database's. That is what a restore after losing the VM would give. Run it after setting up, after a restore, and every so often. The same script runs any other Litestream command with the service's keys and config, such as `status` or `ltx`, and `journalctl -u sattle-litestream` has the log.
+
+**After losing the VM.** On the new one, set up the checkout, `.env` and the units as before, but don't start `sattle` yet. It would make an empty database, and Litestream would upload that as the newest state. Install Litestream and its env file as above (make a new R2 token if the old one is gone; nothing from the old VM is needed), then:
+
+```sh
+mkdir -p -m 700 ~/sattle/apps/api/data
+~/sattle/apps/api/deploy/litestream.sh restore /home/ubuntu/sattle/apps/api/data/sattle.db
+sudo systemctl start sattle sattle-litestream
+```
+
+To go back to a moment instead of the newest state, add `-timestamp 2026-11-11T09:00:00Z` before the path. If an empty database did get uploaded, the week before it is still in the bucket: restore from a time before it.
 
 ### Publishing a release
 
