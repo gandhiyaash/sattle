@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Linking, Platform, View } from 'react-native';
+import { NavigationBar } from 'expo-navigation-bar';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
@@ -64,6 +65,13 @@ export default function App() {
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {/* Dark icons on the light theme, light ones on the dark. */}
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {/*
+        Android's Back, Home and Recents buttons, the same way. They follow the app's Appearance,
+        not the phone's theme at launch, and sit straight on the app (app.json turns off Android's
+        see-through band behind them), so under the tab bar they're on the bar's own colour.
+        Gesture navigation has no buttons to colour. iPhone and web: nothing.
+      */}
+      <NavigationBar style={mode === 'dark' ? 'light' : 'dark'} />
       {/* A phone's column in the middle of anything wider (layout.maxWidth). */}
       <View style={{ flex: 1, backgroundColor: color.paper }}>
         <View style={{ flex: 1, width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center' }}>

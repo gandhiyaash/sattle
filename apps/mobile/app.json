@@ -48,7 +48,8 @@
       "./plugins/withAndroidReleaseSigning",
       "./plugins/withIosSceneLifecycle",
       "./plugins/withIosReleaseSigning",
-      ["expo-secure-store", { "faceIDPermission": false }]
+      ["expo-secure-store", { "faceIDPermission": false }],
+      ["expo-navigation-bar", { "enforceContrast": false }]
     ]
   }
 }
